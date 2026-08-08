@@ -1,0 +1,48 @@
+[project]
+name = "csr-bench"
+version = "0.1.0"
+description = "CSR-Bench — deterministic home-services business simulation engine"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "CSR-Bench" }]
+# Zero runtime dependencies: stdlib only (hashlib, sqlite3, json, decimal,
+# zoneinfo, uuid). Deterministic everything; no third-party RNG / money libs.
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/csr_bench"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    "error",
+    # zoneinfo may emit an un-pytz deprecation-free path; ignore none here.
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4"]
+ignore = [
+    "E501",   # line length is checked by formatter
+    "B008",   # function-call defaults (used for guarded inits)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # assert False / assertTrue-identity acceptable in tests
