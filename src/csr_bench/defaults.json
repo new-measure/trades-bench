@@ -1,0 +1,47 @@
+{
+  "config_version": "1.0.0",
+  "keys": {
+    "constants.block_grid": [
+      [420, 540],
+      [540, 660],
+      [660, 780],
+      [780, 900],
+      [900, 1020],
+      [1020, 1140]
+    ],
+    "constants.call_window_end_min": 1140,
+    "constants.call_window_start_min": 420,
+    "constants.grace_minutes": 10,
+    "constants.install_blocks": 2,
+    "constants.install_max_start_min": 780,
+    "constants.office_block_count": 5,
+    "constants.opening_hour": 6,
+    "constants.opening_minute": 45,
+    "constants.run_end": "2027-09-30",
+    "constants.run_start": "2026-10-01",
+    "constants.sickness_days_max": 3,
+    "constants.sickness_days_min": 1,
+    "constants.starting_technicians": 4,
+    "constants.timezone": "America/Phoenix",
+    "constants.timing_variation_max": 15,
+    "constants.timing_variation_min": -15,
+    "constants.timing_variation_mode": 0,
+    "constants.unanswered_attempts": 3,
+    "constants.warm_start_end": "2026-09-30",
+    "constants.warm_start_start": "2026-04-01",
+    "constants.weekday_pay_multiplier": 10,
+    "constants.zone_count": 10,
+    "constants.zone_names": [
+      "Central Phoenix",
+      "North Phoenix",
+      "Scottsdale",
+      "Tempe",
+      "Mesa",
+      "Chandler",
+      "Gilbert",
+      "Glendale",
+      "Peoria",
+      "West Valley/Goodyear"
+    ]
+  }
+}
