@@ -55,16 +55,23 @@ EVENT_KIND = EventKind.CONTRACT_TEST_EVENT.value
 #: (kind, amount_cents). "settle" amounts may be negative (unavoidable debit,
 #: e.g. payroll) or positive (e.g. daily revenue) — either can be drawn.
 _actions = st.one_of(
-    st.tuples(st.just("revenue"), st.integers(min_value=0, max_value=10_000)),
-    st.tuples(st.just("spend"), st.integers(min_value=0, max_value=60_000)),
-    st.tuples(st.just("settle"), st.integers(min_value=-30_000, max_value=10_000)),
+    # revenue is strictly positive under the spec-02 sign rules (a zero-cent
+    # credit is neither sign), so the strategy never draws 0 for it.
+    st.tuples(st.just("revenue"), st.integers(min_value=1, max_value=10_000)),
+    st.tuples(st.just("spend"), st.integers(min_value=1, max_value=60_000)),
+    # A zero settle has no legal entry type under the spec-02 sign rules
+    # (revenue is strictly positive, operating_overhead strictly negative), so
+    # the strategy never draws it.
+    st.tuples(
+        st.just("settle"), st.integers(min_value=-30_000, max_value=10_000).filter(lambda n: n != 0)
+    ),
 )
 
 
 def _revenue_fn(amount_cents: int):
     def fn(ctx):
         ctx.services.ledger.post(
-            [LedgerEntry(amount_cents, LedgerCategory.CONTRACT_TEST_CREDIT, ctx.now_ms)]
+            [LedgerEntry(LedgerCategory.REVENUE, amount_cents, ctx.now_ms)]
         )
         return {"amount_cents": amount_cents}
 
@@ -86,7 +93,7 @@ def _spend_fn(amount_cents: int, step: int):
             outcome_id=f"spend:{step}",
         )
         ctx.services.ledger.post(
-            [LedgerEntry(-amount_cents, LedgerCategory.CONTRACT_TEST_DEBIT, ctx.now_ms)]
+            [LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -amount_cents, ctx.now_ms)]
         )
         return {"amount_cents": amount_cents}
 
@@ -96,11 +103,11 @@ def _spend_fn(amount_cents: int, step: int):
 def _settle_fn(delta_cents: int):
     def fn(ctx):
         category = (
-            LedgerCategory.CONTRACT_TEST_CREDIT
+            LedgerCategory.REVENUE
             if delta_cents >= 0
-            else LedgerCategory.CONTRACT_TEST_DEBIT
+            else LedgerCategory.OPERATING_OVERHEAD
         )
-        ctx.services.ledger.post([LedgerEntry(delta_cents, category, ctx.now_ms)])
+        ctx.services.ledger.post([LedgerEntry(category, delta_cents, ctx.now_ms)])
         return {"delta_cents": delta_cents}
 
     return fn
@@ -108,7 +115,7 @@ def _settle_fn(delta_cents: int):
 
 def _open_balance_fn(ctx):
     ctx.services.ledger.post(
-        [LedgerEntry(OPENING_CASH_CENTS, LedgerCategory.OPENING_BALANCE_ADJUSTMENT, 0)]
+        [LedgerEntry(LedgerCategory.OPENING_BALANCE_ADJUSTMENT, OPENING_CASH_CENTS, 0)]
     )
     return {"opened": True}
 
@@ -129,7 +136,7 @@ def test_money_integrity_over_arbitrary_committed_sequences(actions):
 
     for step, (kind, amount) in enumerate(actions):
         pre_rows = ledger.entry_count()
-        pre_audit = audit_count(conn, rid)
+        pre_audit = audit_count(conn)
 
         if kind == "revenue":
             resp = command(services, f"step:{step}", _revenue_fn(amount))
@@ -144,7 +151,7 @@ def test_money_integrity_over_arbitrary_committed_sequences(actions):
             assert body["ok"] is False
             assert body["error"]["code"] == "invalid_run_status"
             assert ledger.entry_count() == pre_rows
-            assert audit_count(conn, rid) == pre_audit
+            assert audit_count(conn) == pre_audit
             continue
 
         if kind == "spend" and amount > int(expected):
@@ -152,7 +159,7 @@ def test_money_integrity_over_arbitrary_committed_sequences(actions):
             assert body["ok"] is False
             assert body["error"]["code"] == "insufficient_cash"
             assert ledger.entry_count() == pre_rows
-            assert audit_count(conn, rid) == pre_audit
+            assert audit_count(conn) == pre_audit
             continue
 
         assert body["ok"] is True, body
@@ -167,7 +174,7 @@ def test_money_integrity_over_arbitrary_committed_sequences(actions):
             # A successful spend draws exactly once (_spend_fn) — the audit
             # count must actually increase, so the pre==post checks on the
             # rejection paths above are not vacuously true.
-            assert audit_count(conn, rid) == pre_audit + 1
+            assert audit_count(conn) == pre_audit + 1
 
         if int(expected) < 0:
             model_bankrupt = True
@@ -177,6 +184,6 @@ def test_money_integrity_over_arbitrary_committed_sequences(actions):
     assert ledger.cash_balance_money() == expected
 
     # (c) terminal status matches the model.
-    row = conn.execute("SELECT status FROM run WHERE run_id=?", (rid,)).fetchone()
+    row = conn.execute("SELECT status FROM _run").fetchone()
     expected_status = RunStatus.BANKRUPT if model_bankrupt else RunStatus.ACTIVE
     assert row["status"] == expected_status.value

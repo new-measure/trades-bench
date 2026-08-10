@@ -19,6 +19,7 @@ that already import the clock keep a stable surface.
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import date, datetime
 from enum import IntEnum
 from zoneinfo import ZoneInfo
@@ -31,6 +32,7 @@ from .constants import (
     OPENING_HOUR,
     OPENING_MINUTE,
 )
+from .errors import EngineError, ErrorCode
 
 #: The run calendar timezone (00-decisions §Daily interaction loop / §Warm start).
 PHOENIX_TZ = ZoneInfo("America/Phoenix")
@@ -104,6 +106,83 @@ def to_iso8601(ts_epoch_ms: int) -> str:
     return dt.isoformat(timespec="seconds")
 
 
+def service_date_for_ms(ts_epoch_ms: int) -> str:
+    """The Phoenix local ``YYYY-MM-DD`` service date of a timestamp.
+
+    Calendar grouping is Phoenix-local (spec 01 §Canonical primitive types:
+    timestamps are stored as UTC epoch milliseconds *plus* the Phoenix local
+    date wherever calendar grouping is required), so the date is computed from
+    the local wall clock, never from UTC.
+    """
+    return phoenix_local(ts_epoch_ms).date().isoformat()
+
+
+# --- DB-backed current time (CSR-002 decision 3) ----------------------------
+# `_clock(singleton, current_time_ms, service_date)` is the single time source:
+# `_run` keeps only its immutable boundary fields. These helpers read/write the
+# clock row; the in-memory Clock class below remains the orchestrator's per-day
+# object and is untouched.
+
+
+def now(conn: sqlite3.Connection) -> int:
+    """The run's current simulated time, as UTC epoch milliseconds."""
+    row = conn.execute(
+        "SELECT current_time_ms FROM _clock WHERE singleton = 1"
+    ).fetchone()
+    if row is None:
+        raise EngineError(
+            ErrorCode.ENTITY_NOT_FOUND,
+            "clock singleton row not found — insert_run seeds it at run creation",
+        )
+    return int(row["current_time_ms"])
+
+
+def now_service_date(conn: sqlite3.Connection) -> str:
+    """The run's current Phoenix-local ``YYYY-MM-DD`` service date."""
+    row = conn.execute(
+        "SELECT service_date FROM _clock WHERE singleton = 1"
+    ).fetchone()
+    if row is None:
+        raise EngineError(
+            ErrorCode.ENTITY_NOT_FOUND,
+            "clock singleton row not found — insert_run seeds it at run creation",
+        )
+    return str(row["service_date"])
+
+
+def advance(conn: sqlite3.Connection, millis: int, service_date: str | None = None) -> None:
+    """Advance the clock row to ``millis``; time never decreases.
+
+    ``service_date`` is stored alongside the timestamp (spec 01: UTC epoch
+    milliseconds *plus* the Phoenix local date); when omitted it is derived
+    from ``millis`` via :func:`service_date_for_ms`.
+
+    The update happens inside the caller's open transaction — guarded like
+    every write helper in ``db.py``, so a rollback discards the time change —
+    and refuses to move backwards (spec 01 invariants #3, mirroring
+    :meth:`Clock.advance_to`'s monotonicity) with a structured error rather
+    than an assertion.
+    """
+    if not conn.in_transaction:
+        raise EngineError(
+            ErrorCode.DRAW_OUTSIDE_TXN,
+            "clock.advance is callable only inside an open transaction",
+        )
+    current = now(conn)
+    millis = int(millis)
+    if millis < current:
+        raise EngineError(
+            ErrorCode.STATE_ILLEGAL,
+            f"clock must not go backwards: {millis} < {current}",
+        )
+    if service_date is None:
+        service_date = service_date_for_ms(millis)
+    conn.execute(
+        "UPDATE _clock SET current_time_ms = ?, service_date = ? WHERE singleton = 1",
+        (millis, service_date),
+    )
+
+
 class Clock:
     """The simulated engine clock, advanced only by the orchestrator path.
 
@@ -169,7 +248,11 @@ __all__ = [
     "OPENING_HOUR",
     "OPENING_MINUTE",
     "PHOENIX_TZ",
+    "advance",
+    "now",
+    "now_service_date",
     "phoenix_instant",
     "phoenix_local",
+    "service_date_for_ms",
     "to_iso8601",
 ]

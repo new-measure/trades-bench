@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 
 from _helpers import make_services
+from csr_bench import clock
 from csr_bench.enums import EventKind, InvocationType, LedgerCategory
 from csr_bench.errors import EngineError, ErrorCode
 from csr_bench.ledger import LedgerEntry
@@ -34,7 +35,7 @@ def test_open_second_invocation_fails_exclusivity():
     r = sv.invocations.open(InvocationType.OPENING, 110, services=sv)
     assert json.loads(r)["error"]["code"] == "invocation_conflict"
     # only one invocation row exists
-    n = conn.execute("SELECT COUNT(*) c FROM _invocations WHERE run_id=?", (rid,)).fetchone()["c"]
+    n = conn.execute("SELECT COUNT(*) c FROM _invocations").fetchone()["c"]
     assert n == 1
     assert sv.invocations.active()["invocation_id"] == i1
 
@@ -61,9 +62,9 @@ def test_invocation_freezes_current_time_for_commands():
 
     command(sv, "noop.read.1", fn)
     assert frozen["v"] == ts
-    # run row current_time is frozen at ts
-    row = conn.execute("SELECT current_time_ms FROM run WHERE run_id=?", (rid,)).fetchone()
-    assert row["current_time_ms"] == ts
+    # the clock row is frozen at ts (CSR-002 decision 3: _clock is the
+    # single time source)
+    assert clock.now(conn) == ts
     sv.invocations.complete(iv, services=sv)
 
 
@@ -138,7 +139,7 @@ def _closing_restricted_command(services, request_id, target_ts):
         inv = ctx.invocation
         if inv is not None and inv["type"] == "closing" and target_ts <= inv["ts_ms"]:
             raise EngineError(ErrorCode.CLOSING_RESTRICTED, "closing is future-facing only")
-        ctx.services.ledger.post([LedgerEntry(1, LedgerCategory.CONTRACT_TEST_CREDIT, target_ts)])
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.REVENUE, 1, target_ts)])
         return {"target_ts": target_ts}
 
     return command(services, request_id, fn)

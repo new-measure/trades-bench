@@ -112,11 +112,9 @@ def test_apply_atomic_with_draws_ledger_nested_events_and_marks_applied():
         ctx.services.ledger.post(
             [
                 LedgerEntry(
+                    LedgerCategory.REVENUE,
                     700,
-                    LedgerCategory.CONTRACT_TEST_CREDIT,
                     50,
-                    entity_type="contract_test_entity",
-                    entity_id=event["event_id"],
                 )
             ]
         )
@@ -128,7 +126,7 @@ def test_apply_atomic_with_draws_ledger_nested_events_and_marks_applied():
     assert events.status(eid) is EventStatus.APPLIED
     assert events.applied_count() == 1
     assert ledger.entry_count() == 1
-    assert audit_count(conn, rid) == 1  # one draw, one audit
+    assert audit_count(conn) == 1  # one draw, one audit
     assert len(events.pending_in_order()) == 1  # the nested event survived
 
 
@@ -144,7 +142,7 @@ def test_re_apply_is_idempotent_never_reapplies():
 
     def handler(ctx, event):
         calls["n"] += 1
-        ctx.services.ledger.post([LedgerEntry(1, LedgerCategory.CONTRACT_TEST_DEBIT, 0)])
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1, 0)])
 
     r1 = events.apply(eid, handler, services=sv)
     r2 = events.apply(eid, handler, services=sv)
@@ -170,14 +168,14 @@ def test_apply_rejects_when_invocation_active_and_leaves_no_trace():
     def handler(ctx, event):
         drew["n"] += 1
         ctx.rng.draw("acceptance", "A", 1, "s", "k", 0)
-        ctx.services.ledger.post([LedgerEntry(1, LedgerCategory.CONTRACT_TEST_DEBIT, 0)])
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1, 0)])
 
     r = events.apply(eid, handler, services=sv)
     assert json.loads(r)["error"]["code"] == "invocation_conflict"
     assert drew["n"] == 0  # handler never ran (guard before handler)
     assert events.status(eid) is EventStatus.PENDING  # rolled back, not applied
     assert ledger.entry_count() == 0
-    assert audit_count(conn, rid) == 0
+    assert audit_count(conn) == 0
 
 
 def test_apply_rolls_back_on_handler_failure_and_is_idempotent():
@@ -193,7 +191,7 @@ def test_apply_rolls_back_on_handler_failure_and_is_idempotent():
     def handler(ctx, event):
         runs["n"] += 1
         ctx.rng.draw("acceptance", "A", 1, "s", "k", 0)
-        ctx.services.ledger.post([LedgerEntry(1, LedgerCategory.CONTRACT_TEST_DEBIT, 0)])
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1, 0)])
         raise EngineError(ErrorCode.STATE_ILLEGAL, "boom")
 
     r1 = events.apply(eid, handler, services=sv)
@@ -203,7 +201,7 @@ def test_apply_rolls_back_on_handler_failure_and_is_idempotent():
     assert runs["n"] == 1
     assert events.status(eid) is EventStatus.PENDING  # not applied
     assert ledger.entry_count() == 0
-    assert audit_count(conn, rid) == 0
+    assert audit_count(conn) == 0
 
 
 def test_apply_event_bankruptcy_via_unavoidable_settle_event():
@@ -211,7 +209,7 @@ def test_apply_event_bankruptcy_via_unavoidable_settle_event():
     # bring cash to a small positive then settle negatively
     begin(conn)
     rng.enter_txn()
-    ledger.post([LedgerEntry(1000, LedgerCategory.OPENING_BALANCE_ADJUSTMENT, 0)])
+    ledger.post([LedgerEntry(LedgerCategory.OPENING_BALANCE_ADJUSTMENT, 1000, 0)])
     rng.exit_txn()
     commit(conn)
     begin(conn)
@@ -221,11 +219,11 @@ def test_apply_event_bankruptcy_via_unavoidable_settle_event():
     commit(conn)
 
     def handler(ctx, event):
-        ctx.services.ledger.post([LedgerEntry(-1500, LedgerCategory.CONTRACT_TEST_DEBIT, 5)])
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1500, 5)])
 
     events.apply(eid, handler, services=sv)
     assert ledger.cash_balance() == -500
-    row = conn.execute("SELECT status FROM run WHERE run_id=?", (rid,)).fetchone()
+    row = conn.execute("SELECT status FROM _run").fetchone()
     assert row["status"] == "bankrupt"
 
 

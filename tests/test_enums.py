@@ -56,12 +56,20 @@ def test_visibility_classes():
     assert VisibilityClass.PRIVATE_ENGINE not in VisibilityClass.public()
 
 
-def test_ledger_categories_weak_for_csr001():
-    # CSR-001 ships a tiny category set; CSR-010 extends it with real ones.
-    assert LedgerCategory.OPENING_BALANCE_ADJUSTMENT in set(LedgerCategory)
-    non_open = set(LedgerCategory) - {LedgerCategory.OPENING_BALANCE_ADJUSTMENT}
-    assert non_open  # at least the contract-test driver categories
-    assert all(c.value.startswith("contract_test_") for c in non_open)
+def test_ledger_categories_closed_9_member_set():
+    # spec 06 §9.1 — the closed v1 entry-type set; adding a member is a
+    # spec_version change. Values and order are pinned exactly as spelled.
+    assert [c.value for c in LedgerCategory] == [
+        "opening_balance_adjustment",
+        "revenue",
+        "material_cost",
+        "payroll_base",
+        "payroll_off_hours",
+        "payroll_off_hours_bonus",
+        "recruiting_cost",
+        "training_cost",
+        "operating_overhead",
+    ]
 
 
 def test_stream_registry_counts_match_spec():

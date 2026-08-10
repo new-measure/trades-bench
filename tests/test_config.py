@@ -75,7 +75,7 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
     assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    assert len(rc.resolved) == 24
+    assert len(rc.resolved) == 27  # 24 CSR-001 constants + recent_hire + finance + hiring
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     # immutability
     with pytest.raises(TypeError):
@@ -125,6 +125,30 @@ def test_valid_override_succeeds_for_non_constant_key():
     assert rc_default.get_int("test.opt") == 3  # default unchanged
 
 
+def test_domain_keys_resolve_from_shipped_defaults():
+    rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
+    assert rc.get_int("finance.starting_cash") == 20_000_000
+    assert rc.resolved["hiring.base_hourly_wage_by_trade"] == {
+        "hvac_service": 3500,
+        "hvac_install": 4000,
+        "plumbing": 3200,
+        "electrical": 3400,
+    }
+
+
+def test_cost_map_scenario_override_accepted():
+    rc = _load(
+        '{"keys": {"hiring.base_hourly_wage_by_trade": '
+        '{"hvac_service": 4000, "hvac_install": 4500, "plumbing": 3300, "electrical": 3600}}}'
+    )
+    assert rc.resolved["hiring.base_hourly_wage_by_trade"] == {
+        "hvac_service": 4000,
+        "hvac_install": 4500,
+        "plumbing": 3300,
+        "electrical": 3600,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Acceptance #5 — config validation matrix (each rejection path, pre-init)
 # ---------------------------------------------------------------------------
@@ -145,6 +169,15 @@ def test_reject_constant_override_even_same_value():
     _bad('{"keys": {"constants.zone_names": ["x"]}}', ErrorCode.CONSTANT_OVERRIDE)
 
 
+def test_reject_override_of_recent_hire_constant():
+    # roster identity is user-decided (spec 02 §8.4): the key is a constant and
+    # a scenario cannot touch it, even with its own default value.
+    _bad(
+        '{"keys": {"constants.recent_hire_technician_id": 2}}',
+        ErrorCode.CONSTANT_OVERRIDE,
+    )
+
+
 def test_reject_out_of_range_probability():
     _bad('{"keys": {"test.prob": 1.5}}', ErrorCode.CONFIG_VALUE_INVALID)
     _bad('{"keys": {"test.prob": -0.01}}', ErrorCode.CONFIG_VALUE_INVALID)
@@ -153,6 +186,35 @@ def test_reject_out_of_range_probability():
 
 def test_reject_negative_cost():
     _bad('{"keys": {"test.cost_cents": -5}}', ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_cost_map_validation_matrix():
+    # negative value
+    _bad(
+        '{"keys": {"hiring.base_hourly_wage_by_trade": {"hvac_service": -1}}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+    # non-integral value (JSON float parses to Decimal)
+    _bad(
+        '{"keys": {"hiring.base_hourly_wage_by_trade": {"hvac_service": 3500.5}}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+    # bool value
+    _bad(
+        '{"keys": {"hiring.base_hourly_wage_by_trade": {"hvac_service": true}}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+    # empty-string key
+    _bad(
+        '{"keys": {"hiring.base_hourly_wage_by_trade": {"": 3500}}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+    # non-string (int) key — unreachable via JSON (every JSON key is a string),
+    # so exercised through validate_value directly against the real KeySpec.
+    reg = assemble_registry()
+    with pytest.raises(EngineError) as ei:
+        cfg.validate_value(reg["hiring.base_hourly_wage_by_trade"], {1: 3500})
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
 
 
 def test_reject_min_gt_max_range():

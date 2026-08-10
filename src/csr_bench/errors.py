@@ -74,6 +74,19 @@ class ErrorCode(StrEnum):
     #: "Unexpected failures Must return a stable structured error code and
     #: leave state unchanged"). Never memoized — see :mod:`csr_bench.txn`.
     UNEXPECTED_FAILURE = "unexpected_failure"
+    #: A migration failed to apply: a DDL error inside the file, a missing or
+    #: unreadable migrations path, or a malformed filename. The partial
+    #: application is rolled back (spec 02 §9).
+    MIGRATION_FAILED = "migration_failed"
+    #: A recorded migration's file is missing from disk or its content checksum
+    #: no longer matches the applied record — the spec 02 §9 tamper guard; a
+    #: startup failure, never a runtime maybe.
+    MIGRATION_CHECKSUM_MISMATCH = "migration_checksum_mismatch"
+    #: The view set stored in ``sqlite_schema`` does not hash to the registry's
+    #: recorded golden hash, or differs from the whitelist in either direction
+    #: (spec 02 §3.1: "A mismatch is a startup failure, not a warning"; SCH-02).
+    #: The message is controller-facing, never agent-facing.
+    VIEW_REGISTRY_MISMATCH = "view_registry_mismatch"
 
 
 #: The indistinguishable generic message for every authorization denial.

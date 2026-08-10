@@ -27,35 +27,32 @@ import json
 import sqlite3
 from typing import Any
 
+from . import clock
 from .enums import InvocationStatus, InvocationType
 from .errors import EngineError, ErrorCode
 from .txn import privileged, privileged_request_id
 
 
 class Invocations:
-    __slots__ = ("conn", "run_id")
+    __slots__ = ("conn",)
 
-    def __init__(self, conn: sqlite3.Connection, run_id: str) -> None:
+    def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
-        self.run_id = run_id
 
     def active(self) -> sqlite3.Row | None:
         return self.conn.execute(
-            "SELECT * FROM _invocations WHERE run_id=? AND status='active' "
+            "SELECT * FROM _invocations WHERE status='active' "
             "ORDER BY sequence DESC LIMIT 1",
-            (self.run_id,),
         ).fetchone()
 
     def get(self, invocation_id: int) -> sqlite3.Row | None:
         return self.conn.execute(
-            "SELECT * FROM _invocations WHERE run_id=? AND invocation_id=?",
-            (self.run_id, invocation_id),
+            "SELECT * FROM _invocations WHERE invocation_id=?", (invocation_id,)
         ).fetchone()
 
     def _next_sequence(self) -> int:
         row = self.conn.execute(
-            "SELECT COALESCE(MAX(sequence), 0) AS s FROM _invocations WHERE run_id=?",
-            (self.run_id,),
+            "SELECT COALESCE(MAX(sequence), 0) AS s FROM _invocations",
         ).fetchone()
         return int(row["s"]) + 1
 
@@ -103,14 +100,14 @@ class Invocations:
                 )
             cur = ctx.conn.execute(
                 """INSERT INTO _invocations
-                   (run_id, type, ts_ms, sequence, status, prompt_version, attempt_count)
-                   VALUES (?, ?, ?, ?, 'active', ?, 0)""",
-                (self.run_id, kind.value, int(ts_ms), seq, prompt_version),
+                   (type, ts_ms, sequence, status, prompt_version, attempt_count)
+                   VALUES (?, ?, ?, 'active', ?, 0)""",
+                (kind.value, int(ts_ms), seq, prompt_version),
             )
-            # freeze world time at the invocation timestamp
-            ctx.conn.execute(
-                "UPDATE run SET current_time_ms=? WHERE run_id=?", (int(ts_ms), self.run_id)
-            )
+            # freeze world time at the invocation timestamp — the clock row is
+            # the single time source (CSR-002 decision 3), so the freeze is a
+            # clock.advance inside this same transaction.
+            clock.advance(ctx.conn, int(ts_ms))
             return {"invocation_id": int(cur.lastrowid), "sequence": seq}
 
         resp = privileged(
@@ -144,9 +141,8 @@ class Invocations:
                     ErrorCode.INVARIANT_VIOLATED, "a different invocation is active"
                 )
             ctx.conn.execute(
-                "UPDATE _invocations SET status='completed' "
-                "WHERE run_id=? AND invocation_id=?",
-                (self.run_id, invocation_id),
+                "UPDATE _invocations SET status='completed' WHERE invocation_id=?",
+                (invocation_id,),
             )
             return {"invocation_id": invocation_id, "status": "completed"}
 
@@ -172,12 +168,12 @@ class Invocations:
                 )
             ctx.conn.execute(
                 "UPDATE _invocations SET attempt_count = attempt_count + 1 "
-                "WHERE run_id=? AND invocation_id=?",
-                (self.run_id, invocation_id),
+                "WHERE invocation_id=?",
+                (invocation_id,),
             )
             new = ctx.conn.execute(
-                "SELECT attempt_count FROM _invocations WHERE run_id=? AND invocation_id=?",
-                (self.run_id, invocation_id),
+                "SELECT attempt_count FROM _invocations WHERE invocation_id=?",
+                (invocation_id,),
             ).fetchone()
             return {"invocation_id": invocation_id, "attempt_count": int(new["attempt_count"])}
 
@@ -228,8 +224,8 @@ class Invocations:
                     "(three-attempt rule not reached)",
                 )
             ctx.conn.execute(
-                "UPDATE _invocations SET status='completed' WHERE run_id=? AND invocation_id=?",
-                (self.run_id, invocation_id),
+                "UPDATE _invocations SET status='completed' WHERE invocation_id=?",
+                (invocation_id,),
             )
             # status is the closed InvocationStatus value actually persisted;
             # outcome is the call-level terminal reason this transition

@@ -82,14 +82,29 @@ class VisibilityClass(StrEnum):
 
 
 class LedgerCategory(StrEnum):
-    #: The calibrated opening-balance adjustment that sets scored starting cash
-    #: while preserving historical financial records (00-decisions §Warm start).
+    """Closed ledger entry-type set (spec 06 §9.1, spelled identically in spec 02
+    §4.7). The full v1 set ships from CSR-002; membership changes require a
+    ``spec_version`` change.
+    """
+
+    #: Warm-start pin to ``finance.starting_cash`` (spec 02 §8).
     OPENING_BALANCE_ADJUSTMENT = "opening_balance_adjustment"
-    # -- contract-test categories (retired by CSR-010+; clearly marked) ---------
-    #: synthetic debit used by the determinism / integrity driver.
-    CONTRACT_TEST_DEBIT = "contract_test_debit"
-    #: synthetic credit used by the determinism / integrity driver.
-    CONTRACT_TEST_CREDIT = "contract_test_credit"
+    #: Paid completion (spec 06 §6.2).
+    REVENUE = "revenue"
+    #: Paid completion and warranty rework (spec 06 §6.3, §6.4).
+    MATERIAL_COST = "material_cost"
+    #: Weekday 10 × hourly_wage (spec 06 §7.1).
+    PAYROLL_BASE = "payroll_base"
+    #: Off-hours/weekend block wages (spec 06 §7.2).
+    PAYROLL_OFF_HOURS = "payroll_off_hours"
+    #: One off_hours_bonus_per_job (spec 06 §7.2).
+    PAYROLL_OFF_HOURS_BONUS = "payroll_off_hours_bonus"
+    #: Committed hire (spec 06 §8.1).
+    RECRUITING_COST = "recruiting_cost"
+    #: Prepaid training (spec 06 §8.2).
+    TRAINING_COST = "training_cost"
+    #: Daily aggregate charge (spec 06 §8.3).
+    OPERATING_OVERHEAD = "operating_overhead"
 
 
 class EntityType(StrEnum):

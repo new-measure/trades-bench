@@ -24,6 +24,7 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
+from . import clock
 from .enums import EventKind, EventStatus
 from .errors import EngineError, ErrorCode
 from .txn import TxnContext, privileged, privileged_request_id
@@ -31,20 +32,14 @@ from .txn import TxnContext, privileged, privileged_request_id
 EventHandler = Callable[[TxnContext, sqlite3.Row], dict | None]
 
 
-def _now_ms(conn: sqlite3.Connection, run_id: str) -> int:
-    row = conn.execute("SELECT current_time_ms FROM run WHERE run_id=?", (run_id,)).fetchone()
-    return int(row["current_time_ms"]) if row is not None else 0
-
-
 class Events:
     """The world-event envelope table owner. Construct with the shared rng so
     :meth:`schedule` can enforce the open-transaction guard."""
 
-    __slots__ = ("conn", "run_id", "rng")
+    __slots__ = ("conn", "rng")
 
-    def __init__(self, conn: sqlite3.Connection, run_id: str, rng) -> None:
+    def __init__(self, conn: sqlite3.Connection, rng) -> None:
         self.conn = conn
-        self.run_id = run_id
         self.rng = rng
 
     # ------------------------------------------------------------------
@@ -79,14 +74,13 @@ class Events:
             if payload is not None
             else None
         )
-        now = _now_ms(self.conn, self.run_id)
+        now = clock.now(self.conn)
         cur = self.conn.execute(
             """INSERT INTO _events
-               (run_id, kind, scheduled_at_ms, priority, entity_type, entity_id,
+               (kind, scheduled_at_ms, priority, entity_type, entity_id,
                 payload_version, payload, status, created_at_ms)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
             (
-                self.run_id,
                 kind.value,
                 scheduled_at,
                 priority,
@@ -97,15 +91,16 @@ class Events:
                 now,
             ),
         )
+        assert cur.lastrowid is not None
         return int(cur.lastrowid)
 
     def cancel(self, event_id: int) -> None:
         """Transition ``pending -> cancelled``; a cancelled event leaves no effect."""
         self._require_txn("Events.cancel")
         cur = self.conn.execute(
-            "UPDATE _events SET status = 'cancelled' WHERE run_id=? AND event_id=? "
+            "UPDATE _events SET status = 'cancelled' WHERE event_id=? "
             "AND status = 'pending'",
-            (self.run_id, event_id),
+            (event_id,),
         )
         if cur.rowcount == 0:
             row = self.get(event_id)
@@ -118,8 +113,7 @@ class Events:
 
     def get(self, event_id: int) -> sqlite3.Row | None:
         return self.conn.execute(
-            "SELECT * FROM _events WHERE run_id=? AND event_id=?",
-            (self.run_id, event_id),
+            "SELECT * FROM _events WHERE event_id=?", (event_id,)
         ).fetchone()
 
     def status(self, event_id: int) -> EventStatus | None:
@@ -129,24 +123,22 @@ class Events:
     def next_pending(self) -> sqlite3.Row | None:
         """Earliest pending event by ``(scheduled_at, priority, event_id)``."""
         return self.conn.execute(
-            "SELECT * FROM _events WHERE run_id=? AND status='pending' "
+            "SELECT * FROM _events WHERE status='pending' "
             "ORDER BY scheduled_at_ms, priority, event_id LIMIT 1",
-            (self.run_id,),
         ).fetchone()
 
     def pending_in_order(self, limit: int | None = None) -> list[sqlite3.Row]:
         sql = (
-            "SELECT * FROM _events WHERE run_id=? AND status='pending' "
+            "SELECT * FROM _events WHERE status='pending' "
             "ORDER BY scheduled_at_ms, priority, event_id"
         )
         if limit is not None:
             sql += f" LIMIT {int(limit)}"
-        return list(self.conn.execute(sql, (self.run_id,)).fetchall())
+        return list(self.conn.execute(sql).fetchall())
 
     def applied_count(self) -> int:
         row = self.conn.execute(
-            "SELECT COUNT(*) c FROM _events WHERE run_id=? AND status='applied'",
-            (self.run_id,),
+            "SELECT COUNT(*) c FROM _events WHERE status='applied'",
         ).fetchone()
         return int(row["c"])
 
@@ -170,15 +162,14 @@ class Events:
                     "world event cannot apply while an invocation is active",
                 )
             row = ctx.conn.execute(
-                "SELECT * FROM _events WHERE run_id=? AND event_id=?",
-                (self.run_id, event_id),
+                "SELECT * FROM _events WHERE event_id=?", (event_id,)
             ).fetchone()
             if row is None:
                 raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"event {event_id} not found")
             cur = ctx.conn.execute(
-                "UPDATE _events SET status='processing' WHERE run_id=? AND event_id=? "
+                "UPDATE _events SET status='processing' WHERE event_id=? "
                 "AND status='pending'",
-                (self.run_id, event_id),
+                (event_id,),
             )
             if cur.rowcount == 0:
                 status = row["status"]
@@ -189,11 +180,11 @@ class Events:
                     f"event {event_id} not re-applicable (status={status})",
                 )
             handler(ctx, row)
-            now = _now_ms(ctx.conn, self.run_id)
+            now = clock.now(ctx.conn)
             ctx.conn.execute(
                 "UPDATE _events SET status='applied', applied_at_ms=? "
-                "WHERE run_id=? AND event_id=?",
-                (now, self.run_id, event_id),
+                "WHERE event_id=?",
+                (now, event_id),
             )
             return {"event_id": event_id, "status": "applied"}
 

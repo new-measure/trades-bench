@@ -15,11 +15,12 @@ sorted-JSON serialization is SHA-256-hashed to give a config_hash stable across
 input key ordering (CAL-02).
 
 The assembled section registry is the union of the "config keys owned by this
-file" sections of the domain specs. For CSR-001 only the **constants** section
-(``constants.*``, ``constant=True``) is fully shipped; domain sections
-(``finance.*``, ``weather.*``, …) are registered by their owning tickets. A
-config-validation matrix test may register synthetic test-only keys to exercise
-every rejection path — see :func:`assemble_registry`'s ``extra_entries``.
+file" sections of the domain specs. The **constants** section (``constants.*``,
+``constant=True``) ships from :mod:`csr_bench.constants`; non-constant domain
+keys (``finance.*``, ``weather.*``, …) are registered by their owning tickets
+via :data:`_DOMAIN_ENTRIES`. A config-validation matrix test may register
+synthetic test-only keys to exercise every rejection path — see
+:func:`assemble_registry`'s ``extra_entries``.
 """
 
 from __future__ import annotations
@@ -83,18 +84,50 @@ class KeySpec:
     description: str = ""
 
 
+#: Non-constant domain keys registered by their owning tickets (CSR-002+).
+#: Entries have the same ``(path, type, default, meta)`` shape as
+#: :data:`csr_bench.constants.CONSTANT_ENTRIES`; they default to
+#: ``constant=False`` and may carry any of the KeySpec meta fields.
+_DOMAIN_ENTRIES: list[Any] = [
+    (
+        "finance.starting_cash",
+        "cost",
+        20_000_000,
+        {
+            "deferred": "provisional",
+            "owning_spec": "02-data-and-initial-state.md",
+            "description": "Starting cash (integer cents) the warm-start opening "
+            "adjustment pins the ledger to (spec 02 §8).",
+        },
+    ),
+    (
+        "hiring.base_hourly_wage_by_trade",
+        "cost_map",
+        {"hvac_service": 3500, "hvac_install": 4000, "plumbing": 3200, "electrical": 3400},
+        {
+            "deferred": "provisional",
+            "owning_spec": "04-workforce-and-labor.md",
+            "description": "Base hourly wage in cents/hour per qualification code "
+            "(spec 04 §14, hiring section).",
+        },
+    ),
+]
+
+
 def assemble_registry(
     *,
     extra_entries: list[Any] | None = None,
     extra_owning_spec: str = "test",
 ) -> dict[str, KeySpec]:
-    """Build the assembled section registry from the constant + extra providers.
+    """Build the assembled section registry from the constant + domain + extra
+    providers.
 
     Each entry is a ``(path, type, default, meta)`` tuple (see
     :data:`csr_bench.constants.CONSTANT_ENTRIES`) or a :class:`KeySpec`.
-    Constant entries are marked ``constant=True``; synthetic test-only entries
-    passed via ``extra_entries`` default to ``constant=False`` unless their meta
-    says otherwise.
+    Constant entries are marked ``constant=True``; domain entries
+    (:data:`_DOMAIN_ENTRIES`) and synthetic test-only entries passed via
+    ``extra_entries`` default to ``constant=False`` unless their meta says
+    otherwise.
     """
     registry: dict[str, KeySpec] = {}
 
@@ -129,8 +162,20 @@ def assemble_registry(
     for entry in CONSTANT_ENTRIES:
         path, type_, default, meta = entry  # type: ignore[misc]
         _add(
-            (path, type_, default, {**meta, "constant": True, "owning_spec": "01-run-contracts.md"})
+            (
+                path,
+                type_,
+                default,
+                {
+                    **meta,
+                    "constant": True,
+                    "owning_spec": meta.get("owning_spec", "01-run-contracts.md"),
+                },
+            )
         )
+
+    for entry in _DOMAIN_ENTRIES:
+        _add(entry)
 
     for entry in extra_entries or []:
         _add(entry)
@@ -199,6 +244,20 @@ def _v_cost(spec: KeySpec, value: Any) -> int:
     if n < 0:
         raise _bad(f"{spec.path}: negative cost {n}")
     return n
+
+
+def _v_cost_map(spec: KeySpec, value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        raise _bad(f"{spec.path}: expected map, got {type(value).__name__}")
+    out: dict[str, int] = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or not k:
+            raise _bad(f"{spec.path}: cost-map keys must be non-empty strings")
+        n = _as_int(v)  # rejects bool / float / non-numeric
+        if n < 0:
+            raise _bad(f"{spec.path}: negative cost {n!r} for {k!r}")
+        out[k] = n
+    return out
 
 
 def _v_int_range(spec: KeySpec, value: Any) -> tuple[int, int]:
@@ -292,6 +351,7 @@ _VALIDATORS = {
     "decimal": _v_decimal,
     "probability": _v_probability,
     "cost": _v_cost,
+    "cost_map": _v_cost_map,
     "int_range": _v_int_range,
     "block_grid": _v_block_grid,
     "acceptance_curve": _v_acceptance_curve,

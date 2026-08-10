@@ -8,10 +8,11 @@ import json
 import pytest
 
 from _helpers import register_conn
-from csr_bench.db import in_memory, init_schema, insert_run, new_run_id
+from csr_bench.db import in_memory, insert_run, new_run_id
 from csr_bench.enums import LedgerCategory, RunStatus
 from csr_bench.errors import EngineError, ErrorCode
 from csr_bench.ledger import Ledger, LedgerEntry
+from csr_bench.migrations import migrate
 from csr_bench.rng import Rng
 from csr_bench.txn import (
     PRIVILEGED_NAMESPACE,
@@ -24,14 +25,13 @@ from csr_bench.txn import (
 )
 
 
-def _audit_recorder(conn, run_id):
+def _audit_recorder(conn):
     def rec(**kw):
         conn.execute(
-            "INSERT INTO _rng_draw_audit(run_id, stream_name, entity_type, entity_id, "
+            "INSERT INTO _random_audit(stream_name, entity_type, entity_id, "
             "scope, event_kind, draw_index, outcome_id, simulated_ts_ms) "
-            "VALUES (?,?,?,?,?,?,?,?,0)",
+            "VALUES (?,?,?,?,?,?,?,0)",
             (
-                run_id,
                 kw["stream_name"],
                 kw["entity_type"],
                 kw["entity_id"],
@@ -46,15 +46,13 @@ def _audit_recorder(conn, run_id):
 
 
 class FakeInvocations:
-    def __init__(self, conn, run_id):
+    def __init__(self, conn):
         self.conn = conn
-        self.run_id = run_id
 
     def active(self):
         row = self.conn.execute(
-            "SELECT * FROM _invocations WHERE run_id=? AND status='active' "
+            "SELECT * FROM _invocations WHERE status='active' "
             "ORDER BY sequence DESC LIMIT 1",
-            (self.run_id,),
         ).fetchone()
         return row
 
@@ -62,7 +60,7 @@ class FakeInvocations:
 def _services(*, active_invocation=False, status=RunStatus.ACTIVE, with_ledger=True):
     conn = in_memory()
     register_conn(conn)
-    init_schema(conn)
+    migrate(conn)
     rid = new_run_id()
     conn.execute("BEGIN")
     insert_run(
@@ -71,33 +69,28 @@ def _services(*, active_invocation=False, status=RunStatus.ACTIVE, with_ledger=T
         spec_version="1.0.0",
         config_version="1.0.0",
         config_hash="h",
-        config_json="{}",
         master_seed=42,
         start_at_ms=0,
         first_service_date="2026-10-01",
         last_service_date="2027-09-30",
         timezone="America/Phoenix",
-        current_time_ms=0,
         status=status,
     )
     conn.execute("COMMIT")
-    rng = Rng(42, "1.0.0", audit_recorder=_audit_recorder(conn, rid))
-    ledger = Ledger(conn, rid) if with_ledger else None
-    inv = FakeInvocations(conn, rid)
+    rng = Rng(42, "1.0.0", audit_recorder=_audit_recorder(conn), conn=conn)
+    ledger = Ledger(conn) if with_ledger else None
+    inv = FakeInvocations(conn)
     if active_invocation:
         conn.execute(
-            "INSERT INTO _invocations(run_id, type, ts_ms, sequence, status, attempt_count) "
-            "VALUES (?, 'call', 0, 1, 'active', 1)",
-            (rid,),
+            "INSERT INTO _invocations(type, ts_ms, sequence, status, attempt_count) "
+            "VALUES ('call', 0, 1, 'active', 1)"
         )
-    sv = Services(conn=conn, run_id=rid, rng=rng, ledger=ledger, invocations=inv)
+    sv = Services(conn=conn, rng=rng, ledger=ledger, invocations=inv)
     return conn, rid, sv, ledger, rng
 
 
-def _audit_count(conn, rid):
-    return conn.execute("SELECT COUNT(*) c FROM _rng_draw_audit WHERE run_id=?", (rid,)).fetchone()[
-        "c"
-    ]
+def _audit_count(conn):
+    return conn.execute("SELECT COUNT(*) c FROM _random_audit").fetchone()["c"]
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +160,7 @@ def test_command_fails_without_active_invocation():
     r = command(sv, "req.2", fn)
     assert json.loads(r)["error"]["code"] == "invocation_conflict"
     assert drew["n"] == 0
-    assert _audit_count(conn, rid) == 0  # no draw persisted
+    assert _audit_count(conn) == 0  # no draw persisted
 
 
 # ---------------------------------------------------------------------------
@@ -186,11 +179,9 @@ def test_successful_command_idempotent_byte_for_byte_no_duplicates():
         ctx.services.ledger.post(
             [
                 LedgerEntry(
+                    LedgerCategory.REVENUE,
                     5000,
-                    LedgerCategory.CONTRACT_TEST_CREDIT,
                     0,
-                    entity_type="contract_test_entity",
-                    entity_id=7,
                 )
             ]
         )
@@ -203,7 +194,7 @@ def test_successful_command_idempotent_byte_for_byte_no_duplicates():
     assert json.loads(r1) == {"ok": True, "result": {"booked": True, "entity_id": 7}}
     assert ledger_calls["n"] == 1  # fn ran exactly once
     assert ledger.entry_count() == 1  # no duplicate ledger row
-    assert _audit_count(conn, rid) == 1  # no duplicate draw audit row
+    assert _audit_count(conn) == 1  # no duplicate draw audit row
 
 
 def test_failed_command_is_idempotent_and_rolls_back_draws_and_writes():
@@ -212,7 +203,7 @@ def test_failed_command_is_idempotent_and_rolls_back_draws_and_writes():
     def fn(ctx):
         runs["n"] += 1
         ctx.rng.draw("acceptance", "contract_test_entity", 7, "2026-10-01", "k", 0)
-        ctx.services.ledger.post([LedgerEntry(1, LedgerCategory.CONTRACT_TEST_DEBIT, 0)])
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1, 0)])
         raise EngineError(ErrorCode.INSUFFICIENT_CASH, "not enough")
 
     conn, rid, sv, ledger, _ = _services(active_invocation=True)
@@ -222,20 +213,20 @@ def test_failed_command_is_idempotent_and_rolls_back_draws_and_writes():
     assert json.loads(r1)["error"]["code"] == "insufficient_cash"
     assert runs["n"] == 1  # not re-run on retry
     assert ledger.entry_count() == 0  # rolled back
-    assert _audit_count(conn, rid) == 0  # draw rolled back with its txn
+    assert _audit_count(conn) == 0  # draw rolled back with its txn
 
 
 def test_failed_validation_does_not_consume_a_draw_or_write():
     def fn(ctx):
         ctx.rng.draw("acceptance", "A", 1, "s", "k", 0)
-        ctx.services.ledger.post([LedgerEntry(1, LedgerCategory.CONTRACT_TEST_DEBIT, 0)])
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1, 0)])
         raise EngineError(ErrorCode.ENTITY_NOT_FOUND, "no such job")
 
     conn, rid, sv, ledger, _ = _services(active_invocation=True)
     r = command(sv, "jobs.x", fn)
     assert json.loads(r)["error"]["code"] == "entity_not_found"
     assert ledger.entry_count() == 0
-    assert _audit_count(conn, rid) == 0
+    assert _audit_count(conn) == 0
 
 
 def test_invocation_conflict_error_is_not_memoized():
@@ -255,8 +246,8 @@ def test_invocation_conflict_error_is_not_memoized():
     assert json.loads(r2)["error"]["code"] == "invocation_conflict"
     assert calls["n"] == 0  # engine-level check rejects before fn ever runs
     rows = conn.execute(
-        "SELECT * FROM _command_responses WHERE run_id=? AND request_id=?",
-        (rid, "req.conflict"),
+        "SELECT * FROM _idempotency WHERE request_id=?",
+        ("req.conflict",),
     ).fetchall()
     assert rows == []  # never memoized under this request id
 
@@ -273,7 +264,7 @@ def test_unexpected_exception_returns_structured_error_and_rolls_back():
     def fn(ctx):
         calls["n"] += 1
         ctx.rng.draw("acceptance", "contract_test_entity", 9, "2026-10-01", "k", 0)
-        ctx.services.ledger.post([LedgerEntry(1, LedgerCategory.CONTRACT_TEST_DEBIT, 0)])
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1, 0)])
         raise RuntimeError("adapter bug")
 
     conn, rid, sv, ledger, _ = _services(active_invocation=True)
@@ -284,7 +275,7 @@ def test_unexpected_exception_returns_structured_error_and_rolls_back():
     assert calls["n"] == 1
     assert conn.in_transaction is False  # rolled back, not left open
     assert ledger.entry_count() == 0  # write rolled back with the txn
-    assert _audit_count(conn, rid) == 0  # draw rolled back with the txn
+    assert _audit_count(conn) == 0  # draw rolled back with the txn
 
 
 def test_unexpected_exception_is_not_memoized_and_retry_reruns_fn():
@@ -301,8 +292,8 @@ def test_unexpected_exception_is_not_memoized_and_retry_reruns_fn():
     assert json.loads(r1)["error"]["code"] == "unexpected_failure"
     assert json.loads(r2)["error"]["code"] == "unexpected_failure"
     rows = conn.execute(
-        "SELECT * FROM _command_responses WHERE run_id=? AND request_id=?",
-        (rid, "req.boom2"),
+        "SELECT * FROM _idempotency WHERE request_id=?",
+        ("req.boom2",),
     ).fetchall()
     assert rows == []  # no stored response row for this request id
 
@@ -331,7 +322,7 @@ def test_non_serializable_payload_rolls_back_and_recovers_connection():
     docs/CSR-001.md chunk-6 review)."""
 
     def fn(ctx):
-        ctx.services.ledger.post([LedgerEntry(-5000, LedgerCategory.CONTRACT_TEST_DEBIT, 0)])
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -5000, 0)])
         return {"tags": {"a", "b"}}  # a set is not JSON serializable
 
     conn, rid, sv, ledger, _ = _services(active_invocation=True)
@@ -360,8 +351,8 @@ def test_privileged_settlement_pushing_negative_flips_bankrupt_atomically():
         ring["n"] += 1
         ctx.services.ledger.post(
             [
-                LedgerEntry(1000, LedgerCategory.OPENING_BALANCE_ADJUSTMENT, 0),
-                LedgerEntry(-1500, LedgerCategory.CONTRACT_TEST_DEBIT, 1),
+                LedgerEntry(LedgerCategory.OPENING_BALANCE_ADJUSTMENT, 1000, 0),
+                LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1500, 1),
             ]
         )
         return {"settled": True}
@@ -369,7 +360,7 @@ def test_privileged_settlement_pushing_negative_flips_bankrupt_atomically():
     r = privileged(sv, privileged_request_id("settle", "day_1"), fn)
     assert json.loads(r)["ok"] is True
     assert ring["n"] == 1
-    row = conn.execute("SELECT status FROM run WHERE run_id=?", (rid,)).fetchone()
+    row = conn.execute("SELECT status FROM _run").fetchone()
     assert row["status"] == "bankrupt"
     # ledger entries committed (settle is unavoidable), balance negative
     assert ledger.cash_balance() == -500
@@ -380,7 +371,7 @@ def test_privileged_settlement_idempotent_via_reserved_id():
 
     def fn(ctx):
         n["n"] += 1
-        ctx.services.ledger.post([LedgerEntry(100, LedgerCategory.CONTRACT_TEST_CREDIT, 0)])
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.REVENUE, 100, 0)])
         return {}
 
     conn, rid, sv, ledger, _ = _services(active_invocation=False)
@@ -403,7 +394,7 @@ def test_privileged_id_isolated_from_public_namespace_table():
     r = privileged(sv, ridp, lambda ctx: {"note": True})
     assert json.loads(r)["ok"] is True
     rows = conn.execute(
-        "SELECT namespace FROM _command_responses WHERE request_id=?", (ridp,)
+        "SELECT namespace FROM _idempotency WHERE request_id=?", (ridp,)
     ).fetchall()
     assert {x["namespace"] for x in rows} == {PRIVILEGED_NAMESPACE}
 
@@ -416,6 +407,6 @@ def test_privileged_id_isolated_from_public_namespace_table():
 def test_no_response_record_outside_run_active_commands():
     conn, rid, sv, _, _ = _services(status=RunStatus.INITIALIZING, active_invocation=True)
     command(sv, "r.x", lambda ctx: None)  # type: ignore[arg-type]
-    rows = conn.execute("SELECT * FROM _command_responses WHERE run_id=?", (rid,)).fetchall()
+    rows = conn.execute("SELECT * FROM _idempotency").fetchall()
     assert len(rows) == 1
     assert rows[0]["namespace"] == PUBLIC_NAMESPACE

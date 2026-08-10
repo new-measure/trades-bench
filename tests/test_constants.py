@@ -53,8 +53,11 @@ def test_constant_entries_all_marked_constant_in_config():
 
     reg = assemble_registry()
     for path, spec in reg.items():
-        assert spec.constant is True, f"{path} should be a constant"
-        assert path.startswith("constants."), path
+        if path.startswith("constants."):
+            assert spec.constant is True, f"{path} should be a constant"
+        else:
+            # domain keys (finance.*, hiring.*) are scenario knobs, not constants
+            assert spec.constant is False, f"{path} should not be a constant"
 
 
 def test_clock_sources_block_grid_from_constants_single_source():

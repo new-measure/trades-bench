@@ -37,7 +37,7 @@ from decimal import Decimal
 from functools import partial
 from pathlib import Path
 
-from csr_bench import SPEC_VERSION
+from csr_bench import SPEC_VERSION, clock
 from csr_bench._dump import dump_hash
 from csr_bench.clock import phoenix_instant
 from csr_bench.config import load_run_config, probability_threshold
@@ -45,9 +45,7 @@ from csr_bench.db import (
     begin,
     commit,
     connect,
-    init_schema,
     insert_run,
-    set_current_time,
     set_run_status,
 )
 from csr_bench.enums import (
@@ -62,6 +60,7 @@ from csr_bench.enums import (
 from csr_bench.events import Events
 from csr_bench.invocations import Invocations
 from csr_bench.ledger import Ledger, LedgerEntry
+from csr_bench.migrations import migrate
 from csr_bench.rng import Rng, chance
 from csr_bench.txn import Services, TxnContext, command, privileged, privileged_request_id
 
@@ -174,17 +173,15 @@ def _observe(run: RunContext, label: str, value: object) -> None:
     run.observations.append((label, str(value)))
 
 
-def _audit_recorder(conn: sqlite3.Connection, run_id: str) -> Callable[..., None]:
+def _audit_recorder(conn: sqlite3.Connection) -> Callable[..., None]:
     """Persist each consumed draw key with the run's *simulated* timestamp."""
 
     def rec(**kw: object) -> None:
-        row = conn.execute("SELECT current_time_ms FROM run WHERE run_id=?", (run_id,)).fetchone()
         conn.execute(
-            "INSERT INTO _rng_draw_audit(run_id, stream_name, entity_type, entity_id, "
+            "INSERT INTO _random_audit(stream_name, entity_type, entity_id, "
             "scope, event_kind, draw_index, outcome_id, simulated_ts_ms) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,?,?,?)",
             (
-                run_id,
                 kw["stream_name"],
                 kw["entity_type"],
                 kw["entity_id"],
@@ -192,7 +189,7 @@ def _audit_recorder(conn: sqlite3.Connection, run_id: str) -> Callable[..., None
                 kw["event_kind"],
                 kw["draw_index"],
                 kw.get("outcome_id"),
-                int(row["current_time_ms"]),
+                clock.now(conn),
             ),
         )
 
@@ -203,7 +200,7 @@ def create_run(path: str | Path, *, master_seed: int = MASTER_SEED) -> None:
     """Initialize a fresh run database and seed the world (one committed txn each)."""
     conn = connect(path)
     try:
-        init_schema(conn)
+        migrate(conn)
         cfg = load_run_config()
         begin(conn)
         insert_run(
@@ -212,13 +209,11 @@ def create_run(path: str | Path, *, master_seed: int = MASTER_SEED) -> None:
             spec_version=SPEC_VERSION,
             config_version=cfg.config_version,
             config_hash=cfg.config_hash,
-            config_json=cfg.canonical_bytes.decode("utf-8"),
             master_seed=master_seed,
             start_at_ms=T_OPEN,
             first_service_date=FIRST_SERVICE_DATE,
             last_service_date=LAST_SERVICE_DATE,
             timezone=TIMEZONE,
-            current_time_ms=T_OPEN,
             status=RunStatus.INITIALIZING,
         )
         set_run_status(conn, RUN_ID, RunStatus.ACTIVE)
@@ -239,16 +234,13 @@ def open_run(path: str | Path, *, master_seed: int = MASTER_SEED, variant: str =
     rng = Rng(
         master_seed,
         SPEC_VERSION,
-        audit_recorder=_audit_recorder(conn, RUN_ID),
+        audit_recorder=_audit_recorder(conn),
         conn=conn,
-        run_id=RUN_ID,
     )
-    ledger = Ledger(conn, RUN_ID)
-    events = Events(conn, RUN_ID, rng)
-    invocations = Invocations(conn, RUN_ID)
-    services = Services(
-        conn=conn, run_id=RUN_ID, rng=rng, ledger=ledger, invocations=invocations, events=events
-    )
+    ledger = Ledger(conn)
+    events = Events(conn, rng)
+    invocations = Invocations(conn)
+    services = Services(conn=conn, rng=rng, ledger=ledger, invocations=invocations, events=events)
     return RunContext(
         path=str(path),
         conn=conn,
@@ -277,7 +269,7 @@ def _require_ok(what: str, response: bytes) -> dict:
 def _advance_to(ctx: TxnContext, ts_ms: int) -> int:
     """Move simulated time to ``ts_ms``, never backwards (spec 01 invariant #3)."""
     now = max(int(ctx.now_ms), int(ts_ms))
-    set_current_time(ctx.conn, ctx.run_id, now)
+    clock.advance(ctx.conn, now)
     ctx.now_ms = now
     return now
 
@@ -319,11 +311,9 @@ def _handle_tick(run: RunContext, ctx: TxnContext, event: sqlite3.Row) -> dict:
     ctx.services.ledger.post(
         [
             LedgerEntry(
+                LedgerCategory.OPERATING_OVERHEAD,
                 -10 * (temp_index + 1),
-                LedgerCategory.CONTRACT_TEST_DEBIT,
                 now,
-                entity_type=ENTITY,
-                entity_id=entity_id,
             )
         ]
     )
@@ -352,11 +342,9 @@ def _handle_settlement(
         ctx.services.ledger.post(
             [
                 LedgerEntry(
-                    amount_cents,
                     category,
+                    amount_cents,
                     now,
-                    entity_type=ENTITY,
-                    entity_id=int(event["entity_id"]),
                 )
             ]
         )
@@ -368,10 +356,10 @@ def _handle_settlement(
 HANDLERS: dict[EventKind, Callable[[RunContext, TxnContext, sqlite3.Row], dict]] = {
     EventKind.CONTRACT_TEST_EVENT: _handle_tick,
     EventKind.CONTRACT_TEST_SETTLE_DEBIT: _handle_settlement(
-        -SETTLE_DEBIT_CENTS, LedgerCategory.CONTRACT_TEST_DEBIT
+        -SETTLE_DEBIT_CENTS, LedgerCategory.OPERATING_OVERHEAD
     ),
     EventKind.CONTRACT_TEST_SETTLE_CREDIT: _handle_settlement(
-        SETTLE_CREDIT_CENTS, LedgerCategory.CONTRACT_TEST_CREDIT
+        SETTLE_CREDIT_CENTS, LedgerCategory.REVENUE
     ),
 }
 
@@ -399,11 +387,9 @@ def _cmd_book(run: RunContext, ctx: TxnContext) -> dict:
     ctx.services.ledger.post(
         [
             LedgerEntry(
+                LedgerCategory.MATERIAL_COST,
                 -BOOK_PRICE_CENTS,
-                LedgerCategory.CONTRACT_TEST_DEBIT,
                 ctx.now_ms,
-                entity_type=ENTITY,
-                entity_id=BOOK_ENTITY_ID,
             )
         ]
     )
@@ -430,11 +416,9 @@ def _cmd_travel(run: RunContext, ctx: TxnContext) -> dict:
     ctx.services.ledger.post(
         [
             LedgerEntry(
+                LedgerCategory.MATERIAL_COST,
                 -TRAVEL_COST_CENTS,
-                LedgerCategory.CONTRACT_TEST_DEBIT,
                 ctx.now_ms,
-                entity_type=ENTITY,
-                entity_id=TRAVEL_ENTITY_ID,
             )
         ]
     )
@@ -456,11 +440,9 @@ def _cmd_reschedule(run: RunContext, ctx: TxnContext) -> dict:
     ctx.services.ledger.post(
         [
             LedgerEntry(
+                LedgerCategory.MATERIAL_COST,
                 -RESCHEDULE_FEE_CENTS,
-                LedgerCategory.CONTRACT_TEST_DEBIT,
                 ctx.now_ms,
-                entity_type=ENTITY_ALT,
-                entity_id=RESCHEDULE_ENTITY_ID,
             )
         ]
     )
@@ -543,8 +525,8 @@ def _step_settle_day(run: RunContext, name: str) -> None:
         drift = wage % 500
         ctx.services.ledger.post(
             [
-                LedgerEntry(-(PAYROLL_BASE_CENTS + drift), LedgerCategory.CONTRACT_TEST_DEBIT, now),
-                LedgerEntry(DAILY_REVENUE_CENTS, LedgerCategory.CONTRACT_TEST_CREDIT, now),
+                LedgerEntry(LedgerCategory.PAYROLL_BASE, -(PAYROLL_BASE_CENTS + drift), now),
+                LedgerEntry(LedgerCategory.REVENUE, DAILY_REVENUE_CENTS, now),
             ]
         )
         return {"payroll_drift_cents": drift}
@@ -587,7 +569,11 @@ N_COMMITS = len(SCRIPT)
 def _seed_world(run: RunContext) -> None:
     def fn(ctx: TxnContext) -> dict:
         ctx.services.ledger.post(
-            [LedgerEntry(OPENING_CASH_CENTS, LedgerCategory.OPENING_BALANCE_ADJUSTMENT, T_OPEN)]
+            [
+                LedgerEntry(
+                    LedgerCategory.OPENING_BALANCE_ADJUSTMENT, OPENING_CASH_CENTS, T_OPEN
+                )
+            ]
         )
         for kind, hour, minute, priority, entity_id in SEED_EVENTS:
             ctx.services.events.schedule(
@@ -612,10 +598,8 @@ def _interleave(run: RunContext, after: str) -> None:
     if run.variant != "B":
         return
     # (a) extra read-only queries — no write, no draw.
-    run.conn.execute("SELECT COUNT(*) FROM _events WHERE run_id=?", (run.run_id,)).fetchone()
-    run.conn.execute(
-        "SELECT COUNT(*) FROM _rng_draw_audit WHERE run_id=?", (run.run_id,)
-    ).fetchone()
+    run.conn.execute("SELECT COUNT(*) FROM _events").fetchone()
+    run.conn.execute("SELECT COUNT(*) FROM _random_audit").fetchone()
     run.ledger.cash_balance()
     run.events.pending_in_order()
 

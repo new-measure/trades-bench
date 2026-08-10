@@ -31,15 +31,22 @@ import pytest
 from _driver import N_COMMITS, RUN_ID, SCRIPT, create_run, open_run, run_steps
 from _helpers import register_conn
 from csr_bench._dump import RUN_ID_PLACEHOLDER, dump, dump_hash
-from csr_bench.db import connect, in_memory, init_schema, insert_run
+from csr_bench.db import connect, in_memory, insert_run
 from csr_bench.enums import RunStatus
 from csr_bench.errors import EngineError, ErrorCode
+from csr_bench.migrations import migrate
 
 DRIVER = str(Path(__file__).resolve().with_name("_driver.py"))
 REPO_ROOT = str(Path(__file__).resolve().parents[1])
 
 #: Tables that must carry rows, or "the dumps match" would be vacuously true.
-NON_EMPTY_TABLES = ("_events", "_ledger", "_invocations", "_rng_state", "_rng_draw_audit")
+NON_EMPTY_TABLES = (
+    "_events",
+    "_ledger_entries",
+    "_invocations",
+    "_rng_state",
+    "_random_audit",
+)
 
 
 def _run_driver(*args: str, hash_seed: str = "0", cwd: str = REPO_ROOT) -> dict:
@@ -86,7 +93,7 @@ def test_det01_replayed_dump_is_non_trivial(tmp_path):
     assert dump_hash(conn, RUN_ID) == reported  # the hash covers this file's content
     tables = dump(conn, RUN_ID)["tables"]
 
-    assert len(tables["run"]) == 1
+    assert len(tables["_run"]) == 1
     for name in NON_EMPTY_TABLES:
         assert tables[name], f"{name} is empty — an identical-dump assertion would be vacuous"
     assert sum(1 for row in tables["_events"] if row["status"] == "applied") >= 4
@@ -95,7 +102,7 @@ def test_det01_replayed_dump_is_non_trivial(tmp_path):
         row["stream_name"] == "weather_process" and row["counter"] > 0
         for row in tables["_rng_state"]
     ), "no sequential weather_process state — _rng_state would not matter at a resume"
-    assert len({row["stream_name"] for row in tables["_rng_draw_audit"]}) >= 3
+    assert len({row["stream_name"] for row in tables["_random_audit"]}) >= 3
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +152,7 @@ def test_det04_05_interleaved_noise_moves_no_draw(tmp_path):
         tables_b = dump(b.conn, b.run_id)["tables"]
 
     # The noise really happened, or the comparison proves nothing.
-    assert len(tables_b["_command_responses"]) > len(tables_a["_command_responses"])
+    assert len(tables_b["_idempotency"]) > len(tables_a["_idempotency"])
     rejections = [v for label, v in notes_b if label.startswith("rejected:")]
     assert rejections and set(rejections) == {ErrorCode.INSUFFICIENT_CASH.value}
     retries = [
@@ -169,7 +176,7 @@ def test_det04_05_interleaved_noise_moves_no_draw(tmp_path):
     assert all(len(values) == 1 for values in by_label.values())
 
     # (3) the noise consumed no draw, wrote no row, and shifted no stream state.
-    for name in ("run", "_events", "_ledger", "_invocations", "_rng_state", "_rng_draw_audit"):
+    for name in ("_run", "_events", "_ledger_entries", "_invocations", "_rng_state", "_random_audit"):
         assert tables_a[name] == tables_b[name], f"{name} diverged under agent-side noise"
 
     # (4) each idempotent retry returned the stored response byte-for-byte
@@ -190,7 +197,7 @@ def test_det04_05_interleaved_noise_moves_no_draw(tmp_path):
 def test_dump_refuses_a_database_with_an_unregistered_table():
     conn = in_memory()
     register_conn(conn)
-    init_schema(conn)
+    migrate(conn)
     conn.execute("CREATE TABLE _future_ticket_table (x INTEGER)")
     with pytest.raises(EngineError) as excinfo:
         dump(conn, RUN_ID)
@@ -200,22 +207,22 @@ def test_dump_refuses_a_database_with_an_unregistered_table():
 def _minimal_run_db(run_id: str) -> sqlite3.Connection:
     conn = in_memory()
     register_conn(conn)
-    init_schema(conn)
+    migrate(conn)
+    conn.execute("BEGIN")
     insert_run(
         conn,
         run_id=run_id,
         spec_version="1.0.0",
         config_version="1.0.0",
         config_hash="h",
-        config_json="{}",
         master_seed=1,
         start_at_ms=0,
         first_service_date="2026-10-01",
         last_service_date="2027-09-30",
         timezone="America/Phoenix",
-        current_time_ms=0,
         status=RunStatus.ACTIVE,
     )
+    conn.execute("COMMIT")
     return conn
 
 
@@ -229,5 +236,5 @@ def test_dump_normalizes_run_id_to_placeholder():
     assert dump_hash(conn_a, "run-aaaa") == dump_hash(
         conn_b, "run-bbbb-a-totally-different-length-and-value"
     )
-    row = dump(conn_a, "run-aaaa")["tables"]["run"][0]
+    row = dump(conn_a, "run-aaaa")["tables"]["_run"][0]
     assert row["run_id"] == RUN_ID_PLACEHOLDER

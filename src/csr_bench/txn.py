@@ -46,6 +46,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from . import clock
 from .db import begin, commit, rollback
 from .enums import RunStatus
 from .errors import EngineError, ErrorCode, ok_response
@@ -93,11 +94,12 @@ class Services:
 
     Kept dependency-light (``Any`` fields) so :mod:`csr_bench.txn` does not import
     the ledger / events / invocations modules and there is no cycle. The
-    orchestrator constructs this once per run with the real instances.
+    orchestrator constructs this once per run with the real instances. No
+    ``run_id`` field: the run is one database (CSR-002 decision 4), so every
+    engine query is unfiltered.
     """
 
     conn: sqlite3.Connection
-    run_id: str
     rng: Rng
     ledger: Any
     invocations: Any
@@ -116,7 +118,6 @@ class TxnContext:
     """
 
     conn: sqlite3.Connection
-    run_id: str
     rng: Rng
     now_ms: int
     services: Services
@@ -127,26 +128,19 @@ class TxnContext:
         return self.now_ms
 
 
-def _current_time(conn: sqlite3.Connection, run_id: str) -> int:
-    row = conn.execute("SELECT current_time_ms FROM run WHERE run_id=?", (run_id,)).fetchone()
+def _run_status(conn: sqlite3.Connection) -> RunStatus:
+    row = conn.execute("SELECT status FROM _run").fetchone()
     if row is None:
-        raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"run {run_id!r} not found")
-    return int(row["current_time_ms"])
-
-
-def _run_status(conn: sqlite3.Connection, run_id: str) -> RunStatus:
-    row = conn.execute("SELECT status FROM run WHERE run_id=?", (run_id,)).fetchone()
-    if row is None:
-        raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"run {run_id!r} not found")
+        raise EngineError(ErrorCode.ENTITY_NOT_FOUND, "run record not found")
     return RunStatus(row["status"])
 
 
 def _existing_response(
-    conn: sqlite3.Connection, run_id: str, request_id: str, namespace: str
+    conn: sqlite3.Connection, request_id: str, namespace: str
 ) -> bytes | None:
     row = conn.execute(
-        "SELECT response FROM _command_responses WHERE run_id=? AND request_id=? AND namespace=?",
-        (run_id, request_id, namespace),
+        "SELECT response FROM _idempotency WHERE namespace=? AND request_id=?",
+        (namespace, request_id),
     ).fetchone()
     if row is None:
         return None
@@ -155,16 +149,15 @@ def _existing_response(
 
 def _store_response(
     conn: sqlite3.Connection,
-    run_id: str,
     request_id: str,
     namespace: str,
     response: bytes,
     created_at_ms: int,
 ) -> None:
     conn.execute(
-        "INSERT OR IGNORE INTO _command_responses "
-        "(run_id, request_id, namespace, response, created_at_ms) VALUES (?, ?, ?, ?, ?)",
-        (run_id, request_id, namespace, response, created_at_ms),
+        "INSERT OR IGNORE INTO _idempotency "
+        "(namespace, request_id, response, created_at_ms) VALUES (?, ?, ?, ?)",
+        (namespace, request_id, response, created_at_ms),
     )
 
 
@@ -182,20 +175,19 @@ def _execute(
     privileged: bool,
 ) -> bytes:
     conn = services.conn
-    run_id = services.run_id
     rng = services.rng
 
     # 1. idempotency short-circuit (read-only) before opening any transaction.
-    existing = _existing_response(conn, run_id, request_id, namespace)
+    existing = _existing_response(conn, request_id, namespace)
     if existing is not None:
         return existing
 
-    now = _current_time(conn, run_id)
+    now = clock.now(conn)
     # `invocation` is always resolved fresh inside the transaction below (and
     # overwrites this field before `fn` runs whenever `require_active_invocation`
     # is set); when it is not set the field stays None regardless. There is no
     # path where a pre-transaction read would be observed.
-    ctx = TxnContext(conn, run_id, rng, now, services, invocation=None, privileged=privileged)
+    ctx = TxnContext(conn, rng, now, services, privileged=privileged)
 
     begin(conn)
     rng.enter_txn()
@@ -204,7 +196,7 @@ def _execute(
     err: EngineError | None = None
     try:
         # engine-level validation, in order: run status, then invocation context.
-        status = _run_status(conn, run_id)
+        status = _run_status(conn)
         if status != require_status:
             raise EngineError(
                 ErrorCode.INVALID_RUN_STATUS,
@@ -228,7 +220,7 @@ def _execute(
         # pending (spec 01 §Failure and transaction semantics,
         # specs/01-run-contracts.md:222).
         response = ok_response(payload)
-        _store_response(conn, run_id, request_id, namespace, response, now)
+        _store_response(conn, request_id, namespace, response, now)
         if services.ledger is not None:
             services.ledger.bankruptcy_check()
         commit(conn)
@@ -265,15 +257,16 @@ def _execute(
             # store the structured error so a retry is byte-identical and
             # re-runs nothing.
             begin(conn)
-            _store_response(conn, run_id, request_id, namespace, response, now)
+            _store_response(conn, request_id, namespace, response, now)
             commit(conn)
         return response
 
+    assert response is not None
     return response
 
 
 def command(services: Services, request_id: str, fn: Fn) -> bytes:
-    """A public command mutation: idempotent by ``(run_id, request_id)``.
+    """A public command mutation: idempotent by ``(namespace, request_id)``.
 
     Requires ``run.status == active`` and an active invocation. A reserved
     (controller-privileged) ``request_id`` is rejected with the uniform

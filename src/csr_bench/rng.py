@@ -277,10 +277,12 @@ class Rng:
     streams are orchestrator-scoped. Nothing about a keyed draw depends on draw
     order or on agent behavior.
 
-    Passing ``conn`` + ``run_id`` binds the sequential streams to that run's
+    Passing ``conn`` binds the sequential streams to the run database's
     ``_rng_state`` rows: counters are adopted from the last commit at
-    construction and written back inside the advancing transaction. Unbound
-    (both omitted), sequential state lives in memory only — useful for the pure
+    construction and written back inside the advancing transaction (CSR-002
+    decision 4: one run per database, so there is no run_id filter — the
+    ``stream_name`` primary key addresses the row). Unbound (``conn``
+    omitted), sequential state lives in memory only — useful for the pure
     primitives, never for a real run.
     """
 
@@ -292,7 +294,6 @@ class Rng:
         "_audit",
         "_txn_open",
         "_conn",
-        "_run_id",
     )
 
     def __init__(
@@ -302,7 +303,6 @@ class Rng:
         *,
         audit_recorder: AuditRecorder | None = None,
         conn: sqlite3.Connection | None = None,
-        run_id: str | None = None,
     ) -> None:
         self.master_seed = _require_master_seed(master_seed)
         self.spec_version = str(spec_version)
@@ -310,10 +310,7 @@ class Rng:
         self._streams: dict[str, SequentialStream] = {}
         self._audit: AuditRecorder | None = audit_recorder
         self._txn_open = False
-        if (conn is None) != (run_id is None):
-            raise ValueError("conn and run_id must be given together")
         self._conn = conn
-        self._run_id = run_id
         if conn is not None:
             self._adopt_persisted()
 
@@ -532,12 +529,14 @@ class Rng:
         """Instantiate the streams the run has already committed state for.
 
         One query total (``stream_name, seed, counter``) rather than one query
-        per row plus one per counter load.
+        per row plus one per counter load. No run_id: the run is one file and
+        ``_rng_state`` holds exactly that run's rows (CSR-002 decision 4).
         """
-        rows = self._conn.execute(
-            "SELECT stream_name, seed, counter FROM _rng_state WHERE run_id=? "
-            "ORDER BY stream_name",
-            (self._run_id,),
+        conn = self._conn
+        if conn is None:
+            return
+        rows = conn.execute(
+            "SELECT stream_name, seed, counter FROM _rng_state ORDER BY stream_name"
         ).fetchall()
         for name, seed_hex, counter in rows:
             if name not in {s.value for s in SequentialStreamName}:
@@ -560,8 +559,7 @@ class Rng:
         if self._conn is None:
             return 0
         row = self._conn.execute(
-            "SELECT seed, counter FROM _rng_state WHERE run_id=? AND stream_name=?",
-            (self._run_id, name),
+            "SELECT seed, counter FROM _rng_state WHERE stream_name=?", (name,)
         ).fetchone()
         if row is None:
             return 0
@@ -582,10 +580,10 @@ class Rng:
         if self._conn is None:
             return
         self._conn.execute(
-            "INSERT INTO _rng_state(run_id, stream_name, seed, counter) VALUES (?,?,?,?) "
-            "ON CONFLICT(run_id, stream_name) DO UPDATE SET "
+            "INSERT INTO _rng_state(stream_name, seed, counter) VALUES (?,?,?) "
+            "ON CONFLICT(stream_name) DO UPDATE SET "
             "seed=excluded.seed, counter=excluded.counter",
-            (self._run_id, st.name, st.seed.hex(), st.counter),
+            (st.name, st.seed.hex(), st.counter),
         )
         self._seq[st.name] = st.state()
 

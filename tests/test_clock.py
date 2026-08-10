@@ -17,13 +17,27 @@ from csr_bench.clock import (
     PHOENIX_TZ,
     Block,
     Clock,
+    advance,
+    now,
+    now_service_date,
     phoenix_instant,
     phoenix_local,
+    service_date_for_ms,
     to_iso8601,
 )
 from csr_bench.clock import (
     AFTER_HOURS as AH,
 )
+from csr_bench.db import (
+    begin,
+    commit,
+    in_memory,
+    insert_run,
+    new_run_id,
+    rollback,
+)
+from csr_bench.errors import EngineError, ErrorCode
+from csr_bench.migrations import migrate
 
 
 def test_phoenix_is_fixed_offset_no_dst():
@@ -137,3 +151,118 @@ def test_clock_is_independent_of_wall_clock():
 # alias to keep the unused AH import meaningful for lint
 def test_alias_matches():
     assert AH is AFTER_HOURS
+
+
+# ---------------------------------------------------------------------------
+# DB-backed current time (_clock is the single time source, decision 3)
+# ---------------------------------------------------------------------------
+
+OPENING = phoenix_instant(2026, 10, 1, 6, 45)
+
+
+@pytest.fixture
+def conn():
+    c = in_memory()
+    migrate(c)
+    try:
+        yield c
+    finally:
+        c.close()
+
+
+def _seed(conn, start_at_ms=OPENING) -> None:
+    begin(conn)
+    insert_run(
+        conn,
+        run_id=new_run_id(),
+        spec_version="1.0.0",
+        config_version="1.0.0",
+        config_hash="h",
+        master_seed=1,
+        start_at_ms=start_at_ms,
+        first_service_date="2026-10-01",
+        last_service_date="2027-09-30",
+        timezone="America/Phoenix",
+    )
+    commit(conn)
+
+
+def test_service_date_for_ms_known_instant():
+    assert service_date_for_ms(phoenix_instant(2026, 10, 1, 6, 45)) == "2026-10-01"
+    assert service_date_for_ms(phoenix_instant(2026, 12, 25, 19, 0)) == "2026-12-25"
+
+
+def test_service_date_for_ms_near_midnight():
+    # the date flips at Phoenix-local midnight, not UTC midnight: 2026-10-02
+    # 06:59 UTC is still 2026-10-01 23:59 in Phoenix (-07:00).
+    last_instant = phoenix_instant(2026, 10, 1, 23, 59)
+    assert service_date_for_ms(last_instant) == "2026-10-01"
+    next_instant = phoenix_instant(2026, 10, 2, 0, 1)
+    assert service_date_for_ms(next_instant) == "2026-10-02"
+    assert to_iso8601(next_instant) == "2026-10-02T00:01:00-07:00"
+
+
+def test_clock_db_now_reads_the_seeded_singleton(conn):
+    _seed(conn)
+    assert now(conn) == OPENING
+    assert now_service_date(conn) == "2026-10-01"
+
+
+def test_clock_db_now_without_seeded_run_raises(conn):
+    with pytest.raises(EngineError) as ei:
+        now(conn)
+    assert ei.value.code is ErrorCode.ENTITY_NOT_FOUND
+    with pytest.raises(EngineError) as ei2:
+        now_service_date(conn)
+    assert ei2.value.code is ErrorCode.ENTITY_NOT_FOUND
+
+
+def test_clock_db_advance_moves_forward_and_derives_service_date(conn):
+    _seed(conn)
+    later = phoenix_instant(2026, 10, 1, 7, 0)
+    begin(conn)
+    advance(conn, later)
+    commit(conn)
+    assert now(conn) == later
+    assert now_service_date(conn) == "2026-10-01"  # derived, same Phoenix day
+
+    next_day = phoenix_instant(2026, 10, 2, 8, 0)
+    begin(conn)
+    advance(conn, next_day)
+    commit(conn)
+    assert now_service_date(conn) == "2026-10-02"  # derived across the date flip
+
+
+def test_clock_db_advance_accepts_explicit_service_date(conn):
+    _seed(conn)
+    begin(conn)
+    advance(conn, OPENING, service_date="2026-10-01")  # equal instant is legal
+    commit(conn)
+    assert now(conn) == OPENING
+    assert now_service_date(conn) == "2026-10-01"
+
+
+def test_clock_db_advance_refuses_backwards(conn):
+    _seed(conn)
+    begin(conn)
+    with pytest.raises(EngineError) as ei:
+        advance(conn, OPENING - 1)
+    assert ei.value.code is ErrorCode.STATE_ILLEGAL
+    assert now(conn) == OPENING  # unchanged
+    commit(conn)
+
+
+def test_clock_db_advance_requires_open_transaction(conn):
+    _seed(conn)
+    with pytest.raises(EngineError) as ei:
+        advance(conn, OPENING + 1)
+    assert ei.value.code is ErrorCode.DRAW_OUTSIDE_TXN
+    assert now(conn) == OPENING  # nothing committed
+
+
+def test_clock_db_rollback_discards_the_time_change(conn):
+    _seed(conn)
+    begin(conn)
+    advance(conn, phoenix_instant(2026, 10, 1, 9, 0))
+    rollback(conn)
+    assert now(conn) == OPENING

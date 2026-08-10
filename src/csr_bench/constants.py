@@ -84,6 +84,9 @@ INSTALL_MAX_START_MIN: int = 13 * 60
 
 # --- Workforce constants ------------------------------------------------------
 STARTING_TECHNICIANS: int = 4
+#: Which of the four starting technicians joined inside the warm-start window
+#: via a completed hiring request (spec 02 §8.4); roster identity is user-decided.
+RECENT_HIRE_TECHNICIAN_ID: int = 2
 SICKNESS_DAYS_MIN: int = 1
 SICKNESS_DAYS_MAX: int = 3
 SICKNESS_DAYS: tuple[int, int] = (SICKNESS_DAYS_MIN, SICKNESS_DAYS_MAX)
@@ -121,6 +124,18 @@ CONSTANT_ENTRIES: list[ConstantEntry] = [
     ("constants.install_blocks", "int", INSTALL_BLOCKS, {"min": 1}),
     ("constants.install_max_start_min", "int", INSTALL_MAX_START_MIN, {"min": 0, "max": 1439}),
     ("constants.starting_technicians", "int", STARTING_TECHNICIANS, {"min": 1}),
+    (
+        "constants.recent_hire_technician_id",
+        "int",
+        RECENT_HIRE_TECHNICIAN_ID,
+        {
+            "min": 1,
+            "max": 4,
+            "owning_spec": "02-data-and-initial-state.md",
+            "description": "Which of the four starting technicians joined inside the "
+            "warm-start window via a completed hiring request (spec 02 §8.4).",
+        },
+    ),
     ("constants.sickness_days_min", "int", SICKNESS_DAYS_MIN, {"min": 1}),
     ("constants.sickness_days_max", "int", SICKNESS_DAYS_MAX, {"min": 1}),
     ("constants.weekday_pay_multiplier", "int", WEEKDAY_PAY_MULTIPLIER, {"min": 0}),
@@ -154,6 +169,7 @@ __all__ = [
     "OPENING_MINUTE",
     "OPENING_TIME",
     "PHOENIX_TIMEZONE",
+    "RECENT_HIRE_TECHNICIAN_ID",
     "RUN_CALENDAR",
     "RUN_END",
     "RUN_START",
