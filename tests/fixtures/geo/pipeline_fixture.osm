@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="csr-bench test fixture (hand-built, minimal): zones + address elements for the full pipeline / crop / extract / funnel / byte-identical-rerun tests">
+  <node id="1" lat="33.3" lon="-112.4"/>
+  <node id="2" lat="33.3" lon="-112.3"/>
+  <node id="3" lat="33.4" lon="-112.3"/>
+  <node id="4" lat="33.4" lon="-112.4"/>
+  <node id="5" lat="33.3" lon="-112.26"/>
+  <node id="6" lat="33.3" lon="-112.16"/>
+  <node id="7" lat="33.4" lon="-112.16"/>
+  <node id="8" lat="33.4" lon="-112.26"/>
+  <node id="9" lat="33.3" lon="-112.12"/>
+  <node id="10" lat="33.3" lon="-112.02"/>
+  <node id="11" lat="33.4" lon="-112.02"/>
+  <node id="12" lat="33.4" lon="-112.12"/>
+  <node id="13" lat="33.3" lon="-111.98"/>
+  <node id="14" lat="33.3" lon="-111.88"/>
+  <node id="15" lat="33.4" lon="-111.88"/>
+  <node id="16" lat="33.4" lon="-111.98"/>
+  <node id="17" lat="33.3" lon="-111.84"/>
+  <node id="18" lat="33.3" lon="-111.74"/>
+  <node id="19" lat="33.4" lon="-111.74"/>
+  <node id="20" lat="33.4" lon="-111.84"/>
+  <node id="21" lat="33.45" lon="-112.12"/>
+  <node id="22" lat="33.45" lon="-112.02"/>
+  <node id="23" lat="33.65" lon="-112.02"/>
+  <node id="24" lat="33.65" lon="-112.12"/>
+  <node id="25" lat="33.45" lon="-111.98"/>
+  <node id="26" lat="33.45" lon="-111.88"/>
+  <node id="27" lat="33.65" lon="-111.88"/>
+  <node id="28" lat="33.65" lon="-111.98"/>
+  <node id="29" lat="33.45" lon="-111.84"/>
+  <node id="30" lat="33.45" lon="-111.74"/>
+  <node id="31" lat="33.65" lon="-111.74"/>
+  <node id="32" lat="33.65" lon="-111.84"/>
+  <node id="33" lat="33.45" lon="-112.26"/>
+  <node id="34" lat="33.45" lon="-112.16"/>
+  <node id="35" lat="33.65" lon="-112.16"/>
+  <node id="36" lat="33.65" lon="-112.26"/>
+  <node id="37" lat="33.67" lon="-112.12"/>
+  <node id="38" lat="33.67" lon="-112.02"/>
+  <node id="39" lat="33.77" lon="-112.02"/>
+  <node id="40" lat="33.77" lon="-112.12"/>
+  <node id="41" lat="33.67" lon="-111.98"/>
+  <node id="42" lat="33.67" lon="-111.88"/>
+  <node id="43" lat="33.77" lon="-111.88"/>
+  <node id="44" lat="33.77" lon="-111.98"/>
+  <way id="101">
+    <nd ref="1"/>
+    <nd ref="2"/>
+    <nd ref="3"/>
+    <nd ref="4"/>
+    <nd ref="1"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <way id="102">
+    <nd ref="5"/>
+    <nd ref="6"/>
+    <nd ref="7"/>
+    <nd ref="8"/>
+    <nd ref="5"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <way id="103">
+    <nd ref="9"/>
+    <nd ref="10"/>
+    <nd ref="11"/>
+    <nd ref="12"/>
+    <nd ref="9"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <way id="104">
+    <nd ref="13"/>
+    <nd ref="14"/>
+    <nd ref="15"/>
+    <nd ref="16"/>
+    <nd ref="13"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <way id="105">
+    <nd ref="17"/>
+    <nd ref="18"/>
+    <nd ref="19"/>
+    <nd ref="20"/>
+    <nd ref="17"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <way id="106">
+    <nd ref="21"/>
+    <nd ref="22"/>
+    <nd ref="23"/>
+    <nd ref="24"/>
+    <nd ref="21"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <way id="107">
+    <nd ref="25"/>
+    <nd ref="26"/>
+    <nd ref="27"/>
+    <nd ref="28"/>
+    <nd ref="25"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <way id="108">
+    <nd ref="29"/>
+    <nd ref="30"/>
+    <nd ref="31"/>
+    <nd ref="32"/>
+    <nd ref="29"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <way id="109">
+    <nd ref="33"/>
+    <nd ref="34"/>
+    <nd ref="35"/>
+    <nd ref="36"/>
+    <nd ref="33"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <way id="110">
+    <nd ref="37"/>
+    <nd ref="38"/>
+    <nd ref="39"/>
+    <nd ref="40"/>
+    <nd ref="37"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <way id="111">
+    <nd ref="41"/>
+    <nd ref="42"/>
+    <nd ref="43"/>
+    <nd ref="44"/>
+    <nd ref="41"/>
+    <tag k="area" v="yes"/>
+  </way>
+  <relation id="201">
+    <member type="way" ref="101" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Goodyear"/>
+  </relation>
+  <relation id="202">
+    <member type="way" ref="102" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Avondale"/>
+  </relation>
+  <relation id="203">
+    <member type="way" ref="103" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Litchfield Park"/>
+  </relation>
+  <relation id="204">
+    <member type="way" ref="104" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Glendale"/>
+  </relation>
+  <relation id="205">
+    <member type="way" ref="105" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Peoria"/>
+  </relation>
+  <relation id="206">
+    <member type="way" ref="106" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Phoenix"/>
+  </relation>
+  <relation id="207">
+    <member type="way" ref="107" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Tempe"/>
+  </relation>
+  <relation id="208">
+    <member type="way" ref="108" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Scottsdale"/>
+  </relation>
+  <relation id="209">
+    <member type="way" ref="109" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Mesa"/>
+  </relation>
+  <relation id="210">
+    <member type="way" ref="110" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Chandler"/>
+  </relation>
+  <relation id="211">
+    <member type="way" ref="111" role="outer"/>
+    <tag k="type" v="boundary"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="Gilbert"/>
+  </relation>
+  <!-- address candidates: nodes 1001-1009 (see tests/test_geo_pipeline.py for what each one exercises) -->
+  <node id="1001" lat="33.55" lon="-111.79">
+    <tag k="addr:housenumber" v="100"/>
+    <tag k="addr:street" v="Main St"/>
+    <tag k="addr:postcode" v="85251"/>
+  </node>
+  <node id="1004" lat="33.6" lon="-111.8">
+    <tag k="addr:housenumber" v="100"/>
+    <tag k="addr:street" v="Main St"/>
+    <tag k="addr:postcode" v="85251"/>
+  </node>
+  <node id="1005" lat="33.55005" lon="-111.79">
+    <tag k="addr:housenumber" v="102"/>
+    <tag k="addr:street" v="Main St"/>
+    <tag k="addr:postcode" v="85251"/>
+  </node>
+  <node id="1003" lat="33.57" lon="-111.77">
+    <tag k="addr:housenumber" v="300"/>
+    <tag k="addr:street" v="Main St"/>
+    <tag k="addr:postcode" v="85251"/>
+    <tag k="shop" v="supermarket"/>
+  </node>
+  <node id="1006" lat="33.58" lon="-111.81">
+    <tag k="addr:housenumber" v="400"/>
+    <tag k="addr:street" v="Main St"/>
+  </node>
+  <node id="1007" lat="33.59" lon="-111.82">
+    <tag k="addr:housenumber" v="500"/>
+    <tag k="addr:street" v="Main St"/>
+    <tag k="addr:postcode" v="85251"/>
+    <tag k="addr:state" v="CA"/>
+  </node>
+  <node id="1008" lat="33.55" lon="-111.865">
+    <tag k="addr:housenumber" v="600"/>
+    <tag k="addr:street" v="Second Ave"/>
+    <tag k="addr:postcode" v="85251"/>
+  </node>
+  <node id="1009" lat="33.5" lon="-113.5">
+    <tag k="addr:housenumber" v="700"/>
+    <tag k="addr:street" v="Far Rd"/>
+    <tag k="addr:postcode" v="85999"/>
+  </node>
+  <!-- 'present tag wins' coverage (finding 8): addr:city, addr:state=AZ,
+       and addr:state=az (lowercase, proves normalize()'s case-fold) -->
+  <node id="1010" lat="33.6" lon="-111.76">
+    <tag k="addr:housenumber" v="800"/>
+    <tag k="addr:street" v="Elm St"/>
+    <tag k="addr:postcode" v="85251"/>
+    <tag k="addr:city" v="Scottsdale"/>
+    <tag k="addr:state" v="AZ"/>
+  </node>
+  <node id="1011" lat="33.61" lon="-111.755">
+    <tag k="addr:housenumber" v="801"/>
+    <tag k="addr:street" v="Elm St"/>
+    <tag k="addr:postcode" v="85251"/>
+    <tag k="addr:state" v="az"/>
+  </node>
+  <!-- addr:unit coverage (finding 9): the tag must be dropped, and it must
+       not affect the candidate's own unit-relevant fields (Candidate.unit
+       is populated only from a unit token embedded in addr:street text by
+       normalize(), never from this OSM tag). -->
+  <node id="1013" lat="33.62" lon="-111.78">
+    <tag k="addr:housenumber" v="900"/>
+    <tag k="addr:street" v="Cactus Ln"/>
+    <tag k="addr:postcode" v="85251"/>
+    <tag k="addr:unit" v="4B"/>
+  </node>
+  <!-- normalization_invalid end-to-end coverage: passes extraction (all
+       three hard tags present and non-empty) but fails normalize()'s
+       grammar check (house number has no digit/letter content). -->
+  <node id="1014" lat="33.5" lon="-111.83">
+    <tag k="addr:housenumber" v="!!!"/>
+    <tag k="addr:street" v="Grammar Test Ln"/>
+    <tag k="addr:postcode" v="85251"/>
+  </node>
+  <node id="2001" lat="33.56" lon="-111.785"/>
+  <node id="2002" lat="33.56" lon="-111.783"/>
+  <node id="2003" lat="33.562" lon="-111.783"/>
+  <node id="2004" lat="33.562" lon="-111.785"/>
+  <way id="2100">
+    <nd ref="2001"/>
+    <nd ref="2002"/>
+    <nd ref="2003"/>
+    <nd ref="2004"/>
+    <nd ref="2001"/>
+    <tag k="building" v="apartments"/>
+    <tag k="addr:housenumber" v="200"/>
+    <tag k="addr:street" v="Main St"/>
+    <tag k="addr:postcode" v="85251"/>
+  </way>
+</osm>

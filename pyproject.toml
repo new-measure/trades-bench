@@ -16,6 +16,17 @@ dev = [
     "hypothesis>=6",
     "ruff>=0.8",
 ]
+# CSR-003b build-time-only geography pipeline (`tools/geo_build/`). Never a
+# runtime dependency of `src/csr_bench` and never installed by a plain
+# `uv run pytest` (not a default group) — install explicitly with
+# `uv sync --group geo` before running the geo-marked tests. Every geo test
+# module starts with `pytest.importorskip("osmium")` /
+# `importorskip("shapely")` so the default suite still collects and passes
+# without this group installed.
+geo = [
+    "osmium>=4.3.1",
+    "shapely>=2.1.2",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -27,6 +38,11 @@ packages = ["src/csr_bench"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+# `tools/` holds CSR-003b's build-time-only `geo_build` package (never a
+# runtime dependency of csr_bench, never packaged in the wheel — see
+# `tools/geo_build/__init__.py`). Adding it to pythonpath lets tests
+# `import geo_build` without an editable install of a second package.
+pythonpath = ["tools"]
 filterwarnings = [
     "error",
     # zoneinfo may emit an un-pytz deprecation-free path; ignore none here.
@@ -35,7 +51,7 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-src = ["src", "tests"]
+src = ["src", "tests", "tools"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "C4"]
@@ -46,3 +62,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]  # assert False / assertTrue-identity acceptable in tests
+# geo test modules gate their `geo_build`/`osmium`/`shapely` imports behind
+# `pytest.importorskip(...)` so the default (non-`geo`-group) suite still
+# collects; that necessarily puts imports after a statement.
+"tests/test_geo_*.py" = ["E402"]
