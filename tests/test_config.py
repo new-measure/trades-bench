@@ -75,7 +75,9 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
     assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    assert len(rc.resolved) == 27  # 24 CSR-001 constants + recent_hire + finance + hiring
+    # 27 (24 CSR-001 constants + recent_hire + finance + hiring) + 24 CSR-003a
+    # (03 §13: 15 geography.* + 7 travel.* + 2 appointments.*) = 51.
+    assert len(rc.resolved) == 51
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     # immutability
     with pytest.raises(TypeError):
@@ -260,6 +262,207 @@ def test_reject_bad_date_string():
     with pytest.raises(EngineError) as ei:
         validate_value(KeySpec("x", "date_string", "", "t"), "2026-13-99")
     assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+# ---------------------------------------------------------------------------
+# CSR-003a — 03 §13 geography.* / travel.* / appointments.* keys, and the
+# validators 03 §5.1 and §631 require (band partition, speed table, weather
+# multiplier map, noise clamp). These are real registered domain keys, not
+# SYNTH entries, since _DOMAIN_ENTRIES always ships them.
+# ---------------------------------------------------------------------------
+
+_VALID_BANDS = [
+    ["night", 0, 360],
+    ["morning_peak", 360, 540],
+    ["midday", 540, 900],
+    ["evening_peak", 900, 1080],
+    ["evening", 1080, 1260],
+    ["night_late", 1260, 1440],
+]
+
+_VALID_SPEED = {
+    "weekday": {
+        "night": 62,
+        "morning_peak": 38,
+        "midday": 52,
+        "evening_peak": 34,
+        "evening": 50,
+        "night_late": 60,
+    },
+    "weekend": {
+        "night": 60,
+        "morning_peak": 52,
+        "midday": 55,
+        "evening_peak": 50,
+        "evening": 52,
+        "night_late": 60,
+    },
+}
+
+_VALID_WEATHER = {
+    "clear": 1.0,
+    "cool": 1.0,
+    "hot": 1.02,
+    "windy": 1.05,
+    "extreme_heat": 1.08,
+    "rain": 1.15,
+    "storm": 1.4,
+}
+
+
+def test_geography_and_travel_defaults_resolve():
+    rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
+    assert rc.get_string("geography.artifact_id") == ""
+    assert rc.get_string("geography.artifact_sha256") == ""
+    assert rc.get_int("geography.min_address_catalog_size") == 30_000
+    assert rc.resolved["travel.time_of_day_bands"][0] == ("night", 0, 360)
+    assert rc.resolved["travel.speed_by_time_band"]["weekday"]["night"] == Decimal("62")
+    from csr_bench.enums import ConditionCode
+
+    assert set(rc.resolved["travel.weather_travel_multipliers"]) == {c.value for c in ConditionCode}
+    assert rc.get_int("appointments.min_actual_duration_minutes") == 30
+
+
+def test_reject_gps_ping_interval_zero():
+    # 03 §9.2 uses this as a quantization modulus ("last multiple of ...");
+    # 0 would divide by zero downstream, so min=1, not min=0 (review hardening).
+    _bad(
+        '{"keys": {"geography.gps_ping_interval_minutes": 0}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_time_of_day_bands_gap():
+    bands = [b[:] for b in _VALID_BANDS]
+    bands[0] = ["night", 0, 300]  # leaves a gap before morning_peak (starts 360)
+    _bad(
+        json.dumps({"keys": {"travel.time_of_day_bands": bands}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_time_of_day_bands_overlap():
+    bands = [b[:] for b in _VALID_BANDS]
+    bands[1] = ["morning_peak", 300, 540]  # overlaps night's [0,360)
+    _bad(
+        json.dumps({"keys": {"travel.time_of_day_bands": bands}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_time_of_day_bands_gap_at_midnight():
+    bands = [b[:] for b in _VALID_BANDS]
+    bands[-1] = ["night_late", 1260, 1439]  # does not reach 24:00
+    _bad(
+        json.dumps({"keys": {"travel.time_of_day_bands": bands}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_speed_table_missing_band_key():
+    speed = json.loads(json.dumps(_VALID_SPEED))
+    del speed["weekday"]["night_late"]
+    _bad(
+        json.dumps({"keys": {"travel.speed_by_time_band": speed}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_speed_table_extra_band_key():
+    speed = json.loads(json.dumps(_VALID_SPEED))
+    speed["weekend"]["extra_band"] = 40
+    _bad(
+        json.dumps({"keys": {"travel.speed_by_time_band": speed}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_speed_table_non_positive_speed():
+    speed = json.loads(json.dumps(_VALID_SPEED))
+    speed["weekday"]["midday"] = 0
+    _bad(
+        json.dumps({"keys": {"travel.speed_by_time_band": speed}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+    speed["weekday"]["midday"] = -5
+    _bad(
+        json.dumps({"keys": {"travel.speed_by_time_band": speed}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_speed_table_wrong_day_types():
+    speed = {"weekday": _VALID_SPEED["weekday"]}  # missing "weekend"
+    _bad(
+        json.dumps({"keys": {"travel.speed_by_time_band": speed}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_weather_multiplier_missing_condition_code_member():
+    weather = dict(_VALID_WEATHER)
+    del weather["storm"]
+    _bad(
+        json.dumps({"keys": {"travel.weather_travel_multipliers": weather}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_weather_multiplier_extra_key():
+    weather = dict(_VALID_WEATHER)
+    weather["blizzard"] = 2.0
+    _bad(
+        json.dumps({"keys": {"travel.weather_travel_multipliers": weather}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_weather_multiplier_non_positive():
+    weather = dict(_VALID_WEATHER)
+    weather["storm"] = 0
+    _bad(
+        json.dumps({"keys": {"travel.weather_travel_multipliers": weather}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_noise_min_multiplier_non_positive():
+    _bad('{"keys": {"travel.noise.min_multiplier": 0}}', ErrorCode.CONFIG_VALUE_INVALID)
+    _bad('{"keys": {"travel.noise.min_multiplier": -0.1}}', ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_noise_min_greater_than_max():
+    _bad(
+        '{"keys": {"travel.noise.min_multiplier": 2.0, "travel.noise.max_multiplier": 1.5}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+    # min == default max (1.5) alone, unchanged max: still fine (min <= max).
+    rc = _load('{"keys": {"travel.noise.min_multiplier": 1.5}}')
+    assert rc.get_decimal("travel.noise.min_multiplier") == Decimal("1.5")
+
+
+def test_geography_artifact_fields_default_empty_and_are_not_deferred():
+    reg = assemble_registry()
+    assert reg["geography.artifact_id"].default == ""
+    assert reg["geography.artifact_sha256"].default == ""
+    assert reg["geography.artifact_id"].deferred is None
+    assert reg["geography.artifact_sha256"].deferred is None
+
+
+def test_time_of_day_bands_reject_duplicate_name():
+    bands = [b[:] for b in _VALID_BANDS]
+    bands[1][0] = "night"  # duplicate of bands[0]'s name
+    _bad(
+        json.dumps({"keys": {"travel.time_of_day_bands": bands}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_time_of_day_bands_reject_non_list_triple():
+    _bad(
+        '{"keys": {"travel.time_of_day_bands": [["night", 0, 1440, "extra"]]}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
 
 
 # ---------------------------------------------------------------------------

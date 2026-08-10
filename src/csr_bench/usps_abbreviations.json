@@ -1,0 +1,29 @@
+{
+  "suffixes": {
+    "Road": "Rd",
+    "Street": "St",
+    "Avenue": "Ave",
+    "Boulevard": "Blvd",
+    "Drive": "Dr",
+    "Lane": "Ln",
+    "Court": "Ct",
+    "Circle": "Cir",
+    "Place": "Pl",
+    "Trail": "Trl",
+    "Parkway": "Pkwy",
+    "Highway": "Hwy",
+    "Way": "Way",
+    "Terrace": "Ter",
+    "Loop": "Loop"
+  },
+  "directionals": {
+    "North": "N",
+    "South": "S",
+    "East": "E",
+    "West": "W",
+    "Northeast": "NE",
+    "Northwest": "NW",
+    "Southeast": "SE",
+    "Southwest": "SW"
+  }
+}

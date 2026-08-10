@@ -107,6 +107,23 @@ class LedgerCategory(StrEnum):
     OPERATING_OVERHEAD = "operating_overhead"
 
 
+class ConditionCode(StrEnum):
+    """Closed weather condition-code enum (spec 05 §2.2), derived deterministically
+    from `_zone_weather_daily`'s numeric fields. Defined here rather than by
+    CSR-004, which owns realized weather, because CSR-003 lands first and
+    `travel.weather_travel_multipliers` (spec 03 §5.1) must already be total
+    over it (CSR-003 decision 9). CSR-004 consumes this member set as-is.
+    """
+
+    CLEAR = "clear"
+    HOT = "hot"
+    EXTREME_HEAT = "extreme_heat"
+    WINDY = "windy"
+    RAIN = "rain"
+    STORM = "storm"
+    COOL = "cool"
+
+
 class EntityType(StrEnum):
     """Discriminator that disambiguates colliding numeric IDs across tables in
     keyed draws and the event envelope (spec 01 §Entity-keyed draws).

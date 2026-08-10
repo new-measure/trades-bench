@@ -7,6 +7,7 @@ import json
 
 from csr_bench import enums
 from csr_bench.enums import (
+    ConditionCode,
     EntityType,
     EventKind,
     EventStatus,
@@ -131,3 +132,18 @@ def test_event_kinds_only_contract_test_now():
 
 def test_entity_type_is_contract_test_only_now():
     assert all(t.value.startswith("contract_test_") for t in EntityType)
+
+
+def test_condition_code_closed_7_member_set():
+    # spec 05 §2.2 — CSR-003 decision 9: defined here so travel.weather_travel_
+    # multipliers (03 §5.1) can be total over it before CSR-004 exists.
+    assert {c.value for c in ConditionCode} == {
+        "clear",
+        "hot",
+        "extreme_heat",
+        "windy",
+        "rain",
+        "storm",
+        "cool",
+    }
+    assert len(ConditionCode) == 7

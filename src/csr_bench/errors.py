@@ -87,6 +87,12 @@ class ErrorCode(StrEnum):
     #: (spec 02 §3.1: "A mismatch is a startup failure, not a warning"; SCH-02).
     #: The message is controller-facing, never agent-facing.
     VIEW_REGISTRY_MISMATCH = "view_registry_mismatch"
+    #: :func:`csr_bench.address.normalize` found a street token whose
+    #: case-insensitive form maps to two different abbreviation targets in the
+    #: supplied table — build-time and run-time normalization must refuse
+    #: rather than guess (spec 03 §3.3 rule 3; research/osm-data.md §4.3:
+    #: "rejected with reason normalization_ambiguous").
+    ADDRESS_NORMALIZATION_AMBIGUOUS = "address_normalization_ambiguous"
 
 
 #: The indistinguishable generic message for every authorization denial.

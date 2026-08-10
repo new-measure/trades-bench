@@ -33,6 +33,7 @@ from decimal import ROUND_FLOOR, Decimal, localcontext
 from typing import Any
 
 from .constants import CONSTANT_ENTRIES
+from .enums import ConditionCode
 from .errors import EngineError, ErrorCode
 
 #: The config version this engine ships defaults for (conventions).
@@ -109,6 +110,301 @@ _DOMAIN_ENTRIES: list[Any] = [
             "owning_spec": "04-workforce-and-labor.md",
             "description": "Base hourly wage in cents/hour per qualification code "
             "(spec 04 §14, hiring section).",
+        },
+    ),
+    # -- CSR-003a: 03 §13 geography.* (15 keys) -------------------------------
+    # `artifact_id`/`artifact_sha256` are the two exceptions in this block:
+    # they default to "" rather than a deferred-provisional calibration value
+    # (CSR-003 decision 7 footer). 003g pins the real values once the
+    # production build exists; an empty value is rejected at run
+    # initialization, not at config load (03 §1.2).
+    (
+        "geography.artifact_id",
+        "string",
+        "",
+        {
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Identity of the packaged geography artifact (03 §1.2, §13); "
+            "pinned by CSR-003g, empty until then.",
+        },
+    ),
+    (
+        "geography.artifact_sha256",
+        "string",
+        "",
+        {
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "SHA-256 of the packaged geography artifact, verified at run "
+            "initialization (03 §1.2, §13); pinned by CSR-003g, empty until then.",
+        },
+    ),
+    (
+        "geography.min_address_catalog_size",
+        "int",
+        30_000,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Floor on usable catalog rows, PERF-05 (03 §3.2, §13).",
+        },
+    ),
+    (
+        "geography.address_catalog_safety_factor",
+        "decimal",
+        Decimal("3.0"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Multiplier over projected annual distinct new-caller "
+            "addresses (03 §3.2, §13).",
+        },
+    ),
+    (
+        "geography.min_addresses_per_zone",
+        "int",
+        1500,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Per-zone usable-address floor (03 §3.2, §13).",
+        },
+    ),
+    (
+        "geography.min_addresses_per_zone_segment",
+        "int",
+        100,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Per-zone, per-segment usable-address floor (03 §3.2, §13).",
+        },
+    ),
+    (
+        "geography.min_outlying_addresses",
+        "int",
+        1000,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Outlying-ring usable-address floor (03 §3.2, §13).",
+        },
+    ),
+    (
+        "geography.outlying_buffer_km",
+        "decimal",
+        Decimal("15.0"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Crop buffer beyond the service core (03 §1.1, §13).",
+        },
+    ),
+    (
+        "geography.max_snap_distance_meters",
+        "int",
+        150,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Address to road-network snap tolerance (research/osm-data.md "
+            "§4.8, 03 §13).",
+        },
+    ),
+    (
+        "geography.duplicate_coordinate_meters",
+        "decimal",
+        Decimal("10.0"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Coordinate-proximity dedupe radius (research/osm-data.md §4.4, "
+            "03 §13).",
+        },
+    ),
+    (
+        "geography.min_route_distance_km",
+        "decimal",
+        Decimal("0.5"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Floor on any route distance (03 §4.2, §13).",
+        },
+    ),
+    (
+        "geography.intra_cell_detour_factor",
+        "decimal",
+        Decimal("1.3"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Same-anchor distance factor (03 §4.2, §13).",
+        },
+    ),
+    (
+        "geography.distance_model_max_median_error_pct",
+        "decimal",
+        Decimal("10.0"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Packaging accuracy gate versus exact routed distances, median "
+            "(03 §4.2, §13; research/osm-data.md §5.3).",
+        },
+    ),
+    (
+        "geography.distance_model_max_p95_error_pct",
+        "decimal",
+        Decimal("25.0"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Packaging accuracy gate versus exact routed distances, p95 "
+            "(03 §4.2, §13; research/osm-data.md §5.3).",
+        },
+    ),
+    (
+        "geography.gps_ping_interval_minutes",
+        "int",
+        5,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Quantization of the public live-location row (03 §9.2, §13). "
+            "min=1: this is a divisor in the §9.2 quantization, so 0 would divide by zero.",
+        },
+    ),
+    # -- CSR-003a: 03 §13 travel.* (7 keys) ------------------------------------
+    (
+        "travel.time_of_day_bands",
+        "time_of_day_bands",
+        [
+            ["night", 0, 360],
+            ["morning_peak", 360, 540],
+            ["midday", 540, 900],
+            ["evening_peak", 900, 1080],
+            ["evening", 1080, 1260],
+            ["night_late", 1260, 1440],
+        ],
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Ordered contiguous partition of [00:00, 24:00) (03 §5.1, §13).",
+        },
+    ),
+    (
+        "travel.speed_by_time_band",
+        "speed_by_time_band",
+        {
+            "weekday": {
+                "night": 62,
+                "morning_peak": 38,
+                "midday": 52,
+                "evening_peak": 34,
+                "evening": 50,
+                "night_late": 60,
+            },
+            "weekend": {
+                "night": 60,
+                "morning_peak": 52,
+                "midday": 55,
+                "evening_peak": 50,
+                "evening": 52,
+                "night_late": 60,
+            },
+        },
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "km/h by day_type x band (03 §5.1, §13).",
+        },
+    ),
+    (
+        "travel.weather_travel_multipliers",
+        "weather_multiplier_map",
+        {
+            "clear": Decimal("1.00"),
+            "cool": Decimal("1.00"),
+            "hot": Decimal("1.02"),
+            "windy": Decimal("1.05"),
+            "extreme_heat": Decimal("1.08"),
+            "rain": Decimal("1.15"),
+            "storm": Decimal("1.40"),
+        },
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Multiplier by 05's closed condition_code enum; total over every "
+            "member (03 §5.1, §13; decision 9).",
+        },
+    ),
+    (
+        "travel.noise.sigma",
+        "decimal",
+        Decimal("0.15"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Log-normal shape, median 1 (03 §5.1, §13).",
+        },
+    ),
+    (
+        "travel.noise.min_multiplier",
+        "decimal",
+        Decimal("0.75"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Noise clamp floor, strictly positive (03 §5.1, §13, §631).",
+        },
+    ),
+    (
+        "travel.noise.max_multiplier",
+        "decimal",
+        Decimal("1.50"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Noise clamp ceiling (03 §5.1, §13, §631).",
+        },
+    ),
+    (
+        "travel.min_travel_minutes",
+        "int",
+        5,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Floor on any realized trip (03 §5.1, §13).",
+        },
+    ),
+    # -- CSR-003a: 03 §13 appointments.* (2 keys) ------------------------------
+    (
+        "appointments.min_actual_duration_minutes",
+        "int",
+        30,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Floor on realized service duration (03 §10.4, §13).",
+        },
+    ),
+    (
+        "appointments.min_duration_multiplier",
+        "decimal",
+        Decimal("0.25"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "03-geography-and-scheduling.md",
+            "description": "Floor on the 06-owned duration multiplier (03 §10.4, §13).",
         },
     ),
 ]
@@ -289,6 +585,101 @@ def _v_block_grid(spec: KeySpec, value: Any) -> list[list[int]]:
     return pairs
 
 
+#: The two day types the speed table is keyed by (03 §5.1) — a fixed
+#: structural pair from the spec text, not a calibration value.
+_DAY_TYPES = frozenset({"weekday", "weekend"})
+
+
+def _v_time_of_day_bands(spec: KeySpec, value: Any) -> list[tuple[str, int, int]]:
+    """Ordered, contiguous partition of [00:00, 24:00) (03 §5.1, §13, §631)."""
+    if not isinstance(value, list) or not value:
+        raise _bad(f"{spec.path}: time_of_day_bands must be a non-empty list")
+    prev_end = 0
+    seen: set[str] = set()
+    out: list[tuple[str, int, int]] = []
+    for i, b in enumerate(value):
+        if not isinstance(b, (list, tuple)) or len(b) != 3:
+            raise _bad(f"{spec.path}: band {i} must be a [name, start, end] triple")
+        name, start_raw, end_raw = b
+        if not isinstance(name, str) or not name:
+            raise _bad(f"{spec.path}: band {i} name must be a non-empty string")
+        if name in seen:
+            raise _bad(f"{spec.path}: duplicate band name {name!r}")
+        if _is_bool(start_raw) or _is_bool(end_raw):
+            raise _bad(f"{spec.path}: band {name!r} start/end must be integers")
+        start, end = _as_int(start_raw), _as_int(end_raw)
+        if start < 0 or end > 1440 or start >= end:
+            raise _bad(f"{spec.path}: band {name!r} [{start},{end}] invalid within [0,1440)")
+        if start != prev_end:
+            raise _bad(
+                f"{spec.path}: band {name!r} starts at {start}, expected {prev_end} "
+                "(bands must be contiguous and non-overlapping)"
+            )
+        prev_end = end
+        seen.add(name)
+        out.append((name, start, end))
+    if prev_end != 1440:
+        raise _bad(f"{spec.path}: bands end at {prev_end}, must cover [00:00,24:00) exactly")
+    return out
+
+
+def _v_speed_by_time_band(spec: KeySpec, value: Any) -> dict[str, dict[str, Decimal]]:
+    """Structural half of 03 §5.1's speed table: day_type keys, positive finite
+    speeds. The band-key-set-matches-configured-bands half is a cross-field
+    constraint (see :data:`_CROSS_FIELD_VALIDATORS`) — a single key's own
+    validator cannot see ``travel.time_of_day_bands``'s value.
+    """
+    if not isinstance(value, dict):
+        raise _bad(f"{spec.path}: expected map, got {type(value).__name__}")
+    if set(value.keys()) != _DAY_TYPES:
+        raise _bad(
+            f"{spec.path}: day_type keys must be exactly {sorted(_DAY_TYPES)}, got "
+            f"{sorted(value.keys())}"
+        )
+    out: dict[str, dict[str, Decimal]] = {}
+    for day_type, table in value.items():
+        if not isinstance(table, dict) or not table:
+            raise _bad(f"{spec.path}: {day_type} speed table must be a non-empty map")
+        inner: dict[str, Decimal] = {}
+        for band, raw in table.items():
+            if not isinstance(band, str) or not band:
+                raise _bad(f"{spec.path}: {day_type} band keys must be non-empty strings")
+            speed = _as_decimal(raw)
+            if not speed.is_finite() or speed <= 0:
+                raise _bad(
+                    f"{spec.path}: {day_type}.{band} speed {speed} must be finite and "
+                    "strictly positive"
+                )
+            inner[band] = speed
+        out[day_type] = inner
+    return out
+
+
+def _v_weather_multiplier_map(spec: KeySpec, value: Any) -> dict[str, Decimal]:
+    """03 §5.1/§13: keyed exactly on `05`'s closed ``ConditionCode`` enum —
+    every member present, no extra key, every multiplier finite and strictly
+    positive.
+    """
+    if not isinstance(value, dict):
+        raise _bad(f"{spec.path}: expected map, got {type(value).__name__}")
+    expected = {c.value for c in ConditionCode}
+    got = set(value.keys())
+    if got != expected:
+        raise _bad(
+            f"{spec.path}: must cover exactly the ConditionCode enum; "
+            f"missing={sorted(expected - got)} extra={sorted(got - expected)}"
+        )
+    out: dict[str, Decimal] = {}
+    for code, raw in value.items():
+        m = _as_decimal(raw)
+        if not m.is_finite() or m <= 0:
+            raise _bad(
+                f"{spec.path}: multiplier for {code!r} ({m}) must be finite and strictly positive"
+            )
+        out[code] = m
+    return out
+
+
 def _v_acceptance_curve(spec: KeySpec, value: Any) -> dict[str, list[Decimal]]:
     if not isinstance(value, dict) or not value:
         raise _bad(f"{spec.path}: acceptance_curve must be a non-empty map")
@@ -354,6 +745,9 @@ _VALIDATORS = {
     "cost_map": _v_cost_map,
     "int_range": _v_int_range,
     "block_grid": _v_block_grid,
+    "time_of_day_bands": _v_time_of_day_bands,
+    "speed_by_time_band": _v_speed_by_time_band,
+    "weather_multiplier_map": _v_weather_multiplier_map,
     "acceptance_curve": _v_acceptance_curve,
     "string": _v_string,
     "string_list": _v_string_list,
@@ -372,6 +766,61 @@ def validate_value(spec: KeySpec, value: Any) -> Any:
     if validator is None:
         raise _bad(f"{spec.path}: unknown key type {spec.type!r}")
     return validator(spec, value)
+
+
+# ---------------------------------------------------------------------------
+# Cross-field validators — a key's own type validator only ever sees its own
+# value, but two of 03 §13's rules span keys: the speed table's band keys
+# must match the *configured* `travel.time_of_day_bands` (03 §5.1), and the
+# noise clamp is a min/max relationship between two separate keys (03:631).
+# No such mechanism existed before this ticket (every prior validator was
+# single-key); this is the minimal named-check list :func:`load_run_config`
+# runs once every key has resolved. Each check is skipped, not failed, when
+# its keys are not both registered — a registry that omits `travel.*`
+# (impossible via :func:`assemble_registry`, but not enforced by the type
+# system) must not KeyError instead of just not applying the rule.
+# ---------------------------------------------------------------------------
+
+
+def _validate_noise_clamp(base: dict[str, Any]) -> None:
+    lo = base["travel.noise.min_multiplier"]
+    hi = base["travel.noise.max_multiplier"]
+    if lo <= 0:
+        raise _bad(f"travel.noise.min_multiplier: {lo} must be strictly positive (03:631)")
+    if lo > hi:
+        raise _bad(f"travel.noise.min_multiplier {lo} > travel.noise.max_multiplier {hi} (03:631)")
+
+
+def _validate_speed_table_bands(base: dict[str, Any]) -> None:
+    band_names = {name for name, _start, _end in base["travel.time_of_day_bands"]}
+    for day_type, table in base["travel.speed_by_time_band"].items():
+        if set(table.keys()) != band_names:
+            missing = band_names - set(table)
+            extra = set(table) - band_names
+            raise _bad(
+                f"travel.speed_by_time_band[{day_type}]: band keys must exactly match "
+                f"travel.time_of_day_bands; missing={sorted(missing)} extra={sorted(extra)}"
+            )
+
+
+#: (required key paths, check) pairs, run in order once every registered key
+#: has a resolved value.
+_CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
+    (
+        frozenset({"travel.noise.min_multiplier", "travel.noise.max_multiplier"}),
+        _validate_noise_clamp,
+    ),
+    (
+        frozenset({"travel.time_of_day_bands", "travel.speed_by_time_band"}),
+        _validate_speed_table_bands,
+    ),
+)
+
+
+def _validate_cross_field(base: dict[str, Any]) -> None:
+    for required, check in _CROSS_FIELD_VALIDATORS:
+        if required <= base.keys():
+            check(base)
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +1098,9 @@ def load_run_config(
             f"missing required config keys: {sorted(missing)}",
         )
 
+    # --- cross-field validation (constraints spanning multiple keys) --------
+    _validate_cross_field(base)
+
     # --- probability thresholds (decision 1) --------------------------------
     thresholds: dict[str, int] = {}
     for path, spec in reg.items():
@@ -715,8 +1167,10 @@ DEFERRED_ITEMS: list[dict[str, Any]] = [
         "status": "provisional",
     },
     {
+        # Re-pointed from `calibration.minimum_address_catalog_size` now that
+        # CSR-003a registers the real key (CSR-003 decision 14).
         "name": "minimum_address_catalog_size",
-        "key_paths": ["calibration.minimum_address_catalog_size"],
+        "key_paths": ["geography.min_address_catalog_size"],
         "status": "provisional",
     },
 ]
