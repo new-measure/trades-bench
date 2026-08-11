@@ -472,6 +472,14 @@ CREATE TABLE _rng_state (
     counter     INTEGER NOT NULL
 )
 
+-- table: _routing_anchors
+CREATE TABLE _routing_anchors (
+    anchor_id       INTEGER PRIMARY KEY,
+    latitude        REAL NOT NULL,
+    longitude       REAL NOT NULL,
+    selection_cell  TEXT NOT NULL
+)
+
 -- table: _run
 CREATE TABLE _run (
     run_id              TEXT PRIMARY KEY,

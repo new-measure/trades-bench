@@ -4,10 +4,9 @@ import sqlite3
 
 import pytest
 
-from _helpers import register_conn
+from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
 from csr_bench import clock, db, views
 from csr_bench.clock import phoenix_instant
-from csr_bench.config import load_run_config
 from csr_bench.enums import VisibilityClass
 from csr_bench.errors import EngineError, ErrorCode
 from csr_bench.run_init import initialize_run
@@ -31,7 +30,9 @@ NEW_DENIED_SQL: tuple[tuple[str, str], ...] = (
 @pytest.fixture
 def warm_run(tmp_path):
     db_path = tmp_path / "run.db"
-    initialize_run(db_path, master_seed=12_345, config=load_run_config())
+    initialize_run(
+        db_path, master_seed=12_345, config=geo_run_config(), artifact_dir=GEO_ARTIFACT_DIR
+    )
     engine = sqlite3.connect(str(db_path), isolation_level=None)
     engine.row_factory = sqlite3.Row
     register_conn(engine)

@@ -38,6 +38,7 @@ CORE_TABLES: tuple[_Table, ...] = (
     _Table("_service_catalog", "id"),
     _Table("_address_catalog", "id"),
     _Table("_dataset_versions", "id"),
+    _Table("_routing_anchors", "anchor_id"),
     _Table("_customers", "id"),
     _Table("_customer_contacts", "id"),
     _Table("_locations", "id"),

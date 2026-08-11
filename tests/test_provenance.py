@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import sqlite3
 
-from _helpers import register_conn
-from csr_bench.config import load_run_config
+from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
 from csr_bench.run_init import initialize_run
 from csr_bench.views import VIEWS
 
 
 def _warm_run(tmp_path):
     db_path = tmp_path / "run.db"
-    initialize_run(db_path, master_seed=11, config=load_run_config())
+    initialize_run(
+        db_path, master_seed=11, config=geo_run_config(), artifact_dir=GEO_ARTIFACT_DIR
+    )
     conn = sqlite3.connect(str(db_path), isolation_level=None)
     conn.row_factory = sqlite3.Row
     register_conn(conn)

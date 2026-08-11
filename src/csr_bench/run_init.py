@@ -1,22 +1,54 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date
 from pathlib import Path
 
-from . import SPEC_VERSION, clock, constants, db, migrations, views, warm_start
+from . import SPEC_VERSION, clock, constants, db, geo_reader, migrations, views, warm_start
 from .config import RunConfig
 from .enums import RunStatus
 from .errors import EngineError, ErrorCode
 from .ledger import Ledger
 
 
-def open_run_db(path: str | Path) -> sqlite3.Connection:
+def _stored_config_keys(conn: sqlite3.Connection) -> dict | None:
+    row = conn.execute("SELECT canonical_json FROM _config LIMIT 1").fetchone()
+    if row is None:
+        return None
+    return json.loads(row["canonical_json"]).get("keys", {})
+
+
+def _verify_stored_geography_artifact(
+    conn: sqlite3.Connection, artifact_dir: str | Path | None
+) -> None:
+    keys = _stored_config_keys(conn)
+    if keys is None:
+        return
+    expected_sha256 = str(keys.get("geography.artifact_sha256", ""))
+    if not expected_sha256:
+        return
+    if artifact_dir is None:
+        raise EngineError(
+            ErrorCode.GEOGRAPHY_ARTIFACT_MISMATCH,
+            "this database has a pinned geography.artifact_sha256 but open_run_db was "
+            "not given an artifact_dir to re-verify it against — the hash Must be "
+            "re-checked at every open (spec 02 §2.6), so the check cannot be skipped "
+            "by omission",
+            details={"expected_sha256": expected_sha256},
+        )
+    geo_reader.verify_artifact_sha256(artifact_dir, expected_sha256)
+
+
+def open_run_db(
+    path: str | Path, *, artifact_dir: str | Path | None = None
+) -> sqlite3.Connection:
     conn = db.connect(path)
     try:
         migrations.migrate(conn)
         views.create_views(conn)
         views.verify_views(conn)
+        _verify_stored_geography_artifact(conn, artifact_dir)
     except EngineError:
         conn.close()
         raise
@@ -140,6 +172,39 @@ def boundary_check(conn: sqlite3.Connection, config: RunConfig) -> None:
             )
 
 
+def _verify_and_load_geography_artifact(
+    config: RunConfig, dataset_version: str, artifact_dir: str | Path | None
+) -> tuple[str, geo_reader.GeoArtifact]:
+    expected_sha256 = config.get_string("geography.artifact_sha256")
+    computed_sha256 = geo_reader.verify_artifact_sha256(artifact_dir, expected_sha256)
+    artifact = geo_reader.load_artifact(artifact_dir)
+    manifest_artifact_id = str(artifact.manifest.get("artifact_id", ""))
+    configured_artifact_id = config.get_string("geography.artifact_id")
+    if configured_artifact_id and configured_artifact_id != manifest_artifact_id:
+        raise EngineError(
+            ErrorCode.GEOGRAPHY_ARTIFACT_MISMATCH,
+            "geography.artifact_id does not match the loaded artifact's manifest "
+            "artifact_id",
+            details={
+                "configured_artifact_id": configured_artifact_id,
+                "manifest_artifact_id": manifest_artifact_id,
+            },
+        )
+    if dataset_version and dataset_version != manifest_artifact_id:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            "dataset_version does not match the loaded geography artifact's "
+            "artifact_id",
+            details={
+                "dataset_version": dataset_version,
+                "manifest_artifact_id": manifest_artifact_id,
+            },
+        )
+    resolved_dataset_version = dataset_version or configured_artifact_id or manifest_artifact_id
+    geo_reader.verify_manifest_consistency(artifact, computed_sha256, resolved_dataset_version)
+    return resolved_dataset_version, artifact
+
+
 def initialize_run(
     path: str | Path,
     run_id: str | None = None,
@@ -147,11 +212,12 @@ def initialize_run(
     master_seed: int,
     config: RunConfig,
     dataset_version: str = "",
+    artifact_dir: str | Path | None = None,
 ) -> str:
     run_id = run_id or db.new_run_id()
     conn: sqlite3.Connection | None = None
     try:
-        conn = open_run_db(path)
+        conn = open_run_db(path, artifact_dir=artifact_dir)
         if conn.execute("SELECT 1 FROM _run LIMIT 1").fetchone() is not None:
             raise EngineError(
                 ErrorCode.STATE_ILLEGAL,
@@ -183,7 +249,12 @@ def initialize_run(
         except Exception:
             db.rollback(conn)
             raise
-        warm_start.run(conn, run_id, master_seed, config, dataset_version)
+        resolved_dataset_version, artifact = _verify_and_load_geography_artifact(
+            config, dataset_version, artifact_dir
+        )
+        warm_start.run(
+            conn, run_id, master_seed, config, resolved_dataset_version, artifact=artifact
+        )
         boundary_check(conn, config)
         db.set_run_status(conn, run_id, RunStatus.ACTIVE)
         conn.close()

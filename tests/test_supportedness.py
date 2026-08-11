@@ -4,8 +4,7 @@ import sqlite3
 
 import pytest
 
-from _helpers import register_conn
-from csr_bench.config import load_run_config
+from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
 from csr_bench.errors import EngineError, ErrorCode
 from csr_bench.run_init import initialize_run
 from csr_bench.sql_gate import execute_gated, open_agent_session
@@ -16,7 +15,9 @@ _UNAUTHORIZED_RESPONSE = EngineError.unauthorized().to_response()
 
 def _warm_run(tmp_path, seed: int = 7):
     db_path = tmp_path / "run.db"
-    initialize_run(db_path, master_seed=seed, config=load_run_config())
+    initialize_run(
+        db_path, master_seed=seed, config=geo_run_config(), artifact_dir=GEO_ARTIFACT_DIR
+    )
     conn = sqlite3.connect(str(db_path), isolation_level=None)
     conn.row_factory = sqlite3.Row
     register_conn(conn)

@@ -4,9 +4,8 @@ import sqlite3
 
 import pytest
 
-from _helpers import register_conn
+from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
 from csr_bench import views, warm_start
-from csr_bench.config import load_run_config
 from csr_bench.db import read_config
 from csr_bench.errors import EngineError, ErrorCode
 from csr_bench.migrations import applied_versions
@@ -16,13 +15,13 @@ from csr_bench.visibility import FIELD_REGISTRY
 
 
 def _cfg():
-    return load_run_config()
+    return geo_run_config()
 
 
 def test_open_run_db_twice_is_idempotent(tmp_path):
     path = tmp_path / "idem.db"
     conn1 = open_run_db(path)
-    assert applied_versions(conn1) == [(1, "baseline")]
+    assert applied_versions(conn1) == [(1, "baseline"), (2, "routing_anchors")]
     conn1.close()
     conn2 = open_run_db(path)
     register_conn(conn2)
@@ -36,8 +35,10 @@ def test_open_run_db_twice_is_idempotent(tmp_path):
 
 def test_initialize_run_end_to_end(tmp_path):
     cfg = _cfg()
-    run_id = initialize_run(tmp_path / "run.db", master_seed=7, config=cfg)
-    conn = open_run_db(tmp_path / "run.db")
+    run_id = initialize_run(
+        tmp_path / "run.db", master_seed=7, config=cfg, artifact_dir=GEO_ARTIFACT_DIR
+    )
+    conn = open_run_db(tmp_path / "run.db", artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn)
     assert conn.execute("SELECT status FROM _run").fetchone()["status"] == "active"
     stored = read_config(conn, run_id)
@@ -51,8 +52,11 @@ def test_initialize_run_end_to_end(tmp_path):
 
 def test_initialize_run_uses_explicit_run_id(tmp_path):
     cfg = _cfg()
-    initialize_run(tmp_path / "r2.db", run_id="my-run-id", master_seed=3, config=cfg)
-    conn = open_run_db(tmp_path / "r2.db")
+    initialize_run(
+        tmp_path / "r2.db", run_id="my-run-id", master_seed=3, config=cfg,
+        artifact_dir=GEO_ARTIFACT_DIR,
+    )
+    conn = open_run_db(tmp_path / "r2.db", artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn)
     assert conn.execute("SELECT run_id FROM _run").fetchone()["run_id"] == "my-run-id"
 
@@ -67,19 +71,19 @@ def test_initialize_run_failure_marks_failed_and_refuses_rebuild(tmp_path, monke
     with monkeypatch.context() as m:
         m.setattr(warm_start, "run", _boom)
         with pytest.raises(RuntimeError, match="warm-start exploded"):
-            initialize_run(path, master_seed=1, config=cfg)
-    conn = open_run_db(path)
+            initialize_run(path, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
+    conn = open_run_db(path, artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn)
     assert conn.execute("SELECT status FROM _run").fetchone()["status"] == "failed"
     conn.close()
 
     with pytest.raises(EngineError) as ei:
-        initialize_run(path, master_seed=1, config=cfg)
+        initialize_run(path, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
     assert ei.value.code is ErrorCode.STATE_ILLEGAL
 
     fresh = tmp_path / "fresh.db"
-    initialize_run(fresh, master_seed=1, config=cfg)
-    conn2 = open_run_db(fresh)
+    initialize_run(fresh, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
+    conn2 = open_run_db(fresh, artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn2)
     assert conn2.execute("SELECT status FROM _run").fetchone()["status"] == "active"
 
@@ -94,9 +98,9 @@ def test_initialize_run_failure_at_boundary_check_marks_failed(tmp_path, monkeyp
     with monkeypatch.context() as m:
         m.setattr("csr_bench.run_init.boundary_check", _boom)
         with pytest.raises(EngineError) as ei:
-            initialize_run(path, master_seed=1, config=cfg)
+            initialize_run(path, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
     assert ei.value.code is ErrorCode.INVARIANT_VIOLATED
-    conn = open_run_db(path)
+    conn = open_run_db(path, artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn)
     assert conn.execute("SELECT status FROM _run").fetchone()["status"] == "failed"
 
@@ -111,7 +115,7 @@ def test_initialize_run_failure_before_run_record_leaves_no_failed_row(tmp_path,
     with monkeypatch.context() as m:
         m.setattr("csr_bench.run_init.open_run_db", _boom)
         with pytest.raises(RuntimeError, match="open exploded"):
-            initialize_run(path, master_seed=1, config=cfg)
+            initialize_run(path, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
     conn = open_run_db(path)
     register_conn(conn)
     assert conn.execute("SELECT COUNT(*) c FROM _run").fetchone()["c"] == 0
@@ -137,8 +141,8 @@ def test_warm_start_wraps_raw_fixture_failure_and_init_marks_failed(tmp_path, mo
     with monkeypatch.context() as m:
         m.setattr(warm_start, "_build_fixture", _boom)
         with pytest.raises(EngineError) as ei:
-            initialize_run(path, master_seed=1, config=cfg)
+            initialize_run(path, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
     assert ei.value.code is ErrorCode.UNEXPECTED_FAILURE
-    conn = open_run_db(path)
+    conn = open_run_db(path, artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn)
     assert conn.execute("SELECT status FROM _run").fetchone()["status"] == "failed"

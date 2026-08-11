@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import functools
+import json
 import sqlite3
+from pathlib import Path
 
+from csr_bench.config import RunConfig, load_run_config
 from csr_bench.db import in_memory, insert_run, new_run_id
 from csr_bench.enums import RunStatus
 from csr_bench.events import Events
+from csr_bench.geo_artifact import canonical_artifact_sha256
 from csr_bench.invocations import Invocations
 from csr_bench.ledger import Ledger
 from csr_bench.migrations import migrate
@@ -12,6 +17,25 @@ from csr_bench.rng import Rng
 from csr_bench.txn import Services
 
 _OPEN_CONNS: list = []
+
+GEO_ARTIFACT_DIR = Path(__file__).parent / "fixtures" / "geo" / "geography-tempe-fixture"
+GEO_ARTIFACT_ID = "tempe-fixture-v1"
+
+
+@functools.lru_cache(maxsize=1)
+def geo_artifact_sha256() -> str:
+    return canonical_artifact_sha256(GEO_ARTIFACT_DIR)
+
+
+def geo_scenario_json(*, artifact_id: str = GEO_ARTIFACT_ID, artifact_sha256: str | None = None) -> str:
+    sha256 = artifact_sha256 if artifact_sha256 is not None else geo_artifact_sha256()
+    return json.dumps(
+        {"keys": {"geography.artifact_id": artifact_id, "geography.artifact_sha256": sha256}}
+    )
+
+
+def geo_run_config(**kwargs) -> RunConfig:
+    return load_run_config(scenario_json=geo_scenario_json(), **kwargs)
 
 
 def register_conn(conn) -> None:

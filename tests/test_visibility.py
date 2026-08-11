@@ -123,6 +123,7 @@ WHOLLY_PRIVATE_TABLES = frozenset(
         "_address_catalog",
         "_zone_geometry",
         "_dataset_versions",
+        "_routing_anchors",
         "_technician_true_skill",
         "_technician_strain",
         "_technician_movements",

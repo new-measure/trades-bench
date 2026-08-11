@@ -6,8 +6,8 @@ from datetime import date, timedelta
 
 import pytest
 
-from _helpers import register_conn
-from csr_bench import _dump, clock, warm_start
+from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
+from csr_bench import _dump, clock, db, warm_start
 from csr_bench.config import load_run_config
 from csr_bench.db import get_run, in_memory
 from csr_bench.enums import RunStatus
@@ -22,10 +22,12 @@ _UNAUTHORIZED_RESPONSE = EngineError.unauthorized().to_response()
 
 
 def _build(tmp_path, seed=1, config=None):
-    cfg = config if config is not None else load_run_config()
+    cfg = config if config is not None else geo_run_config()
     db_path = tmp_path / f"run-{seed}-{uuid.uuid4().hex[:8]}.db"
-    run_id = initialize_run(db_path, master_seed=seed, config=cfg)
-    conn = open_run_db(db_path)
+    run_id = initialize_run(
+        db_path, master_seed=seed, config=cfg, artifact_dir=GEO_ARTIFACT_DIR
+    )
+    conn = open_run_db(db_path, artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn)
     return conn, run_id, cfg, db_path
 
@@ -277,7 +279,7 @@ def test_run_record_and_clock_seeded_at_opening_instant(tmp_path):
 def test_warm_start_refuses_non_initializing_status(tmp_path):
     conn, run_id, cfg, _ = _build(tmp_path)
     with pytest.raises(EngineError) as ei:
-        warm_start.run(conn, run_id, 1, cfg, "")
+        warm_start.run(conn, run_id, 1, cfg, "", artifact=None)
     assert ei.value.code is ErrorCode.INVALID_RUN_STATUS
 
 
@@ -287,5 +289,31 @@ def test_warm_start_refuses_missing_run(tmp_path):
     register_conn(empty)
     migrate(empty)
     with pytest.raises(EngineError) as ei:
-        warm_start.run(empty, "no-such-run", 1, cfg, "")
+        warm_start.run(empty, "no-such-run", 1, cfg, "", artifact=None)
     assert ei.value.code is ErrorCode.INVALID_RUN_STATUS
+
+
+def test_warm_start_refuses_missing_artifact(tmp_path):
+    db_path = tmp_path / "no-artifact.db"
+    conn = open_run_db(db_path)
+    register_conn(conn)
+    run_id = db.new_run_id()
+    cfg = load_run_config()
+    db.begin(conn)
+    db.insert_run(
+        conn,
+        run_id=run_id,
+        spec_version="1.0.0",
+        config_version=cfg.config_version,
+        config_hash=cfg.config_hash,
+        master_seed=1,
+        start_at_ms=0,
+        first_service_date="2026-10-01",
+        last_service_date="2027-09-30",
+        timezone="America/Phoenix",
+        status=RunStatus.INITIALIZING,
+    )
+    db.commit(conn)
+    with pytest.raises(EngineError) as ei:
+        warm_start.run(conn, run_id, 1, cfg, "", artifact=None)
+    assert ei.value.code is ErrorCode.INVARIANT_VIOLATED

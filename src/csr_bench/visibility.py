@@ -166,6 +166,11 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_dataset_versions", "attribution"): V.PRIVATE_ENGINE,
     Field("_dataset_versions", "created_at"): V.PRIVATE_ENGINE,
 
+    Field("_routing_anchors", "anchor_id"): V.PRIVATE_ENGINE,
+    Field("_routing_anchors", "latitude"): V.PRIVATE_ENGINE,
+    Field("_routing_anchors", "longitude"): V.PRIVATE_ENGINE,
+    Field("_routing_anchors", "selection_cell"): V.PRIVATE_ENGINE,
+
 
     Field("_customers", "id"): V.PUBLIC_SQL,
     Field("_customers", "name"): V.PUBLIC_SQL,

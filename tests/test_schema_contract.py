@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from _helpers import GEO_ARTIFACT_DIR, geo_run_config
 from csr_bench import clock, db, views
 from csr_bench.clock import phoenix_instant
-from csr_bench.config import load_run_config
 from csr_bench.db import in_memory
 from csr_bench.migrations import migrate
 from csr_bench.run_init import initialize_run
@@ -150,7 +150,7 @@ def assert_no_view_row_past_the_clock(conn: sqlite3.Connection, clock_ms: int, s
 
 def test_sch04_sweep_every_public_view_mid_day(tmp_path):
     db_path = tmp_path / "run.db"
-    initialize_run(db_path, master_seed=1, config=load_run_config())
+    initialize_run(db_path, master_seed=1, config=geo_run_config(), artifact_dir=GEO_ARTIFACT_DIR)
     conn = db.connect(db_path)
     try:
         noon = phoenix_instant(2026, 10, 1, 12, 0)
@@ -164,7 +164,7 @@ def test_sch04_sweep_every_public_view_mid_day(tmp_path):
 
 def test_sch04_agent_created_future_appointment_stays_visible(tmp_path):
     db_path = tmp_path / "run.db"
-    initialize_run(db_path, master_seed=1, config=load_run_config())
+    initialize_run(db_path, master_seed=1, config=geo_run_config(), artifact_dir=GEO_ARTIFACT_DIR)
     conn = db.connect(db_path)
     try:
         noon = phoenix_instant(2026, 10, 1, 12, 0)

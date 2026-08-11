@@ -4,7 +4,7 @@ import json
 import sqlite3
 from datetime import date, timedelta
 
-from . import clock, constants, db
+from . import clock, constants, db, geo_reader
 from .config import RunConfig
 from .enums import LedgerCategory, RunStatus
 from .errors import EngineError, ErrorCode
@@ -95,6 +95,81 @@ def _insert_shifts(conn: sqlite3.Connection) -> None:
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'warm_start')""",
         rows,
     )
+
+
+def _populate_geography(
+    conn: sqlite3.Connection, dataset_version: str, artifact: geo_reader.GeoArtifact
+) -> None:
+    manifest = artifact.manifest
+    source = manifest.get("source", {})
+    license_info = manifest.get("license", {})
+    conn.execute(
+        "INSERT INTO _dataset_versions "
+        "(kind, version, snapshot_date, checksum, attribution, created_at) "
+        "VALUES ('osm_geography', ?, ?, ?, ?, ?)",
+        (
+            dataset_version,
+            str(source.get("published_at", ""))[:10] or None,
+            str(source.get("sha256", "")),
+            str(license_info.get("attribution", "")) or None,
+            BOUNDARY_MS,
+        ),
+    )
+    zone_definitions_sha256 = str(manifest.get("zone_definitions_sha256", ""))
+    conn.executemany(
+        "INSERT INTO _zone_geometry (zone_id, centroid_lat, centroid_lon, boundary_ref) "
+        "VALUES (?, ?, ?, ?)",
+        [
+            (c.zone_id, c.centroid_lat, c.centroid_lon, f"{zone_definitions_sha256}:{c.code}")
+            for c in artifact.zone_centroids
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO _routing_anchors (anchor_id, latitude, longitude, selection_cell) "
+        "VALUES (?, ?, ?, ?)",
+        [(a.anchor_id, a.latitude, a.longitude, a.selection_cell) for a in artifact.anchors],
+    )
+    conn.executemany(
+        "INSERT INTO _address_catalog "
+        "(id, dataset_version, house_number, street, city, state, postal_code, "
+        "formatted_address, canonical_key, latitude, longitude, zone_id, "
+        "effective_zone_id, anchor_id, access_distance_km, segment_eligibility, "
+        "status, unusable_reason, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                row.address_id,
+                row.dataset_version,
+                row.house_number,
+                row.street,
+                row.city,
+                row.state,
+                row.postal_code,
+                row.formatted_address,
+                row.canonical_key,
+                row.latitude,
+                row.longitude,
+                row.zone_id,
+                row.effective_zone_id,
+                str(row.anchor_id) if row.anchor_id is not None else "",
+                row.access_distance_km if row.access_distance_km is not None else -1.0,
+                row.segment_eligibility,
+                row.status,
+                row.unusable_reason,
+                BOUNDARY_MS,
+            )
+            for row in artifact.catalog
+        ],
+    )
+    for zone_id, (cities, postal_codes) in geo_reader.zone_place_data(artifact.catalog).items():
+        conn.execute(
+            "UPDATE _zones SET cities_json = ?, postal_codes_json = ? WHERE id = ?",
+            (
+                json.dumps(cities, separators=(",", ":")),
+                json.dumps(postal_codes, separators=(",", ":")),
+                zone_id,
+            ),
+        )
 
 
 def _build_fixture(conn: sqlite3.Connection, config: RunConfig) -> None:
@@ -263,6 +338,8 @@ def run(
     master_seed: int,
     config: RunConfig,
     dataset_version: str,
+    *,
+    artifact: geo_reader.GeoArtifact | None,
 ) -> None:
     row = db.get_run(conn, run_id)
     if row is None or RunStatus(row["status"]) is not RunStatus.INITIALIZING:
@@ -276,8 +353,14 @@ def run(
             ErrorCode.STATE_ILLEGAL,
             "warm_start.run requires no open transaction on the connection",
         )
+    if artifact is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            "warm start requires a loaded geography artifact",
+        )
     db.begin(conn)
     try:
+        _populate_geography(conn, dataset_version, artifact)
         _build_fixture(conn, config)
         db.commit(conn)
     except EngineError:
