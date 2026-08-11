@@ -9,6 +9,7 @@ __pycache__/
 
 docs/
 AGENTS.md
+CLAUDE.md
 
 data/snapshots/*
 !data/snapshots/*.source.json

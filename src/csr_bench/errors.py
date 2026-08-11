@@ -26,6 +26,7 @@ class ErrorCode(StrEnum):
     MIGRATION_CHECKSUM_MISMATCH = "migration_checksum_mismatch"
     VIEW_REGISTRY_MISMATCH = "view_registry_mismatch"
     ADDRESS_NORMALIZATION_AMBIGUOUS = "address_normalization_ambiguous"
+    ADDRESS_UNRESOLVABLE = "address_unresolvable"
     GEOGRAPHY_ARTIFACT_MISMATCH = "geography_artifact_mismatch"
 
 

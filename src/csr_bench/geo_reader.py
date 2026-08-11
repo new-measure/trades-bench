@@ -14,6 +14,9 @@ CATALOG_RELATIVE_PATH = "addresses/catalog.csv"
 ANCHORS_RELATIVE_PATH = "routing/anchors.csv"
 ANCHOR_MATRIX_RELATIVE_PATH = "routing/anchor_distance.bin"
 ZONE_DEFINITIONS_RELATIVE_PATH = "zones/zone_definitions.geojson"
+ABBREVIATION_TABLE_RELATIVE_PATH = "normalization/usps_abbreviations.json"
+
+ANCHOR_MATRIX_FIXED_POINT_SCALE = 100
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,22 @@ class GeoArtifact:
     anchors: tuple[AnchorRow, ...]
     anchor_matrix: array.array
     zone_centroids: tuple[ZoneCentroid, ...]
+    abbreviation_table: dict[str, dict[str, str]]
+
+    def anchor_distance_km(self, anchor_id_a: int, anchor_id_b: int) -> float:
+        n = len(self.anchors)
+        i, j = anchor_id_a - 1, anchor_id_b - 1
+        if not (0 <= i < n) or not (0 <= j < n):
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED,
+                "anchor_id is out of range for the loaded anchor matrix",
+                details={
+                    "anchor_id_a": anchor_id_a,
+                    "anchor_id_b": anchor_id_b,
+                    "anchor_count": n,
+                },
+            )
+        return self.anchor_matrix[i * n + j] / ANCHOR_MATRIX_FIXED_POINT_SCALE
 
 
 def read_manifest(artifact_dir: Path | str) -> dict:
@@ -221,6 +240,11 @@ def read_zone_centroids(artifact_dir: Path | str) -> tuple[ZoneCentroid, ...]:
     return tuple(sorted(centroids, key=lambda c: c.zone_id))
 
 
+def read_abbreviation_table(artifact_dir: Path | str) -> dict[str, dict[str, str]]:
+    path = Path(artifact_dir) / ABBREVIATION_TABLE_RELATIVE_PATH
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def load_artifact(artifact_dir: Path | str) -> GeoArtifact:
     manifest = read_manifest(artifact_dir)
     anchors = read_anchors(artifact_dir)
@@ -231,6 +255,7 @@ def load_artifact(artifact_dir: Path | str) -> GeoArtifact:
         anchors=anchors,
         anchor_matrix=anchor_matrix,
         zone_centroids=read_zone_centroids(artifact_dir),
+        abbreviation_table=read_abbreviation_table(artifact_dir),
     )
 
 
@@ -332,6 +357,7 @@ __all__ = [
     "GeoArtifact",
     "ZoneCentroid",
     "load_artifact",
+    "read_abbreviation_table",
     "read_anchor_matrix",
     "read_anchors",
     "read_catalog",
