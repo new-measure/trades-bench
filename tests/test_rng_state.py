@@ -1,7 +1,3 @@
-"""Sequential-stream state in ``_rng_state`` (spec 01 §Audit: "Named-stream
-states Must be persisted inside the same transaction that advances them";
-decision 1: state is exactly ``(seed, counter)``)."""
-
 from __future__ import annotations
 
 import sqlite3
@@ -21,7 +17,7 @@ STREAM = "weather_process"
 SEED = stream_seed(MASTER, SPEC, STREAM)
 
 
-def _new_run(path) -> tuple[sqlite3.Connection, str]:  # str | Path
+def _new_run(path) -> tuple[sqlite3.Connection, str]:
     conn = _open(path)
     rid = new_run_id()
     begin(conn)
@@ -41,7 +37,7 @@ def _new_run(path) -> tuple[sqlite3.Connection, str]:  # str | Path
     return conn, rid
 
 
-def _open(path) -> sqlite3.Connection:  # str | Path
+def _open(path) -> sqlite3.Connection:
     conn = connect(path)
     register_conn(conn)
     migrate(conn)
@@ -55,7 +51,6 @@ def _state_row(conn, stream=STREAM):
 
 
 def _committed_draws(conn, rng, n: int) -> list[int]:
-    """``n`` draws, each in its own committed transaction."""
     out = []
     for _ in range(n):
         begin(conn)
@@ -66,15 +61,10 @@ def _committed_draws(conn, rng, n: int) -> list[int]:
     return out
 
 
-# ---------------------------------------------------------------------------
-# (a) committed advances persist (seed, counter)
-# ---------------------------------------------------------------------------
-
-
 def test_committed_advance_persists_seed_and_counter(tmp_path):
     conn, rid = _new_run(tmp_path / "a.db")
     rng = Rng(MASTER, SPEC, conn=conn)
-    assert _state_row(conn) is None  # nothing written before the first draw
+    assert _state_row(conn) is None
 
     for i in range(2):
         begin(conn)
@@ -87,7 +77,6 @@ def test_committed_advance_persists_seed_and_counter(tmp_path):
         assert row["seed"] == SEED.hex()
         assert row["counter"] == i + 1
 
-    # two draws inside one transaction advance the persisted counter by two.
     begin(conn)
     rng.enter_txn()
     st = rng.stream(STREAM)
@@ -110,11 +99,6 @@ def test_only_the_advanced_stream_gets_a_row(tmp_path):
     assert names == [STREAM]
 
 
-# ---------------------------------------------------------------------------
-# (b) rollback discards the advance
-# ---------------------------------------------------------------------------
-
-
 def test_rollback_discards_the_counter_advance(tmp_path):
     conn, rid = _new_run(tmp_path / "b.db")
     rng = Rng(MASTER, SPEC, conn=conn)
@@ -124,24 +108,17 @@ def test_rollback_discards_the_counter_advance(tmp_path):
     begin(conn)
     rng.enter_txn()
     rolled_back = rng.stream(STREAM).next()
-    assert _state_row(conn)["counter"] == 2  # visible inside the txn
+    assert _state_row(conn)["counter"] == 2
     rng.exit_txn()
     rollback(conn)
 
     assert rolled_back == sequential_draw(SEED, 1)
-    assert _state_row(conn)["counter"] == 1  # unchanged after the rollback
-    # a fresh reader over the same file agrees
+    assert _state_row(conn)["counter"] == 1
     fresh = Rng(MASTER, SPEC, conn=conn)
     assert fresh.seq_state()[STREAM] == (SEED.hex(), 1)
 
-    # and the next committed draw repeats the rolled-back value
     assert _committed_draws(conn, rng, 1) == [rolled_back]
     assert _state_row(conn)["counter"] == 2
-
-
-# ---------------------------------------------------------------------------
-# (c) resume: fresh connection + fresh Rng continues the stream (DET-02 shape)
-# ---------------------------------------------------------------------------
 
 
 def test_fresh_connection_and_rng_resume_the_stream(tmp_path):
@@ -152,21 +129,15 @@ def test_fresh_connection_and_rng_resume_the_stream(tmp_path):
 
     conn2 = _open(path)
     rng2 = Rng(MASTER, SPEC, conn=conn2)
-    assert rng2.seq_state()[STREAM] == (SEED.hex(), 3)  # adopted at construction
+    assert rng2.seq_state()[STREAM] == (SEED.hex(), 3)
     interrupted += _committed_draws(conn2, rng2, 4)
 
-    # an uninterrupted run over a second, identical database
     conn_b, rid_b = _new_run(tmp_path / "straight.db")
     straight = _committed_draws(conn_b, Rng(MASTER, SPEC, conn=conn_b), 7)
 
     assert interrupted == straight
     assert straight == [sequential_draw(SEED, c) for c in range(7)]
     assert _state_row(conn2)["counter"] == _state_row(conn_b)["counter"] == 7
-
-
-# ---------------------------------------------------------------------------
-# (d) the transaction guard
-# ---------------------------------------------------------------------------
 
 
 def test_advance_outside_an_open_txn_is_refused(tmp_path):
@@ -177,8 +148,6 @@ def test_advance_outside_an_open_txn_is_refused(tmp_path):
         rng.stream(STREAM).next()
     assert ei.value.code is ErrorCode.DRAW_OUTSIDE_TXN
 
-    # engine flag set but no database transaction: still refused, otherwise the
-    # _rng_state upsert would autocommit outside the draw's transaction.
     rng.enter_txn()
     with pytest.raises(EngineError) as ei:
         rng.stream(STREAM).next()
@@ -189,9 +158,6 @@ def test_advance_outside_an_open_txn_is_refused(tmp_path):
 
 
 def test_restore_outside_an_open_txn_is_refused(tmp_path):
-    # restore_seq_state writes _rng_state exactly like next() does, and must
-    # be refused the same way, or the write would autocommit on a bound Rng
-    # (review finding: rng.py restore_seq_state had no guard at all).
     conn, rid = _new_run(tmp_path / "d2.db")
     rng = Rng(MASTER, SPEC, conn=conn)
     snapshot = {STREAM: (SEED.hex(), 5)}
@@ -201,7 +167,6 @@ def test_restore_outside_an_open_txn_is_refused(tmp_path):
     assert ei.value.code is ErrorCode.DRAW_OUTSIDE_TXN
     assert _state_row(conn) is None
 
-    # engine flag set but no database transaction: still refused.
     rng.enter_txn()
     with pytest.raises(EngineError) as ei:
         rng.restore_seq_state(snapshot)
@@ -209,14 +174,11 @@ def test_restore_outside_an_open_txn_is_refused(tmp_path):
     rng.exit_txn()
 
     assert _state_row(conn) is None
-    # a fresh reader over the same file agrees nothing was ever committed.
     fresh = Rng(MASTER, SPEC, conn=conn)
     assert fresh.seq_state() == {}
 
 
 def test_restore_rejects_a_seed_from_a_different_master_seed(tmp_path):
-    # The seed invariant must hold on write, not just on read (_load_counter),
-    # or a restore can leave a row no fresh Rng over this run can open.
     conn, rid = _new_run(tmp_path / "d3.db")
     rng = Rng(MASTER, SPEC, conn=conn)
     foreign_seed = stream_seed(MASTER + 1, SPEC, STREAM)
@@ -231,14 +193,11 @@ def test_restore_rejects_a_seed_from_a_different_master_seed(tmp_path):
     rollback(conn)
 
     assert _state_row(conn) is None
-    # this run's own Rng still opens cleanly afterward — nothing corrupted.
     fresh = Rng(MASTER, SPEC, conn=conn)
     assert fresh.seq_state() == {}
 
 
 def test_state_resyncs_after_rollback(tmp_path):
-    # SequentialStream.state() must report the persisted counter, not the
-    # in-memory one, which stays one ahead of a rolled-back draw.
     conn, rid = _new_run(tmp_path / "d4.db")
     rng = Rng(MASTER, SPEC, conn=conn)
     _committed_draws(conn, rng, 1)
@@ -250,25 +209,19 @@ def test_state_resyncs_after_rollback(tmp_path):
     rng.exit_txn()
     rollback(conn)
 
-    assert st.state() == (SEED.hex(), 1)  # not (SEED.hex(), 2)
+    assert st.state() == (SEED.hex(), 1)
     assert _state_row(conn)["counter"] == 1
 
 
 def test_unbound_rng_needs_no_database(tmp_path):
-    rng = Rng(MASTER, SPEC)  # no conn: in-memory sequential state only
+    rng = Rng(MASTER, SPEC)
     rng.enter_txn()
     assert rng.stream(STREAM).next() == sequential_draw(SEED, 0)
     rng.exit_txn()
     conn, rid = _new_run(tmp_path / "half.db")
-    # a bound Rng adopts the run's committed state, and unbound stays memory-only.
     bound = Rng(MASTER, SPEC, conn=conn)
     assert bound.seq_state() == {}
     assert Rng(MASTER, SPEC).seq_state() == {}
-
-
-# ---------------------------------------------------------------------------
-# The real command machinery (txn.command) drives the same guarantees
-# ---------------------------------------------------------------------------
 
 
 def test_counter_follows_the_command_transaction():
@@ -289,17 +242,14 @@ def test_counter_follows_the_command_transaction():
     assert drawn == [sequential_draw(seed, 0)]
     assert _state_row(conn)["counter"] == 1
 
-    # a failing command rolls its advance back
     command(sv, "req-2", advance_then_fail)
     assert drawn[-1] == sequential_draw(seed, 1)
     assert _state_row(conn)["counter"] == 1
 
-    # replaying req-1 returns the stored response and consumes nothing
     assert command(sv, "req-1", advance) == first
     assert len(drawn) == 2
     assert _state_row(conn)["counter"] == 1
 
-    # the next real command re-draws the rolled-back value
     command(sv, "req-3", advance)
     assert drawn[-1] == sequential_draw(seed, 1)
     assert _state_row(conn)["counter"] == 2

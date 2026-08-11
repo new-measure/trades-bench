@@ -299,4 +299,490 @@
     <tag k="addr:street" v="Main St"/>
     <tag k="addr:postcode" v="85251"/>
   </way>
+  <!-- drivable road grid (CSR-003c): a regular lattice covering the
+       address elements above, so the opt-in OSRM tests have a real
+       network to snap and route on. No addr:* tag, so none of these
+       elements ever enters the address funnel. -->
+  <node id="3000" lat="33.540000" lon="-111.870000"/>
+  <node id="3001" lat="33.540000" lon="-111.860000"/>
+  <node id="3002" lat="33.540000" lon="-111.850000"/>
+  <node id="3003" lat="33.540000" lon="-111.840000"/>
+  <node id="3004" lat="33.540000" lon="-111.830000"/>
+  <node id="3005" lat="33.540000" lon="-111.820000"/>
+  <node id="3006" lat="33.540000" lon="-111.810000"/>
+  <node id="3007" lat="33.540000" lon="-111.800000"/>
+  <node id="3008" lat="33.540000" lon="-111.790000"/>
+  <node id="3009" lat="33.540000" lon="-111.780000"/>
+  <node id="3010" lat="33.540000" lon="-111.770000"/>
+  <node id="3011" lat="33.540000" lon="-111.760000"/>
+  <node id="3012" lat="33.540000" lon="-111.750000"/>
+  <node id="3013" lat="33.550000" lon="-111.870000"/>
+  <node id="3014" lat="33.550000" lon="-111.860000"/>
+  <node id="3015" lat="33.550000" lon="-111.850000"/>
+  <node id="3016" lat="33.550000" lon="-111.840000"/>
+  <node id="3017" lat="33.550000" lon="-111.830000"/>
+  <node id="3018" lat="33.550000" lon="-111.820000"/>
+  <node id="3019" lat="33.550000" lon="-111.810000"/>
+  <node id="3020" lat="33.550000" lon="-111.800000"/>
+  <node id="3021" lat="33.550000" lon="-111.790000"/>
+  <node id="3022" lat="33.550000" lon="-111.780000"/>
+  <node id="3023" lat="33.550000" lon="-111.770000"/>
+  <node id="3024" lat="33.550000" lon="-111.760000"/>
+  <node id="3025" lat="33.550000" lon="-111.750000"/>
+  <node id="3026" lat="33.560000" lon="-111.870000"/>
+  <node id="3027" lat="33.560000" lon="-111.860000"/>
+  <node id="3028" lat="33.560000" lon="-111.850000"/>
+  <node id="3029" lat="33.560000" lon="-111.840000"/>
+  <node id="3030" lat="33.560000" lon="-111.830000"/>
+  <node id="3031" lat="33.560000" lon="-111.820000"/>
+  <node id="3032" lat="33.560000" lon="-111.810000"/>
+  <node id="3033" lat="33.560000" lon="-111.800000"/>
+  <node id="3034" lat="33.560000" lon="-111.790000"/>
+  <node id="3035" lat="33.560000" lon="-111.780000"/>
+  <node id="3036" lat="33.560000" lon="-111.770000"/>
+  <node id="3037" lat="33.560000" lon="-111.760000"/>
+  <node id="3038" lat="33.560000" lon="-111.750000"/>
+  <node id="3039" lat="33.570000" lon="-111.870000"/>
+  <node id="3040" lat="33.570000" lon="-111.860000"/>
+  <node id="3041" lat="33.570000" lon="-111.850000"/>
+  <node id="3042" lat="33.570000" lon="-111.840000"/>
+  <node id="3043" lat="33.570000" lon="-111.830000"/>
+  <node id="3044" lat="33.570000" lon="-111.820000"/>
+  <node id="3045" lat="33.570000" lon="-111.810000"/>
+  <node id="3046" lat="33.570000" lon="-111.800000"/>
+  <node id="3047" lat="33.570000" lon="-111.790000"/>
+  <node id="3048" lat="33.570000" lon="-111.780000"/>
+  <node id="3049" lat="33.570000" lon="-111.770000"/>
+  <node id="3050" lat="33.570000" lon="-111.760000"/>
+  <node id="3051" lat="33.570000" lon="-111.750000"/>
+  <node id="3052" lat="33.580000" lon="-111.870000"/>
+  <node id="3053" lat="33.580000" lon="-111.860000"/>
+  <node id="3054" lat="33.580000" lon="-111.850000"/>
+  <node id="3055" lat="33.580000" lon="-111.840000"/>
+  <node id="3056" lat="33.580000" lon="-111.830000"/>
+  <node id="3057" lat="33.580000" lon="-111.820000"/>
+  <node id="3058" lat="33.580000" lon="-111.810000"/>
+  <node id="3059" lat="33.580000" lon="-111.800000"/>
+  <node id="3060" lat="33.580000" lon="-111.790000"/>
+  <node id="3061" lat="33.580000" lon="-111.780000"/>
+  <node id="3062" lat="33.580000" lon="-111.770000"/>
+  <node id="3063" lat="33.580000" lon="-111.760000"/>
+  <node id="3064" lat="33.580000" lon="-111.750000"/>
+  <node id="3065" lat="33.590000" lon="-111.870000"/>
+  <node id="3066" lat="33.590000" lon="-111.860000"/>
+  <node id="3067" lat="33.590000" lon="-111.850000"/>
+  <node id="3068" lat="33.590000" lon="-111.840000"/>
+  <node id="3069" lat="33.590000" lon="-111.830000"/>
+  <node id="3070" lat="33.590000" lon="-111.820000"/>
+  <node id="3071" lat="33.590000" lon="-111.810000"/>
+  <node id="3072" lat="33.590000" lon="-111.800000"/>
+  <node id="3073" lat="33.590000" lon="-111.790000"/>
+  <node id="3074" lat="33.590000" lon="-111.780000"/>
+  <node id="3075" lat="33.590000" lon="-111.770000"/>
+  <node id="3076" lat="33.590000" lon="-111.760000"/>
+  <node id="3077" lat="33.590000" lon="-111.750000"/>
+  <node id="3078" lat="33.600000" lon="-111.870000"/>
+  <node id="3079" lat="33.600000" lon="-111.860000"/>
+  <node id="3080" lat="33.600000" lon="-111.850000"/>
+  <node id="3081" lat="33.600000" lon="-111.840000"/>
+  <node id="3082" lat="33.600000" lon="-111.830000"/>
+  <node id="3083" lat="33.600000" lon="-111.820000"/>
+  <node id="3084" lat="33.600000" lon="-111.810000"/>
+  <node id="3085" lat="33.600000" lon="-111.800000"/>
+  <node id="3086" lat="33.600000" lon="-111.790000"/>
+  <node id="3087" lat="33.600000" lon="-111.780000"/>
+  <node id="3088" lat="33.600000" lon="-111.770000"/>
+  <node id="3089" lat="33.600000" lon="-111.760000"/>
+  <node id="3090" lat="33.600000" lon="-111.750000"/>
+  <node id="3091" lat="33.610000" lon="-111.870000"/>
+  <node id="3092" lat="33.610000" lon="-111.860000"/>
+  <node id="3093" lat="33.610000" lon="-111.850000"/>
+  <node id="3094" lat="33.610000" lon="-111.840000"/>
+  <node id="3095" lat="33.610000" lon="-111.830000"/>
+  <node id="3096" lat="33.610000" lon="-111.820000"/>
+  <node id="3097" lat="33.610000" lon="-111.810000"/>
+  <node id="3098" lat="33.610000" lon="-111.800000"/>
+  <node id="3099" lat="33.610000" lon="-111.790000"/>
+  <node id="3100" lat="33.610000" lon="-111.780000"/>
+  <node id="3101" lat="33.610000" lon="-111.770000"/>
+  <node id="3102" lat="33.610000" lon="-111.760000"/>
+  <node id="3103" lat="33.610000" lon="-111.750000"/>
+  <node id="3104" lat="33.620000" lon="-111.870000"/>
+  <node id="3105" lat="33.620000" lon="-111.860000"/>
+  <node id="3106" lat="33.620000" lon="-111.850000"/>
+  <node id="3107" lat="33.620000" lon="-111.840000"/>
+  <node id="3108" lat="33.620000" lon="-111.830000"/>
+  <node id="3109" lat="33.620000" lon="-111.820000"/>
+  <node id="3110" lat="33.620000" lon="-111.810000"/>
+  <node id="3111" lat="33.620000" lon="-111.800000"/>
+  <node id="3112" lat="33.620000" lon="-111.790000"/>
+  <node id="3113" lat="33.620000" lon="-111.780000"/>
+  <node id="3114" lat="33.620000" lon="-111.770000"/>
+  <node id="3115" lat="33.620000" lon="-111.760000"/>
+  <node id="3116" lat="33.620000" lon="-111.750000"/>
+  <node id="3117" lat="33.630000" lon="-111.870000"/>
+  <node id="3118" lat="33.630000" lon="-111.860000"/>
+  <node id="3119" lat="33.630000" lon="-111.850000"/>
+  <node id="3120" lat="33.630000" lon="-111.840000"/>
+  <node id="3121" lat="33.630000" lon="-111.830000"/>
+  <node id="3122" lat="33.630000" lon="-111.820000"/>
+  <node id="3123" lat="33.630000" lon="-111.810000"/>
+  <node id="3124" lat="33.630000" lon="-111.800000"/>
+  <node id="3125" lat="33.630000" lon="-111.790000"/>
+  <node id="3126" lat="33.630000" lon="-111.780000"/>
+  <node id="3127" lat="33.630000" lon="-111.770000"/>
+  <node id="3128" lat="33.630000" lon="-111.760000"/>
+  <node id="3129" lat="33.630000" lon="-111.750000"/>
+  <way id="3100">
+    <nd ref="3000"/>
+    <nd ref="3001"/>
+    <nd ref="3002"/>
+    <nd ref="3003"/>
+    <nd ref="3004"/>
+    <nd ref="3005"/>
+    <nd ref="3006"/>
+    <nd ref="3007"/>
+    <nd ref="3008"/>
+    <nd ref="3009"/>
+    <nd ref="3010"/>
+    <nd ref="3011"/>
+    <nd ref="3012"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Row 0"/>
+  </way>
+  <way id="3101">
+    <nd ref="3013"/>
+    <nd ref="3014"/>
+    <nd ref="3015"/>
+    <nd ref="3016"/>
+    <nd ref="3017"/>
+    <nd ref="3018"/>
+    <nd ref="3019"/>
+    <nd ref="3020"/>
+    <nd ref="3021"/>
+    <nd ref="3022"/>
+    <nd ref="3023"/>
+    <nd ref="3024"/>
+    <nd ref="3025"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Row 1"/>
+  </way>
+  <way id="3102">
+    <nd ref="3026"/>
+    <nd ref="3027"/>
+    <nd ref="3028"/>
+    <nd ref="3029"/>
+    <nd ref="3030"/>
+    <nd ref="3031"/>
+    <nd ref="3032"/>
+    <nd ref="3033"/>
+    <nd ref="3034"/>
+    <nd ref="3035"/>
+    <nd ref="3036"/>
+    <nd ref="3037"/>
+    <nd ref="3038"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Row 2"/>
+  </way>
+  <way id="3103">
+    <nd ref="3039"/>
+    <nd ref="3040"/>
+    <nd ref="3041"/>
+    <nd ref="3042"/>
+    <nd ref="3043"/>
+    <nd ref="3044"/>
+    <nd ref="3045"/>
+    <nd ref="3046"/>
+    <nd ref="3047"/>
+    <nd ref="3048"/>
+    <nd ref="3049"/>
+    <nd ref="3050"/>
+    <nd ref="3051"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Row 3"/>
+  </way>
+  <way id="3104">
+    <nd ref="3052"/>
+    <nd ref="3053"/>
+    <nd ref="3054"/>
+    <nd ref="3055"/>
+    <nd ref="3056"/>
+    <nd ref="3057"/>
+    <nd ref="3058"/>
+    <nd ref="3059"/>
+    <nd ref="3060"/>
+    <nd ref="3061"/>
+    <nd ref="3062"/>
+    <nd ref="3063"/>
+    <nd ref="3064"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Row 4"/>
+  </way>
+  <way id="3105">
+    <nd ref="3065"/>
+    <nd ref="3066"/>
+    <nd ref="3067"/>
+    <nd ref="3068"/>
+    <nd ref="3069"/>
+    <nd ref="3070"/>
+    <nd ref="3071"/>
+    <nd ref="3072"/>
+    <nd ref="3073"/>
+    <nd ref="3074"/>
+    <nd ref="3075"/>
+    <nd ref="3076"/>
+    <nd ref="3077"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Row 5"/>
+  </way>
+  <way id="3106">
+    <nd ref="3078"/>
+    <nd ref="3079"/>
+    <nd ref="3080"/>
+    <nd ref="3081"/>
+    <nd ref="3082"/>
+    <nd ref="3083"/>
+    <nd ref="3084"/>
+    <nd ref="3085"/>
+    <nd ref="3086"/>
+    <nd ref="3087"/>
+    <nd ref="3088"/>
+    <nd ref="3089"/>
+    <nd ref="3090"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Row 6"/>
+  </way>
+  <way id="3107">
+    <nd ref="3091"/>
+    <nd ref="3092"/>
+    <nd ref="3093"/>
+    <nd ref="3094"/>
+    <nd ref="3095"/>
+    <nd ref="3096"/>
+    <nd ref="3097"/>
+    <nd ref="3098"/>
+    <nd ref="3099"/>
+    <nd ref="3100"/>
+    <nd ref="3101"/>
+    <nd ref="3102"/>
+    <nd ref="3103"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Row 7"/>
+  </way>
+  <way id="3108">
+    <nd ref="3104"/>
+    <nd ref="3105"/>
+    <nd ref="3106"/>
+    <nd ref="3107"/>
+    <nd ref="3108"/>
+    <nd ref="3109"/>
+    <nd ref="3110"/>
+    <nd ref="3111"/>
+    <nd ref="3112"/>
+    <nd ref="3113"/>
+    <nd ref="3114"/>
+    <nd ref="3115"/>
+    <nd ref="3116"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Row 8"/>
+  </way>
+  <way id="3109">
+    <nd ref="3117"/>
+    <nd ref="3118"/>
+    <nd ref="3119"/>
+    <nd ref="3120"/>
+    <nd ref="3121"/>
+    <nd ref="3122"/>
+    <nd ref="3123"/>
+    <nd ref="3124"/>
+    <nd ref="3125"/>
+    <nd ref="3126"/>
+    <nd ref="3127"/>
+    <nd ref="3128"/>
+    <nd ref="3129"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Row 9"/>
+  </way>
+  <way id="3110">
+    <nd ref="3000"/>
+    <nd ref="3013"/>
+    <nd ref="3026"/>
+    <nd ref="3039"/>
+    <nd ref="3052"/>
+    <nd ref="3065"/>
+    <nd ref="3078"/>
+    <nd ref="3091"/>
+    <nd ref="3104"/>
+    <nd ref="3117"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 0"/>
+  </way>
+  <way id="3111">
+    <nd ref="3001"/>
+    <nd ref="3014"/>
+    <nd ref="3027"/>
+    <nd ref="3040"/>
+    <nd ref="3053"/>
+    <nd ref="3066"/>
+    <nd ref="3079"/>
+    <nd ref="3092"/>
+    <nd ref="3105"/>
+    <nd ref="3118"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 1"/>
+  </way>
+  <way id="3112">
+    <nd ref="3002"/>
+    <nd ref="3015"/>
+    <nd ref="3028"/>
+    <nd ref="3041"/>
+    <nd ref="3054"/>
+    <nd ref="3067"/>
+    <nd ref="3080"/>
+    <nd ref="3093"/>
+    <nd ref="3106"/>
+    <nd ref="3119"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 2"/>
+  </way>
+  <way id="3113">
+    <nd ref="3003"/>
+    <nd ref="3016"/>
+    <nd ref="3029"/>
+    <nd ref="3042"/>
+    <nd ref="3055"/>
+    <nd ref="3068"/>
+    <nd ref="3081"/>
+    <nd ref="3094"/>
+    <nd ref="3107"/>
+    <nd ref="3120"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 3"/>
+  </way>
+  <way id="3114">
+    <nd ref="3004"/>
+    <nd ref="3017"/>
+    <nd ref="3030"/>
+    <nd ref="3043"/>
+    <nd ref="3056"/>
+    <nd ref="3069"/>
+    <nd ref="3082"/>
+    <nd ref="3095"/>
+    <nd ref="3108"/>
+    <nd ref="3121"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 4"/>
+  </way>
+  <way id="3115">
+    <nd ref="3005"/>
+    <nd ref="3018"/>
+    <nd ref="3031"/>
+    <nd ref="3044"/>
+    <nd ref="3057"/>
+    <nd ref="3070"/>
+    <nd ref="3083"/>
+    <nd ref="3096"/>
+    <nd ref="3109"/>
+    <nd ref="3122"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 5"/>
+  </way>
+  <way id="3116">
+    <nd ref="3006"/>
+    <nd ref="3019"/>
+    <nd ref="3032"/>
+    <nd ref="3045"/>
+    <nd ref="3058"/>
+    <nd ref="3071"/>
+    <nd ref="3084"/>
+    <nd ref="3097"/>
+    <nd ref="3110"/>
+    <nd ref="3123"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 6"/>
+  </way>
+  <way id="3117">
+    <nd ref="3007"/>
+    <nd ref="3020"/>
+    <nd ref="3033"/>
+    <nd ref="3046"/>
+    <nd ref="3059"/>
+    <nd ref="3072"/>
+    <nd ref="3085"/>
+    <nd ref="3098"/>
+    <nd ref="3111"/>
+    <nd ref="3124"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 7"/>
+  </way>
+  <way id="3118">
+    <nd ref="3008"/>
+    <nd ref="3021"/>
+    <nd ref="3034"/>
+    <nd ref="3047"/>
+    <nd ref="3060"/>
+    <nd ref="3073"/>
+    <nd ref="3086"/>
+    <nd ref="3099"/>
+    <nd ref="3112"/>
+    <nd ref="3125"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 8"/>
+  </way>
+  <way id="3119">
+    <nd ref="3009"/>
+    <nd ref="3022"/>
+    <nd ref="3035"/>
+    <nd ref="3048"/>
+    <nd ref="3061"/>
+    <nd ref="3074"/>
+    <nd ref="3087"/>
+    <nd ref="3100"/>
+    <nd ref="3113"/>
+    <nd ref="3126"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 9"/>
+  </way>
+  <way id="3120">
+    <nd ref="3010"/>
+    <nd ref="3023"/>
+    <nd ref="3036"/>
+    <nd ref="3049"/>
+    <nd ref="3062"/>
+    <nd ref="3075"/>
+    <nd ref="3088"/>
+    <nd ref="3101"/>
+    <nd ref="3114"/>
+    <nd ref="3127"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 10"/>
+  </way>
+  <way id="3121">
+    <nd ref="3011"/>
+    <nd ref="3024"/>
+    <nd ref="3037"/>
+    <nd ref="3050"/>
+    <nd ref="3063"/>
+    <nd ref="3076"/>
+    <nd ref="3089"/>
+    <nd ref="3102"/>
+    <nd ref="3115"/>
+    <nd ref="3128"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 11"/>
+  </way>
+  <way id="3122">
+    <nd ref="3012"/>
+    <nd ref="3025"/>
+    <nd ref="3038"/>
+    <nd ref="3051"/>
+    <nd ref="3064"/>
+    <nd ref="3077"/>
+    <nd ref="3090"/>
+    <nd ref="3103"/>
+    <nd ref="3116"/>
+    <nd ref="3129"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Grid Col 12"/>
+  </way>
 </osm>

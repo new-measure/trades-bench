@@ -1,17 +1,3 @@
-"""SCH-08 provenance hidden (spec 02 §1.3, §13; spec 09 VIS-09;
-CSR-002 decisions 8, 18).
-
-``origin`` is a private provenance marker on the 15 root-entity tables
-(§1.3) and must appear in no public view; and warm-start rows must be
-structurally indistinguishable from run rows in every public projection
-(02:616: "as ordinary rows indistinguishable in structure from rows the run
-will create"). The fixture passes ``'warm_start'`` explicitly while the
-schema default is ``'run'`` (decision 18), so a mixed world exists to prove
-indistinguishability: the four fixture technicians (``origin='warm_start'``)
-and a hand-inserted run technician (default ``origin='run'``) must project
-through the ``technicians`` view with identical column sets and shapes.
-"""
-
 from __future__ import annotations
 
 import sqlite3
@@ -37,9 +23,6 @@ def test_origin_appears_in_no_view_column_list():
 
 
 def test_warm_start_rows_are_indistinguishable_from_run_rows(tmp_path):
-    # The four fixture technicians carry origin='warm_start'; the inserted
-    # row 900 is a run row (the schema default). Both project identically
-    # through the technicians view: same column set, no origin, same shapes.
     conn = _warm_run(tmp_path)
     conn.execute(
         "INSERT INTO _technicians (id, name, street, unit, city, state, postal_code, "
@@ -59,7 +42,6 @@ def test_warm_start_rows_are_indistinguishable_from_run_rows(tmp_path):
     ]
     assert list(run_row.keys()) == declared
     assert "origin" not in run_row.keys()
-    # every projection column resolves the same way for both origins
     for warm_row in rows[:-1]:
         assert list(warm_row.keys()) == list(run_row.keys())
         for key in ("id", "name", "home_zone_id"):

@@ -1,8 +1,3 @@
-"""tools.geo_build.zones: administrative-relation zone polygons, the
-Central/North Phoenix split, and disjointness, against the hand-built
-`tests/fixtures/geo/zones_basic.osm` fixture (CSR-003b, RES-60).
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -69,7 +64,6 @@ def test_phoenix_split_produces_two_disjoint_halves_at_the_pinned_latitude():
     central = by_code["central_phoenix"].polygon
     north = by_code["north_phoenix"].polygon
 
-    # Both halves come from the same single Phoenix relation.
     assert by_code["central_phoenix"].source_relation_ids == (
         by_code["north_phoenix"].source_relation_ids
     )
@@ -86,19 +80,16 @@ def test_west_valley_goodyear_is_the_union_of_three_relations():
     by_code = {z.code: z for z in result.zones}
     wv = by_code["west_valley_goodyear"]
     assert len(wv.source_relation_ids) == 3
-    # union area should exceed any single component's area.
     goodyear = next(m for m in result.municipal_relations if m.name == "Goodyear")
     assert wv.polygon.area > goodyear.polygon.area
 
 
 def test_extract_zones_result_is_pairwise_disjoint():
-    result = zones.extract_zones(FIXTURE)  # must not raise
+    result = zones.extract_zones(FIXTURE)
     assert len(result.zones) == 10
 
 
 def test_extract_zones_missing_relation_raises_clear_error(tmp_path):
-    # Drop the Gilbert relation (id 211) and its way/nodes by writing a
-    # trimmed copy of the fixture missing that relation's <relation> block.
     text = Path(FIXTURE).read_text(encoding="utf-8")
     lines = text.splitlines()
     filtered = []
@@ -119,10 +110,7 @@ def test_extract_zones_missing_relation_raises_clear_error(tmp_path):
 
 
 def test_extract_zones_disjointness_failure_surfaces_from_a_real_overlap(tmp_path):
-    # Take the fixture and move Gilbert's way nodes to overlap Chandler.
     text = Path(FIXTURE).read_text(encoding="utf-8")
-    # Chandler's way (108) covers lon[-112.12,-112.02] lat[33.67,33.77].
-    # Gilbert's nodes are ids 41-44 (rectangle 11 = 4*(11-1)+1..+4).
     overlapping = text
     overlapping = overlapping.replace(
         '<node id="41" lat="33.67" lon="-111.98"/>',
@@ -140,7 +128,7 @@ def test_extract_zones_disjointness_failure_surfaces_from_a_real_overlap(tmp_pat
         '<node id="44" lat="33.77" lon="-111.98"/>',
         '<node id="44" lat="33.77" lon="-112.08"/>',
     )
-    assert overlapping != text  # the replacements actually matched something
+    assert overlapping != text
     moved = tmp_path / "overlap.osm"
     moved.write_text(overlapping, encoding="utf-8")
 
@@ -156,30 +144,7 @@ def test_seeded_zone_cities_matches_schema_seed():
     assert seeded["north_phoenix"] == ["North Phoenix", "Phoenix"]
 
 
-# ---------------------------------------------------------------------------
-# Review finding 5: self-intersecting ("bowtie") relation polygons must be
-# repaired, never silently used, and must fail loudly if unrepairable.
-# ---------------------------------------------------------------------------
-
-
 def test_extract_zones_fails_loudly_on_a_self_intersecting_bowtie_ring(tmp_path):
-    # Gilbert's way (111) normally connects corners 41,42,43,44 in rectangle
-    # order (lon[-111.98,-111.88] x lat[33.67,33.77]). Reordering to
-    # 41,43,42,44 connects opposite corners instead, crossing the two
-    # diagonals into a self-intersecting bowtie.
-    #
-    # Empirically, pyosmium's own area assembler does its own ring-validity
-    # check and rejects this shape (a bare `RuntimeError: invalid area`)
-    # before shapely ever sees geometry to repair — this is the real-world
-    # failure path a self-intersecting relation actually takes through this
-    # pipeline (`_AdminAreaHandler.area()` re-raises it as the same clear,
-    # relation-naming error `geometry.validate_or_repair_polygon` would give
-    # a bowtie that instead reached the shapely level — see
-    # `test_geo_geometry.py`'s direct unit tests of that function for the
-    # repair-vs-unrepairable cases with a hand-built shapely polygon that
-    # bypasses pyosmium's own check entirely). Either way, a self-
-    # intersecting ring must never sail through split/union/disjointness
-    # silently, and it does not: this always fails the build loudly.
     text = Path(FIXTURE).read_text(encoding="utf-8")
     bowtied = text.replace(
         '  <way id="111">\n'
@@ -199,13 +164,8 @@ def test_extract_zones_fails_loudly_on_a_self_intersecting_bowtie_ring(tmp_path)
     path = tmp_path / "bowtie.osm"
     path.write_text(bowtied, encoding="utf-8")
 
-    with pytest.raises(ValueError, match="211"):  # Gilbert's relation id
+    with pytest.raises(ValueError, match="211"):
         zones.extract_zones(str(path))
-
-
-# ---------------------------------------------------------------------------
-# Review finding 6: admin_level filtering and duplicate-name collisions.
-# ---------------------------------------------------------------------------
 
 
 def _fixture_with_extra_relation(extra_xml: str, tmp_path: Path) -> str:
@@ -218,10 +178,6 @@ def _fixture_with_extra_relation(extra_xml: str, tmp_path: Path) -> str:
 
 
 def test_non_municipality_admin_level_relation_is_ignored(tmp_path):
-    # A county-level (admin_level=6) relation sharing Scottsdale's name must
-    # not collide with, or be mistaken for, the real admin_level=8
-    # municipality — real Geofabrik extracts layer county/state relations
-    # over the same territory and names.
     extra = (
         '  <node id="9001" lat="30.00" lon="-110.00"/>\n'
         '  <node id="9002" lat="30.00" lon="-109.90"/>\n'
@@ -241,22 +197,16 @@ def test_non_municipality_admin_level_relation_is_ignored(tmp_path):
     )
     path = _fixture_with_extra_relation(extra, tmp_path)
 
-    # Must not raise a duplicate-name error: the admin_level=6 decoy never
-    # enters the filtered (municipality-only) set.
     result = zones.extract_zones(path)
     by_code = {z.code: z for z in result.zones}
     scottsdale_muni = next(
         m for m in result.municipal_relations if m.name == "Scottsdale"
     )
-    # The real admin_level=8 relation (id 208) won, not the decoy (9200).
     assert scottsdale_muni.osm_relation_id == 208
     assert by_code["scottsdale"].source_relation_ids == (208,)
 
 
 def test_duplicate_admin_level_8_name_raises_clear_error(tmp_path):
-    # A second, genuinely admin_level=8 relation also named "Scottsdale" is
-    # a real ambiguity: extract_zones's name-based lookup cannot know which
-    # one is the intended municipality.
     extra = (
         '  <node id="9001" lat="30.00" lon="-110.00"/>\n'
         '  <node id="9002" lat="30.00" lon="-109.90"/>\n'

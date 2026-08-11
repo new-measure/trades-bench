@@ -1,14 +1,10 @@
-"""tools.geo_build.dedupe: duplicate_key / duplicate_coordinate, and
-deterministic first-wins (research/osm-data.md §4.4; CSR-003b, RES-60).
-"""
-
 from __future__ import annotations
 
 from decimal import Decimal
 
 import pytest
 
-pytest.importorskip("shapely")  # tools.geo_build.dedupe imports .geometry (shapely-backed)
+pytest.importorskip("shapely")
 
 from geo_build import dedupe  # noqa: E402
 from geo_build.models import Candidate  # noqa: E402
@@ -36,7 +32,6 @@ def _candidate(source_type, source_id, lon, lat, street, canonical_key):
 def test_duplicate_key_keeps_first_in_deterministic_order():
     a = _candidate("way", 5, -111.9, 33.5, "Main St", "SAME KEY")
     b = _candidate("node", 1, -111.8, 33.4, "Main St", "SAME KEY")
-    # Node (rank 0) sorts before way (rank 1) regardless of list order given.
     accepted, rejected = dedupe.dedupe([a, b], Decimal("10.0"))
     assert [c.source_id for c in accepted] == [1]
     assert len(rejected) == 1
@@ -56,7 +51,6 @@ def test_duplicate_key_first_wins_is_independent_of_input_order():
 
 def test_duplicate_coordinate_rejects_close_candidate_on_same_street():
     a = _candidate("node", 1, -111.900000, 33.500000, "Main St", "KEY A")
-    # ~5.5m north: within the default 10m radius.
     b = _candidate("node", 2, -111.900000, 33.500049, "Main St", "KEY B")
     accepted, rejected = dedupe.dedupe([a, b], Decimal("10.0"))
     assert [c.source_id for c in accepted] == [1]
@@ -74,7 +68,6 @@ def test_duplicate_coordinate_requires_the_same_street():
 
 def test_duplicate_coordinate_respects_the_configured_radius():
     a = _candidate("node", 1, -111.900000, 33.500000, "Main St", "KEY A")
-    # ~55m north: outside a 10m radius, inside a 100m radius.
     b = _candidate("node", 2, -111.900000, 33.500495, "Main St", "KEY B")
     accepted_tight, rejected_tight = dedupe.dedupe([a, b], Decimal("10.0"))
     assert {c.source_id for c in accepted_tight} == {1, 2}

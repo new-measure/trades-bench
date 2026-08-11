@@ -1,6 +1,3 @@
-"""Tests for deterministic randomness (spec 01 §Deterministic randomness,
-§Keyed-draw independence; decision 1)."""
-
 from __future__ import annotations
 
 import hashlib
@@ -36,7 +33,6 @@ def _u8(n: int) -> bytes:
 
 
 def test_stream_seed_formula_pinned_exactly():
-    # The exact canonical serialization: u64(master) || lp(spec) || lp(name).
     name = "acceptance"
     expected = hashlib.sha256(MASTER.to_bytes(8, "big") + _lp(SPEC) + _lp(name)).digest()
     assert stream_seed(MASTER, SPEC, name) == expected
@@ -68,15 +64,9 @@ def test_sequential_draw_formula_pinned():
         assert sequential_draw(seed, c) == expected
 
 
-# ---------------------------------------------------------------------------
-# Independence & determinism (DET-04/05 shape at the primitive level)
-# ---------------------------------------------------------------------------
-
-
 def test_keyed_draw_is_pure_and_order_independent():
     seed = stream_seed(MASTER, SPEC, "acceptance")
     a = keyed_draw(seed, "contract_test_entity", 7, "2026-10-01", "contract_test_event", 0)
-    # intervening draws with other keys must not shift `a`.
     for _ in range(5):
         keyed_draw(seed, "contract_test_entity", 999, "2026-10-02", "contract_test_event", 3)
         keyed_draw(seed, "contract_test_entity_alt", 7, "2026-10-01", "contract_test_event", 0)
@@ -99,44 +89,36 @@ def test_sequential_draw_advances_counter():
     b = sequential_draw(seed, 1)
     c = sequential_draw(seed, 2)
     vals = {a, b, c}
-    assert len(vals) == 3  # all distinct
-    # deterministic regardless of "extra reads"
+    assert len(vals) == 3
     assert sequential_draw(seed, 2) == c
-
-
-# ---------------------------------------------------------------------------
-# Helpers built on the u64 draw
-# ---------------------------------------------------------------------------
 
 
 def test_chance_is_integer_comparison():
     assert chance(0, 1 << 63) is True
     assert chance((1 << 64) - 1, 0) is False
-    assert chance(1 << 63, 1 << 63) is False  # strict u < threshold
+    assert chance(1 << 63, 1 << 63) is False
     assert chance(2**62, 2**63) is True
 
 
 def test_choice_and_randint_and_bounded():
     assert choice(10, 3) == 1
     assert choice(0, 7) == 0
-    assert randint(10, 5, 10) == 5 + (10 % 6)  # 5 + 4 = 9
+    assert randint(10, 5, 10) == 5 + (10 % 6)
     assert bounded_int(10, 1, 1) == 1
 
 
 def test_triangular_range_and_mode_at_zero():
-    # Craft inputs with explicit residues 0..15 so every reachable value appears.
     seen = set()
     for r1 in range(16):
         for r2 in range(16):
             seen.add(triangular(r1, r2))
-    assert seen == set(range(-15, 16))  # full support
-    # mode (0) is the most frequent outcome under the summed-remainders triangle.
+    assert seen == set(range(-15, 16))
     counts = dict.fromkeys(range(-15, 16), 0)
     for r1 in range(16):
         for r2 in range(16):
             counts[triangular(r1, r2)] += 1
     assert counts[0] == max(counts.values())
-    assert counts[-15] == 1 and counts[15] == 1  # tails once each
+    assert counts[-15] == 1 and counts[15] == 1
 
 
 def test_triangular_deterministic():
@@ -148,11 +130,6 @@ def test_uniform01_is_decimal_in_unit_half_open():
     d = uniform01(u)
     assert isinstance(d, Decimal)
     assert Decimal(0) <= d < Decimal(1)
-
-
-# ---------------------------------------------------------------------------
-# Rng façade: txn guard, validation, audit
-# ---------------------------------------------------------------------------
 
 
 def test_draw_requires_open_txn():
@@ -181,10 +158,10 @@ def test_keyed_draw_rejects_sequential_stream_name_and_vice_versa():
     r = Rng(MASTER, SPEC)
     r.enter_txn()
     with pytest.raises(EngineError) as ei:
-        r.draw("warm_start", "A", 1, "s", "k", 0)  # warm_start is sequential
+        r.draw("warm_start", "A", 1, "s", "k", 0)
     assert ei.value.code is ErrorCode.STATE_ILLEGAL
     with pytest.raises(EngineError) as ei:
-        r.stream("acceptance")  # acceptance is keyed
+        r.stream("acceptance")
     assert ei.value.code is ErrorCode.STATE_ILLEGAL
     r.exit_txn()
 
@@ -198,13 +175,11 @@ def test_audit_records_key_not_secret():
     assert rec["stream_name"] == "acceptance"
     assert rec["entity_id"] == 7
     assert rec["outcome_id"] == "call_42"
-    # Never record the u64 result or the seed (the "secrets").
     assert "u" not in rec and "value" not in rec
     assert "seed" not in rec and "stream_seed" not in rec
-    # No audit recorded when no recorder is set
     r2 = Rng(MASTER, SPEC)
     r2.enter_txn()
-    r2.draw("reviews", "A", 1, "s", "k", 0)  # no recorder -> no crash
+    r2.draw("reviews", "A", 1, "s", "k", 0)
     r2.exit_txn()
 
 
@@ -218,7 +193,6 @@ def test_sequential_stream_audit_and_counter_advance():
     assert u0 == sequential_draw(st.seed, 0)
     assert u1 == sequential_draw(st.seed, 1)
     assert st.counter == 2
-    # sequential audit recorded under event_kind "sequential"
     assert recs[0]["event_kind"] == "sequential"
     assert recs[0]["draw_index"] == 0
     assert recs[1]["draw_index"] == 1
@@ -231,10 +205,9 @@ def test_seq_state_snapshot_and_restore_reproduces_stream():
     r.enter_txn()
     st = r.stream("warm_start")
     st.next()
-    st.next()  # (two calls)
+    st.next()
     snap = r.seq_state()
     assert snap["warm_start"][1] == 2
-    # fresh rng restoring the snapshot continues identically
     r2 = Rng(MASTER, SPEC)
     r2.enter_txn()
     r2.restore_seq_state(snap)
@@ -249,16 +222,13 @@ def test_master_seed_validation():
         Rng(-1, SPEC)
     with pytest.raises(ValueError):
         Rng(1 << 64, SPEC)
-    Rng(0, SPEC)  # valid u64 boundary
+    Rng(0, SPEC)
 
 
 def test_keyed_draw_rejects_bad_entity_id_and_draw_index():
-    # Malformed-input checks are ErrorCode.INVALID_ARGUMENT, distinct from
-    # DRAW_OUTSIDE_TXN (the real outside-a-transaction guard, see
-    # test_draw_requires_open_txn above).
     seed = stream_seed(MASTER, SPEC, "demand")
     with pytest.raises(EngineError) as ei:
-        keyed_draw(seed, "A", 0, "s", "k", 0)  # zero id
+        keyed_draw(seed, "A", 0, "s", "k", 0)
     assert ei.value.code is ErrorCode.INVALID_ARGUMENT
     with pytest.raises(EngineError) as ei:
         keyed_draw(seed, "A", -1, "s", "k", 0)

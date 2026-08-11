@@ -1,12 +1,3 @@
-"""Tests for the initialization sequence (spec 02 §9, §12; CSR-002 decision 12).
-
-The open sequence is idempotent (migrate no-op, views recreated, golden hash
-verified), the end-to-end init leaves an ``active`` run with the config
-artifact and visibility registry persisted, and the failure path reports the
-run ``failed`` and refuses to rebuild onto the same file — a partially built
-database is never reused, so a clean re-init requires a fresh file.
-"""
-
 from __future__ import annotations
 
 import sqlite3
@@ -33,8 +24,6 @@ def test_open_run_db_twice_is_idempotent(tmp_path):
     conn1 = open_run_db(path)
     assert applied_versions(conn1) == [(1, "baseline")]
     conn1.close()
-    # second open: migrations are a no-op, views are recreated from the
-    # registry, and the golden hash verifies — anything else raises
     conn2 = open_run_db(path)
     register_conn(conn2)
     verify_views(conn2)
@@ -75,8 +64,6 @@ def test_initialize_run_failure_marks_failed_and_refuses_rebuild(tmp_path, monke
     def _boom(*args, **kwargs):
         raise RuntimeError("warm-start exploded")
 
-    # a failure inside the warm start aborts initialization (spec 02 §12):
-    # the run is reported failed, and the exception propagates
     with monkeypatch.context() as m:
         m.setattr(warm_start, "run", _boom)
         with pytest.raises(RuntimeError, match="warm-start exploded"):
@@ -86,14 +73,10 @@ def test_initialize_run_failure_marks_failed_and_refuses_rebuild(tmp_path, monke
     assert conn.execute("SELECT status FROM _run").fetchone()["status"] == "failed"
     conn.close()
 
-    # a partially built database is never reused (spec 02 §12): a second
-    # initialize_run on the same path is refused outright, even though the
-    # warm start itself would now succeed
     with pytest.raises(EngineError) as ei:
         initialize_run(path, master_seed=1, config=cfg)
     assert ei.value.code is ErrorCode.STATE_ILLEGAL
 
-    # a clean re-init requires a fresh file
     fresh = tmp_path / "fresh.db"
     initialize_run(fresh, master_seed=1, config=cfg)
     conn2 = open_run_db(fresh)
@@ -108,10 +91,6 @@ def test_initialize_run_failure_at_boundary_check_marks_failed(tmp_path, monkeyp
     def _boom(conn, config):
         raise EngineError(ErrorCode.INVARIANT_VIOLATED, "clean-boundary violation")
 
-    # a clean-boundary violation is a botched startup, not a valid run
-    # (spec 02 §12): the run is reported failed and the error propagates —
-    # the warm start itself committed, so the failure marking is what the
-    # partially built database must show
     with monkeypatch.context() as m:
         m.setattr("csr_bench.run_init.boundary_check", _boom)
         with pytest.raises(EngineError) as ei:
@@ -122,7 +101,6 @@ def test_initialize_run_failure_at_boundary_check_marks_failed(tmp_path, monkeyp
     assert conn.execute("SELECT status FROM _run").fetchone()["status"] == "failed"
 
 
-
 def test_initialize_run_failure_before_run_record_leaves_no_failed_row(tmp_path, monkeypatch):
     cfg = _cfg()
     path = tmp_path / "early.db"
@@ -130,8 +108,6 @@ def test_initialize_run_failure_before_run_record_leaves_no_failed_row(tmp_path,
     def _boom(*args, **kwargs):
         raise RuntimeError("open exploded")
 
-    # failure before the run record exists (here: at open) — nothing to mark
-    # failed, but the failure still propagates
     with monkeypatch.context() as m:
         m.setattr("csr_bench.run_init.open_run_db", _boom)
         with pytest.raises(RuntimeError, match="open exploded"):
@@ -142,10 +118,6 @@ def test_initialize_run_failure_before_run_record_leaves_no_failed_row(tmp_path,
 
 
 def test_open_run_db_wraps_view_ddl_failure_into_migration_failed(tmp_path, monkeypatch):
-    # A raw sqlite3 failure in the open path's view-DDL step (a view body
-    # that no longer parses, ...) must surface as the stable MIGRATION_FAILED
-    # code, never as the raw exception (final-branch audit F3). EngineErrors
-    # from migrate/verify_views pass through unchanged.
     def _boom(conn):
         raise sqlite3.OperationalError("no such table: _missing")
 
@@ -157,10 +129,6 @@ def test_open_run_db_wraps_view_ddl_failure_into_migration_failed(tmp_path, monk
 
 
 def test_warm_start_wraps_raw_fixture_failure_and_init_marks_failed(tmp_path, monkeypatch):
-    # A raw sqlite3 failure inside the fixture build must surface as the
-    # stable UNEXPECTED_FAILURE code (the rollback-and-reraise shape stays),
-    # and the init path must still report the run failed (spec 02 §12;
-    # final-branch audit F3).
     def _boom(conn, config):
         raise sqlite3.IntegrityError("UNIQUE constraint failed: _technicians.id")
 

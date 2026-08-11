@@ -1,20 +1,3 @@
-"""Single-pass pyosmium reading of address-bearing OSM elements.
-
-Deliberately separate from :mod:`tools.geo_build.zones`, which does its own
-pass with an ``area()`` callback to get pyosmium's automatic multipolygon
-assembly for administrative relations. Mixing that callback into this reader
-would make *every* closed way in the file (any building, any tagged
-courtyard) independently re-emitted as a second, ring-assembled ``Area``
-object alongside the plain ``way()`` callback — pyosmium's two-pass area
-assembler runs off tag heuristics, not off what this module happens to care
-about. Keeping this reader to ``node()``/``way()``/``relation()`` only means
-one element, one callback, no double-counting.
-
-Reads both ``.osm`` XML and ``.osm.pbf`` — pyosmium handles both by extension,
-which is the whole reason the ticket prefers it over shelling out to
-``osmium-tool``.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -43,7 +26,7 @@ class OsmNode:
 @dataclass(frozen=True)
 class OsmWay:
     osm_id: int
-    coords: tuple[tuple[float, float], ...]  # (lon, lat) in way order
+    coords: tuple[tuple[float, float], ...]
     tags: Mapping[str, str]
 
     @property
@@ -67,12 +50,6 @@ class OsmRelation:
 
 
 def _coords_centroid(coords: tuple[tuple[float, float], ...]) -> tuple[float, float]:
-    """Geometry centroid of a way's coordinates (research/osm-data.md §4.2:
-    "For ways and relations the candidate's coordinate is the geometry
-    centroid"). A closed ring with enough points is treated as a polygon
-    (area centroid); anything else falls back to a line/point centroid so a
-    two-node or open way never crashes the build.
-    """
     from shapely.geometry import LineString, Point, Polygon
 
     if len(coords) >= 4 and coords[0] == coords[-1]:
@@ -89,12 +66,6 @@ def _coords_centroid(coords: tuple[tuple[float, float], ...]) -> tuple[float, fl
 
 @dataclass(frozen=True)
 class OsmElements:
-    """Everything :mod:`tools.geo_build.extract` needs from one pass over an
-    OSM source: tagged nodes, tagged ways (with resolved node coordinates),
-    and tagged relations (address-bearing ones are vanishingly rare in
-    practice, but the spec names them as a candidate source, so they are
-    carried through rather than silently dropped).
-    """
 
     nodes: tuple[OsmNode, ...]
     ways: tuple[OsmWay, ...]
@@ -102,37 +73,9 @@ class OsmElements:
 
     @cached_property
     def _ways_by_id(self) -> dict[int, OsmWay]:
-        """Built once per instance, not once per :meth:`relation_centroid`
-        call — the naive per-call rebuild is O(ways) every time and this
-        method is called once per relation from both the crop and extract
-        stages, making the whole pipeline O(ways x relations) (benchmarked
-        at ~3.5ms/call over 200k ways, extrapolating to ~1.6h on a real
-        Arizona extract). ``functools.cached_property`` writes into the
-        instance's own ``__dict__`` directly rather than through
-        ``__setattr__``, so it works on a frozen dataclass without needing
-        ``object.__setattr__`` tricks.
-        """
         return {w.osm_id: w for w in self.ways}
 
     def relation_centroid(self, relation: OsmRelation) -> tuple[float, float] | None:
-        """Geometry centroid of a relation's member ways (research/osm-data.md
-        §4.2: "For ways and relations the candidate's coordinate is the
-        geometry centroid"), or ``None`` if none of its members resolved to a
-        way this pass captured.
-
-        Mirrors :func:`_coords_centroid`'s approach rather than averaging
-        member-node coordinates directly: an arithmetic mean over all member
-        nodes is node-density-weighted, not area-weighted, and can sit
-        meaningfully far from the true geometric centroid (a constructed
-        repro puts it 5.2 km off) whenever nodes cluster unevenly around the
-        ring (a common real-world shape — dense nodes tracing a curved
-        street frontage, sparse ones along a straight back edge). Builds the
-        member ways' line geometry, polygonizes it into ring(s) where
-        possible (the common closed-ring shape), and falls back to the raw
-        line geometry's own centroid when the ways do not form a closed ring
-        (e.g. a single open way, as in the two-node case this module's own
-        tests exercise).
-        """
         from shapely.geometry import LineString, MultiLineString
         from shapely.ops import polygonize, unary_union
 
@@ -169,12 +112,6 @@ class _ElementHandler(osmium.SimpleHandler):
         self._nodes.append(OsmNode(osm_id=n.id, lon=loc.lon, lat=loc.lat, tags=tags))  # type: ignore[attr-defined]
 
     def way(self, w: object) -> None:
-        # Unlike `node()`, this does *not* require tags: a way that is a
-        # member of an address-tagged relation (§4.2 names relations as a
-        # candidate source) carries the address on the *relation*, not on
-        # itself, and `OsmElements.relation_centroid` needs this way's
-        # coordinates to be available regardless. Untagged ways still need a
-        # resolvable coordinate list to be worth keeping.
         tags = dict(w.tags)  # type: ignore[attr-defined]
         coords = tuple(
             (nd.location.lon, nd.location.lat)
@@ -198,9 +135,6 @@ class _ElementHandler(osmium.SimpleHandler):
 
 
 def read_elements(path: str) -> OsmElements:
-    """One pass over ``path`` (``.osm`` or ``.osm.pbf``) collecting every
-    tagged node, way, and relation with resolved coordinates.
-    """
     handler = _ElementHandler()
     handler.apply_file(path, locations=True)
     return OsmElements(

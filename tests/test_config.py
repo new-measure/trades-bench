@@ -1,9 +1,3 @@
-"""Tests for configuration loading, validation, canonical hashing (CAL-02), and
-the deferred-value manifest machinery (CAL-01/04) — acceptance tests #5 and #6.
-
-Synthetic test-only keys are registered through ``assemble_registry([...])`` to
-exercise every rejection path (decision 3)."""
-
 from __future__ import annotations
 
 import json
@@ -30,8 +24,6 @@ DEFERRED_MANIFEST_PATH = (
     Path(__file__).resolve().parents[1] / "src" / "csr_bench" / "deferred_manifest.json"
 )
 
-# Synthetic, *non-constant* test keys covering each validation path. The price
-# of overriding these is allowed; their *bad* values are rejected.
 SYNTH = [
     ("test.prob", "probability", Decimal("0.5"), {}),
     ("test.cost_cents", "cost", 100, {}),
@@ -67,19 +59,11 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
     assert ei.value.code is code, f"{ei.value.code} != {code}: {ei.value.message}"
 
 
-# ---------------------------------------------------------------------------
-# Happy paths
-# ---------------------------------------------------------------------------
-
-
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
     assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    # 27 (24 CSR-001 constants + recent_hire + finance + hiring) + 24 CSR-003a
-    # (03 §13: 15 geography.* + 7 travel.* + 2 appointments.*) = 51.
     assert len(rc.resolved) == 51
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
-    # immutability
     with pytest.raises(TypeError):
         rc.resolved["constants.opening_hour"] = 9  # type: ignore[index]
 
@@ -92,18 +76,10 @@ def test_defaults_file_matches_registry_drift_guard():
 
 
 def test_dump_defaults_serializes_a_decimal_default_without_crashing():
-    # A prior bug fed defaults straight to json.dumps, which raises TypeError
-    # on a Decimal — dormant only because no CSR-001 constant is Decimal-typed
-    # yet. A future ticket registering a Decimal-default key (a probability,
-    # say) must not break dump_defaults or the drift-guard test above.
     reg = assemble_registry(
         extra_entries=[("test.synthetic_decimal", "probability", Decimal("0.5"), {})]
     )
     dumped = cfg.dump_defaults(reg, DEFAULT_CONFIG_VERSION)
-    # Must round-trip to an actual Decimal (not a string) through the same
-    # parse_float=Decimal convention every other config layer in this module
-    # is read with — a quoted "0.5" would fail _as_decimal when this file is
-    # loaded for real.
     parsed = json.loads(dumped, parse_float=Decimal)
     assert parsed["keys"]["test.synthetic_decimal"] == Decimal("0.5")
     rc = load_run_config(defaults_json=dumped, registry=reg)
@@ -117,14 +93,14 @@ def test_constant_values_resolve_correctly():
     assert rc.get_string_list("constants.zone_names")[0] == "Central Phoenix"
     assert rc.get_int("constants.zone_count") == 10
     grid = rc.resolved["constants.block_grid"]
-    assert grid[-1] == [1020, 1140]  # after-hours 17:00–19:00
+    assert grid[-1] == [1020, 1140]
 
 
 def test_valid_override_succeeds_for_non_constant_key():
-    rc_default = _load()  # default
+    rc_default = _load()
     rc2 = _load('{"keys": {"test.opt": 5}}')
     assert rc2.get_int("test.opt") == 5
-    assert rc_default.get_int("test.opt") == 3  # default unchanged
+    assert rc_default.get_int("test.opt") == 3
 
 
 def test_domain_keys_resolve_from_shipped_defaults():
@@ -151,11 +127,6 @@ def test_cost_map_scenario_override_accepted():
     }
 
 
-# ---------------------------------------------------------------------------
-# Acceptance #5 — config validation matrix (each rejection path, pre-init)
-# ---------------------------------------------------------------------------
-
-
 def test_reject_unknown_key_in_scenario():
     _bad('{"keys": {"bogus.nope": 1}}', ErrorCode.UNKNOWN_CONFIG_KEY)
 
@@ -172,8 +143,6 @@ def test_reject_constant_override_even_same_value():
 
 
 def test_reject_override_of_recent_hire_constant():
-    # roster identity is user-decided (spec 02 §8.4): the key is a constant and
-    # a scenario cannot touch it, even with its own default value.
     _bad(
         '{"keys": {"constants.recent_hire_technician_id": 2}}',
         ErrorCode.CONSTANT_OVERRIDE,
@@ -191,28 +160,22 @@ def test_reject_negative_cost():
 
 
 def test_cost_map_validation_matrix():
-    # negative value
     _bad(
         '{"keys": {"hiring.base_hourly_wage_by_trade": {"hvac_service": -1}}}',
         ErrorCode.CONFIG_VALUE_INVALID,
     )
-    # non-integral value (JSON float parses to Decimal)
     _bad(
         '{"keys": {"hiring.base_hourly_wage_by_trade": {"hvac_service": 3500.5}}}',
         ErrorCode.CONFIG_VALUE_INVALID,
     )
-    # bool value
     _bad(
         '{"keys": {"hiring.base_hourly_wage_by_trade": {"hvac_service": true}}}',
         ErrorCode.CONFIG_VALUE_INVALID,
     )
-    # empty-string key
     _bad(
         '{"keys": {"hiring.base_hourly_wage_by_trade": {"": 3500}}}',
         ErrorCode.CONFIG_VALUE_INVALID,
     )
-    # non-string (int) key — unreachable via JSON (every JSON key is a string),
-    # so exercised through validate_value directly against the real KeySpec.
     reg = assemble_registry()
     with pytest.raises(EngineError) as ei:
         cfg.validate_value(reg["hiring.base_hourly_wage_by_trade"], {1: 3500})
@@ -224,12 +187,10 @@ def test_reject_min_gt_max_range():
 
 
 def test_reject_gapped_block_grid():
-    # missing the 540–660 block -> gap -> rejected
     _bad('{"keys": {"test.grid": [[420,540],[660,780]]}}', ErrorCode.CONFIG_VALUE_INVALID)
 
 
 def test_reject_cancellation_cutoff_below_15():
-    # min=15 synthetic int maps to the cancellation_cutoff_minutes ≥ 15 rule
     _bad('{"keys": {"test.cutoff": 10}}', ErrorCode.CONFIG_VALUE_INVALID)
 
 
@@ -245,15 +206,12 @@ def test_reject_partially_defined_acceptance_curve():
 
 
 def test_bool_type_accepts_bool_and_rejects_int_int_type_rejects_bool():
-    # int-typed key: a bool value is rejected (bool is not a number — _v_int).
     _bad('{"keys": {"test.opt": true}}', ErrorCode.CONFIG_VALUE_INVALID)
-    # bool-typed key: an int value is rejected (bool != int — _v_bool), a real
-    # bool is accepted and overrides the default.
     _bad('{"keys": {"test.flag": 1}}', ErrorCode.CONFIG_VALUE_INVALID)
     _bad('{"keys": {"test.flag": 0}}', ErrorCode.CONFIG_VALUE_INVALID)
     rc = _load('{"keys": {"test.flag": false}}')
     assert rc.get_bool("test.flag") is False
-    assert _load().get_bool("test.flag") is True  # default unchanged
+    assert _load().get_bool("test.flag") is True
 
 
 def test_reject_bad_date_string():
@@ -263,13 +221,6 @@ def test_reject_bad_date_string():
         validate_value(KeySpec("x", "date_string", "", "t"), "2026-13-99")
     assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
 
-
-# ---------------------------------------------------------------------------
-# CSR-003a — 03 §13 geography.* / travel.* / appointments.* keys, and the
-# validators 03 §5.1 and §631 require (band partition, speed table, weather
-# multiplier map, noise clamp). These are real registered domain keys, not
-# SYNTH entries, since _DOMAIN_ENTRIES always ships them.
-# ---------------------------------------------------------------------------
 
 _VALID_BANDS = [
     ["night", 0, 360],
@@ -324,8 +275,6 @@ def test_geography_and_travel_defaults_resolve():
 
 
 def test_reject_gps_ping_interval_zero():
-    # 03 §9.2 uses this as a quantization modulus ("last multiple of ...");
-    # 0 would divide by zero downstream, so min=1, not min=0 (review hardening).
     _bad(
         '{"keys": {"geography.gps_ping_interval_minutes": 0}}',
         ErrorCode.CONFIG_VALUE_INVALID,
@@ -334,7 +283,7 @@ def test_reject_gps_ping_interval_zero():
 
 def test_reject_time_of_day_bands_gap():
     bands = [b[:] for b in _VALID_BANDS]
-    bands[0] = ["night", 0, 300]  # leaves a gap before morning_peak (starts 360)
+    bands[0] = ["night", 0, 300]
     _bad(
         json.dumps({"keys": {"travel.time_of_day_bands": bands}}),
         ErrorCode.CONFIG_VALUE_INVALID,
@@ -343,7 +292,7 @@ def test_reject_time_of_day_bands_gap():
 
 def test_reject_time_of_day_bands_overlap():
     bands = [b[:] for b in _VALID_BANDS]
-    bands[1] = ["morning_peak", 300, 540]  # overlaps night's [0,360)
+    bands[1] = ["morning_peak", 300, 540]
     _bad(
         json.dumps({"keys": {"travel.time_of_day_bands": bands}}),
         ErrorCode.CONFIG_VALUE_INVALID,
@@ -352,7 +301,7 @@ def test_reject_time_of_day_bands_overlap():
 
 def test_reject_time_of_day_bands_gap_at_midnight():
     bands = [b[:] for b in _VALID_BANDS]
-    bands[-1] = ["night_late", 1260, 1439]  # does not reach 24:00
+    bands[-1] = ["night_late", 1260, 1439]
     _bad(
         json.dumps({"keys": {"travel.time_of_day_bands": bands}}),
         ErrorCode.CONFIG_VALUE_INVALID,
@@ -392,7 +341,7 @@ def test_reject_speed_table_non_positive_speed():
 
 
 def test_reject_speed_table_wrong_day_types():
-    speed = {"weekday": _VALID_SPEED["weekday"]}  # missing "weekend"
+    speed = {"weekday": _VALID_SPEED["weekday"]}
     _bad(
         json.dumps({"keys": {"travel.speed_by_time_band": speed}}),
         ErrorCode.CONFIG_VALUE_INVALID,
@@ -436,7 +385,6 @@ def test_reject_noise_min_greater_than_max():
         '{"keys": {"travel.noise.min_multiplier": 2.0, "travel.noise.max_multiplier": 1.5}}',
         ErrorCode.CONFIG_VALUE_INVALID,
     )
-    # min == default max (1.5) alone, unchanged max: still fine (min <= max).
     rc = _load('{"keys": {"travel.noise.min_multiplier": 1.5}}')
     assert rc.get_decimal("travel.noise.min_multiplier") == Decimal("1.5")
 
@@ -451,7 +399,7 @@ def test_geography_artifact_fields_default_empty_and_are_not_deferred():
 
 def test_time_of_day_bands_reject_duplicate_name():
     bands = [b[:] for b in _VALID_BANDS]
-    bands[1][0] = "night"  # duplicate of bands[0]'s name
+    bands[1][0] = "night"
     _bad(
         json.dumps({"keys": {"travel.time_of_day_bands": bands}}),
         ErrorCode.CONFIG_VALUE_INVALID,
@@ -463,11 +411,6 @@ def test_time_of_day_bands_reject_non_list_triple():
         '{"keys": {"travel.time_of_day_bands": [["night", 0, 1440, "extra"]]}}',
         ErrorCode.CONFIG_VALUE_INVALID,
     )
-
-
-# ---------------------------------------------------------------------------
-# CAL-02 — config hash stable across key ordering + deterministic
-# ---------------------------------------------------------------------------
 
 
 def test_config_hash_stable_across_scenario_key_order():
@@ -492,49 +435,31 @@ def test_config_hash_is_deterministic_across_processes_no_wallclock():
 def test_canonical_decimals_normalized_no_float():
     reg = assemble_registry(extra_entries=[("p.prob", "probability", Decimal("0.50"), {})])
     rc = load_run_config(scenario_json='{"keys": {"p.prob": 0.5}}', registry=reg)
-    # 0.5 and 0.50 normalize to the same canonical token.
     assert b'"p.prob":"0.5"' in rc.canonical_bytes or b'"p.prob":0.5' in rc.canonical_bytes
-
-
-# ---------------------------------------------------------------------------
-# Probability threshold (decision 1) — pure integer
-# ---------------------------------------------------------------------------
 
 
 def test_probability_threshold_integer_floor():
     assert probability_threshold(Decimal("0")) == 0
     assert probability_threshold(Decimal("0.5")) == 2**63
     assert probability_threshold(Decimal("1")) == 2**64
-    # exactness: 0.25 -> 2^62
     assert probability_threshold(Decimal("0.25")) == 2**62
 
 
 def test_get_prob_threshold_from_config():
     rc = _load()
-    assert rc.get_prob_threshold("test.prob") == 2**63  # default 0.5
+    assert rc.get_prob_threshold("test.prob") == 2**63
     rc2 = _load('{"keys": {"test.prob": 0.25}}')
     assert rc2.get_prob_threshold("test.prob") == 2**62
 
 
 def test_importing_config_does_not_mutate_the_process_decimal_context():
-    # A prior bug set getcontext().prec = 60 at import time — a process-wide
-    # Decimal-context mutation that made csr_bench.rng.uniform01's output
-    # depend on whether csr_bench.config had been imported yet (an
-    # import-order-dependent result for a supposedly pure function; a replay-
-    # determinism threat). probability_threshold now scopes its precision via
-    # decimal.localcontext, so importing this module must leave the thread's
-    # default Decimal context precision untouched.
     from decimal import DefaultContext, getcontext
 
-    assert cfg is not None  # csr_bench.config is already imported in this process
+    assert cfg is not None
     assert getcontext().prec == DefaultContext.prec
 
 
 def test_uniform01_output_identical_before_and_after_importing_config():
-    # Direct proof of the fix, run in fresh subprocesses so neither one has
-    # csr_bench.config already cached: one never imports it, one imports it
-    # before drawing. Both must compute the identical uniform01 value for a
-    # fixed input.
     import subprocess
     import sys
 
@@ -555,11 +480,6 @@ def test_uniform01_output_identical_before_and_after_importing_config():
 
 
 def test_uniform01_is_independent_of_the_ambient_decimal_context():
-    # Import order is not the only way to change the ambient Decimal context —
-    # any embedder, plugin, or future module can mutate getcontext().prec
-    # directly. uniform01 must be a pure function of u alone (decision 1): it
-    # now pins its own precision via localcontext rather than inheriting
-    # whatever the caller's context happens to be.
     from decimal import getcontext
 
     from csr_bench.rng import uniform01
@@ -568,15 +488,10 @@ def test_uniform01_is_independent_of_the_ambient_decimal_context():
     ctx = getcontext()
     saved_prec = ctx.prec
     try:
-        ctx.prec = 5  # deliberately too coarse for an exact u / 2**64
+        ctx.prec = 5
         assert uniform01(123456789) == expected
     finally:
         ctx.prec = saved_prec
-
-
-# ---------------------------------------------------------------------------
-# Acceptance #6 — deferred-value manifest machinery (lenient now)
-# ---------------------------------------------------------------------------
 
 
 def test_manifest_json_is_machine_readable_well_formed():
@@ -589,22 +504,14 @@ def test_manifest_json_is_machine_readable_well_formed():
 
 
 def test_deferred_manifest_file_matches_build_deferred_manifest_drift_guard():
-    # deferred_manifest.json is never read by any code path or test today
-    # (docs/CSR-001.md chunk 6 audit); mirror the defaults.json drift guard so
-    # the shipped file cannot silently drift from DEFERRED_ITEMS.
     shipped = DEFERRED_MANIFEST_PATH.read_bytes()
     assert shipped == build_deferred_manifest()
 
 
 def test_resolve_manifest_loads_from_the_shipped_manifest_json_bytes():
-    # Exercises the json.loads(manifest_json) branch in
-    # resolve_deferred_manifest (config.py) using the real shipped file, not
-    # just the in-memory DEFERRED_ITEMS default it falls back to on empty
-    # input (config.py: data.get("items", DEFERRED_ITEMS)) — assert against
-    # the file's own item names so a manifest of "{}" could not pass this too.
     manifest_bytes = DEFERRED_MANIFEST_PATH.read_bytes()
     rep = resolve_deferred_manifest(manifest_json=manifest_bytes, strict=False)
-    assert rep.unresolved  # domain keys not registered in CSR-001 -> lenient OK
+    assert rep.unresolved
     assert rep.all_resolved() is False
     expected_names = {item["name"] for item in json.loads(manifest_bytes)["items"]}
     assert set(rep.resolved) | set(rep.unresolved) == expected_names
@@ -612,9 +519,8 @@ def test_resolve_manifest_loads_from_the_shipped_manifest_json_bytes():
 
 def test_resolve_manifest_lenient_does_not_raise_on_unresolved_domain_keys():
     rep = resolve_deferred_manifest(strict=False)
-    assert rep.unresolved  # domain keys not registered in CSR-001 -> lenient OK
+    assert rep.unresolved
     assert rep.all_resolved() is False
-    # no exception means machinery present and lenient
 
 
 def test_resolve_manifest_strict_raises_when_keys_unresolved():
@@ -624,7 +530,6 @@ def test_resolve_manifest_strict_raises_when_keys_unresolved():
 
 
 def test_resolve_manifest_strict_raises_on_provisional_registered_keys():
-    # Simulate a domain ticket registering the demand.* / acceptance.* keys.
     reg = assemble_registry(
         extra_entries=[
             ("demand.rate", "decimal", Decimal("1.0"), {}),
@@ -635,7 +540,6 @@ def test_resolve_manifest_strict_raises_on_provisional_registered_keys():
         {"name": "demand_rates", "key_paths": ["demand.*"], "status": "provisional"},
         {"name": "acceptance_curves", "key_paths": ["acceptance.*"], "status": "provisional"},
     ]
-    # keys now resolve, but status is still provisional -> release guard fires.
     with pytest.raises(EngineError) as ei:
         resolve_deferred_manifest(items=items, registry=reg, strict=True)
     assert ei.value.code is ErrorCode.DEFERRED_UNRESOLVED

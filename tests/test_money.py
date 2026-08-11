@@ -1,9 +1,3 @@
-"""Tests for integer-cent money (spec 01 §Canonical primitive types).
-
-Goal: floats can never become Money, and money arithmetic never produces a
-float.
-"""
-
 from __future__ import annotations
 
 import pytest

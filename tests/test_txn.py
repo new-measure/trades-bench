@@ -1,6 +1,3 @@
-"""Tests for command transactions + idempotency + privileged isolation
-(spec 01 §Command transactions and idempotency, §Failure; acceptance #4, #9)."""
-
 from __future__ import annotations
 
 import json
@@ -93,11 +90,6 @@ def _audit_count(conn):
     return conn.execute("SELECT COUNT(*) c FROM _random_audit").fetchone()["c"]
 
 
-# ---------------------------------------------------------------------------
-# Nnamespace / privileged isolation (#9)
-# ---------------------------------------------------------------------------
-
-
 def test_command_rejects_reserved_request_id_with_uniform_error():
     conn, rid, sv, _, _ = _services(active_invocation=True)
     with pytest.raises(EngineError) as ei:
@@ -120,17 +112,10 @@ def test_privileged_requires_reserved_id():
 
 def test_privileged_op_unreachable_via_command_probe():
     conn, rid, sv, _, _ = _services(active_invocation=True)
-    # The controller's reserved id used through the public command path -> uniform
-    # auth error, even though the privileged operation itself would succeed.
     ridp = privileged_request_id("settle", "day_1")
     with pytest.raises(EngineError) as ei:
         command(sv, ridp, lambda ctx: {"ok": True})
     assert ei.value.code is ErrorCode.UNAUTHORIZED
-
-
-# ---------------------------------------------------------------------------
-# Validation ordering — fn never runs before engine checks pass
-# ---------------------------------------------------------------------------
 
 
 def test_command_fails_when_run_not_active_and_fn_never_runs():
@@ -143,7 +128,7 @@ def test_command_fails_when_run_not_active_and_fn_never_runs():
     conn, rid, sv, _, _ = _services(status=RunStatus.INITIALIZING, active_invocation=True)
     r1 = command(sv, "req.1", fn)
     r2 = command(sv, "req.1", fn)
-    assert calls["n"] == 0  # validation failed before fn; never ran either call
+    assert calls["n"] == 0
     assert r1 == r2
     assert json.loads(r1)["error"]["code"] == "invalid_run_status"
 
@@ -160,12 +145,7 @@ def test_command_fails_without_active_invocation():
     r = command(sv, "req.2", fn)
     assert json.loads(r)["error"]["code"] == "invocation_conflict"
     assert drew["n"] == 0
-    assert _audit_count(conn) == 0  # no draw persisted
-
-
-# ---------------------------------------------------------------------------
-# Idempotency (#4) — replayed request_id returns stored response, no dups
-# ---------------------------------------------------------------------------
+    assert _audit_count(conn) == 0
 
 
 def test_successful_command_idempotent_byte_for_byte_no_duplicates():
@@ -192,9 +172,9 @@ def test_successful_command_idempotent_byte_for_byte_no_duplicates():
     r2 = command(sv, "jobs.book.5", fn)
     assert r1 == r2
     assert json.loads(r1) == {"ok": True, "result": {"booked": True, "entity_id": 7}}
-    assert ledger_calls["n"] == 1  # fn ran exactly once
-    assert ledger.entry_count() == 1  # no duplicate ledger row
-    assert _audit_count(conn) == 1  # no duplicate draw audit row
+    assert ledger_calls["n"] == 1
+    assert ledger.entry_count() == 1
+    assert _audit_count(conn) == 1
 
 
 def test_failed_command_is_idempotent_and_rolls_back_draws_and_writes():
@@ -211,9 +191,9 @@ def test_failed_command_is_idempotent_and_rolls_back_draws_and_writes():
     r2 = command(sv, "jobs.hire.5", fn)
     assert r1 == r2
     assert json.loads(r1)["error"]["code"] == "insufficient_cash"
-    assert runs["n"] == 1  # not re-run on retry
-    assert ledger.entry_count() == 0  # rolled back
-    assert _audit_count(conn) == 0  # draw rolled back with its txn
+    assert runs["n"] == 1
+    assert ledger.entry_count() == 0
+    assert _audit_count(conn) == 0
 
 
 def test_failed_validation_does_not_consume_a_draw_or_write():
@@ -230,9 +210,6 @@ def test_failed_validation_does_not_consume_a_draw_or_write():
 
 
 def test_invocation_conflict_error_is_not_memoized():
-    """Pins the :data:`NON_CACHEABLE_ERRORS` rule (txn.py:62) directly: a
-    transient world-state precondition (an invocation not being active right
-    now) must be re-evaluated on every attempt, not cached forever."""
     conn, rid, sv, _, _ = _services(active_invocation=False)
     calls = {"n": 0}
 
@@ -244,18 +221,12 @@ def test_invocation_conflict_error_is_not_memoized():
     r2 = command(sv, "req.conflict", fn)
     assert json.loads(r1)["error"]["code"] == "invocation_conflict"
     assert json.loads(r2)["error"]["code"] == "invocation_conflict"
-    assert calls["n"] == 0  # engine-level check rejects before fn ever runs
+    assert calls["n"] == 0
     rows = conn.execute(
         "SELECT * FROM _idempotency WHERE request_id=?",
         ("req.conflict",),
     ).fetchall()
-    assert rows == []  # never memoized under this request id
-
-
-# ---------------------------------------------------------------------------
-# Unexpected (non-EngineError) failures (spec 01 §Failure and transaction
-# semantics, specs/01-run-contracts.md:222; docs/CSR-001.md chunk-6 review)
-# ---------------------------------------------------------------------------
+    assert rows == []
 
 
 def test_unexpected_exception_returns_structured_error_and_rolls_back():
@@ -273,9 +244,9 @@ def test_unexpected_exception_returns_structured_error_and_rolls_back():
     assert body["ok"] is False
     assert body["error"]["code"] == "unexpected_failure"
     assert calls["n"] == 1
-    assert conn.in_transaction is False  # rolled back, not left open
-    assert ledger.entry_count() == 0  # write rolled back with the txn
-    assert _audit_count(conn) == 0  # draw rolled back with the txn
+    assert conn.in_transaction is False
+    assert ledger.entry_count() == 0
+    assert _audit_count(conn) == 0
 
 
 def test_unexpected_exception_is_not_memoized_and_retry_reruns_fn():
@@ -288,19 +259,17 @@ def test_unexpected_exception_is_not_memoized_and_retry_reruns_fn():
     conn, rid, sv, _, _ = _services(active_invocation=True)
     r1 = command(sv, "req.boom2", fn)
     r2 = command(sv, "req.boom2", fn)
-    assert calls["n"] == 2  # not memoized: fn ran again on the retry
+    assert calls["n"] == 2
     assert json.loads(r1)["error"]["code"] == "unexpected_failure"
     assert json.loads(r2)["error"]["code"] == "unexpected_failure"
     rows = conn.execute(
         "SELECT * FROM _idempotency WHERE request_id=?",
         ("req.boom2",),
     ).fetchall()
-    assert rows == []  # no stored response row for this request id
+    assert rows == []
 
 
 def test_command_succeeds_after_a_prior_unexpected_failure_on_same_connection():
-    """A crash mid-transaction must not leave the connection stuck 'inside' a
-    transaction — the very next command on the same connection must succeed."""
 
     def boom(ctx):
         raise RuntimeError("adapter bug")
@@ -314,33 +283,21 @@ def test_command_succeeds_after_a_prior_unexpected_failure_on_same_connection():
 
 
 def test_non_serializable_payload_rolls_back_and_recovers_connection():
-    """The success tail (``ok_response``, ``_store_response``, the bankruptcy
-    hook, ``commit``) runs *after* ``fn`` returns and must fail through the
-    same rollback/UNEXPECTED_FAILURE funnel as a bug inside ``fn`` itself —
-    not leave the transaction open with ``fn``'s writes pending (spec 01
-    §Failure and transaction semantics, specs/01-run-contracts.md:222;
-    docs/CSR-001.md chunk-6 review)."""
 
     def fn(ctx):
         ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -5000, 0)])
-        return {"tags": {"a", "b"}}  # a set is not JSON serializable
+        return {"tags": {"a", "b"}}
 
     conn, rid, sv, ledger, _ = _services(active_invocation=True)
     r = command(sv, "req.badpayload", fn)
     body = json.loads(r)
     assert body["ok"] is False
     assert body["error"]["code"] == "unexpected_failure"
-    assert conn.in_transaction is False  # not left open mid-transaction
-    assert ledger.entry_count() == 0  # the pending ledger row rolled back
+    assert conn.in_transaction is False
+    assert ledger.entry_count() == 0
 
-    # the very next command on the same connection must still succeed.
     r2 = command(sv, "req.ok2", lambda ctx: {"done": True})
     assert json.loads(r2) == {"ok": True, "result": {"done": True}}
-
-
-# ---------------------------------------------------------------------------
-# Bankruptcy after a committed financial effect
-# ---------------------------------------------------------------------------
 
 
 def test_privileged_settlement_pushing_negative_flips_bankrupt_atomically():
@@ -362,7 +319,6 @@ def test_privileged_settlement_pushing_negative_flips_bankrupt_atomically():
     assert ring["n"] == 1
     row = conn.execute("SELECT status FROM _run").fetchone()
     assert row["status"] == "bankrupt"
-    # ledger entries committed (settle is unavoidable), balance negative
     assert ledger.cash_balance() == -500
 
 
@@ -380,28 +336,20 @@ def test_privileged_settlement_idempotent_via_reserved_id():
     r2 = privileged(sv, ridp, fn)
     assert r1 == r2 and json.loads(r1)["ok"] is True
     assert n["n"] == 1
-    assert ledger.entry_count() == 1  # no duplicate settlement
+    assert ledger.entry_count() == 1
 
 
 def test_privileged_id_isolated_from_public_namespace_table():
     conn, rid, sv, _, _ = _services(active_invocation=True)
-    # same request_id string used in both namespaces must not collide
-    ridp = privileged_request_id("note", "x")  # __control__:note:x
-    # public command rejects reserved id outright (uniform auth)
+    ridp = privileged_request_id("note", "x")
     with pytest.raises(EngineError):
         command(sv, ridp, lambda ctx: None)  # type: ignore[arg-type]
-    # but the privileged path can store under that id without colliding with public
     r = privileged(sv, ridp, lambda ctx: {"note": True})
     assert json.loads(r)["ok"] is True
     rows = conn.execute(
         "SELECT namespace FROM _idempotency WHERE request_id=?", (ridp,)
     ).fetchall()
     assert {x["namespace"] for x in rows} == {PRIVILEGED_NAMESPACE}
-
-
-# ---------------------------------------------------------------------------
-# Counters / response record namespaces
-# ---------------------------------------------------------------------------
 
 
 def test_no_response_record_outside_run_active_commands():

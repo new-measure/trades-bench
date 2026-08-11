@@ -1,8 +1,3 @@
-"""tools.geo_build.funnel: candidates -> accepted counting and the
-tag-provenance breakdown (research/osm-data.md §8 items 2-3; CSR-003b,
-RES-60).
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -45,7 +40,7 @@ def test_record_rejections_only_tallies_reason_not_candidates_total():
     funnel.record_extraction([_candidate()], [])
     assert funnel.candidates_total == 1
     funnel.record_rejections([RejectedCandidate("node", 1, "duplicate_key")])
-    assert funnel.candidates_total == 1  # unchanged
+    assert funnel.candidates_total == 1
     assert funnel.rejected_by_reason == {"duplicate_key": 1}
 
 
@@ -54,7 +49,6 @@ def test_is_balanced_holds_across_the_whole_funnel():
     candidates = [_candidate(), _candidate(), _candidate()]
     rejected_extract = [RejectedCandidate("node", 9, "incomplete_address")]
     funnel.record_extraction(candidates, rejected_extract)
-    # one of the three survivors gets rejected at a later stage.
     funnel.record_rejections([RejectedCandidate("node", 1, "duplicate_key")])
     funnel.record_final_accepted(2)
     assert funnel.is_balanced()
@@ -65,7 +59,7 @@ def test_is_balanced_holds_across_the_whole_funnel():
 def test_is_balanced_fails_if_final_accepted_is_wrong():
     funnel = FunnelCounts()
     funnel.record_extraction([_candidate()], [])
-    funnel.record_final_accepted(0)  # should have been 1
+    funnel.record_final_accepted(0)
     assert not funnel.is_balanced()
 
 
@@ -83,4 +77,4 @@ def test_to_dict_is_sorted_and_json_ready():
     assert list(d["city_source_counts"].keys()) == sorted(d["city_source_counts"])
     import json
 
-    json.dumps(d)  # must not raise
+    json.dumps(d)

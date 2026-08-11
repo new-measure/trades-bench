@@ -1,5 +1,3 @@
-"""Tests for the migration runner (spec 02 §9; CSR-002 decisions 1 and 16)."""
-
 from __future__ import annotations
 
 import shutil
@@ -39,7 +37,7 @@ def _table_names(conn) -> set[str]:
 
 def test_applies_baseline_from_package_and_reapply_is_noop(conn):
     assert migrate(conn) == ["0001_baseline"]
-    assert migrate(conn) == []  # re-applying is a no-op
+    assert migrate(conn) == []
     assert applied_versions(conn) == [(1, "baseline")]
     assert {"_run", "_customers", "_ledger_entries", "_clock"}.issubset(
         _table_names(conn)
@@ -50,14 +48,14 @@ def test_applies_baseline_from_package_and_reapply_is_noop(conn):
 
 
 def test_tampered_checksum_aborts(conn, tmp_path):
-    migrate(conn)  # applied from the package, so a record + checksum exist
+    migrate(conn)
     dst = _copy_schema_dir(tmp_path)
     baseline = dst / "0001_baseline.sql"
     baseline.write_text(baseline.read_text() + "\n-- tampered after the fact\n")
     with pytest.raises(EngineError) as ei:
         migrate(conn, migrations_path=dst)
     assert ei.value.code is ErrorCode.MIGRATION_CHECKSUM_MISMATCH
-    assert applied_versions(conn) == [(1, "baseline")]  # record untouched
+    assert applied_versions(conn) == [(1, "baseline")]
 
 
 def test_missing_migration_file_for_applied_version_aborts(conn, tmp_path):
@@ -84,8 +82,6 @@ def test_apply_is_atomic_on_failure(conn, tmp_path):
     with pytest.raises(EngineError) as ei:
         migrate(conn, migrations_path=dst)
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
-    # 0001 committed; 0002 rolled back entirely — neither its record nor the
-    # table its script created before the syntax error survives.
     assert applied_versions(conn) == [(1, "baseline")]
     assert "_break_table" not in _table_names(conn)
 
@@ -109,7 +105,6 @@ def test_non_utf8_migration_file_raises_structured_error(conn, tmp_path):
     with pytest.raises(EngineError) as ei:
         migrate(conn, migrations_path=dst)
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
-    # 0001 committed; the corrupt 0002 changed nothing.
     assert applied_versions(conn) == [(1, "baseline")]
     assert "_t" not in _table_names(conn)
 
@@ -119,9 +114,9 @@ def test_migrate_refuses_with_open_transaction(conn):
     with pytest.raises(EngineError) as ei:
         migrate(conn)
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
-    assert conn.in_transaction  # caller's partial work is left untouched
+    assert conn.in_transaction
     conn.execute("ROLLBACK")
-    assert migrate(conn) == ["0001_baseline"]  # clean connection proceeds
+    assert migrate(conn) == ["0001_baseline"]
 
 
 def test_malformed_filename_raises(conn, tmp_path):

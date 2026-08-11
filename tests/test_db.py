@@ -1,6 +1,3 @@
-"""Tests for the SQLite connection + spec-02 run-record helpers (spec 01
-§Owned state; CSR-002 decisions 2-5, 12)."""
-
 from __future__ import annotations
 
 import sqlite3
@@ -63,8 +60,6 @@ def test_migrate_produces_the_spec_02_schema(conn):
 
 
 def test_rollback_journal_not_wal_for_file_copy_resume(tmp_path):
-    # On a real file DB the engine must not enable WAL so a committed file is
-    # self-contained for file-copy resume (DET-02).
     from csr_bench.db import connect
 
     path = tmp_path / "run.db"
@@ -94,7 +89,7 @@ def test_txn_helpers_commit_and_rollback(conn):
     db_mod.write_config(conn, rid, "1.0.0", "{}")
     assert db_mod.read_config(conn, rid) == ("1.0.0", "{}")
     rollback(conn)
-    assert db_mod.read_config(conn, rid) is None  # rolled back, no trace
+    assert db_mod.read_config(conn, rid) is None
 
     begin(conn)
     db_mod.write_config(conn, rid, "1.0.0", '{"a":1}')
@@ -108,8 +103,6 @@ def test_insert_run_seeds_run_and_clock(conn):
     assert run is not None
     assert run["status"] == "initializing"
     assert run["start_at_ms"] == START_AT_MS
-    # the run record carries no config blob and no current time — those live
-    # in _config and _clock respectively (decisions 3, 5).
     assert "config_json" not in run.keys()
     assert "current_time_ms" not in run.keys()
 
@@ -146,7 +139,7 @@ def test_get_run_missing_returns_none(conn):
     ("current", "target", "ok"),
     [
         (RunStatus.INITIALIZING, RunStatus.ACTIVE, True),
-        (RunStatus.INITIALIZING, RunStatus.FAILED, True),  # decision 12
+        (RunStatus.INITIALIZING, RunStatus.FAILED, True),
         (RunStatus.INITIALIZING, RunStatus.COMPLETED, False),
         (RunStatus.INITIALIZING, RunStatus.BANKRUPT, False),
         (RunStatus.ACTIVE, RunStatus.COMPLETED, True),
@@ -168,7 +161,7 @@ def test_set_run_status_transition_matrix(conn, current, target, ok):
         with pytest.raises(EngineError) as ei:
             db_mod.set_run_status(conn, rid, target)
         assert ei.value.code is ErrorCode.STATE_ILLEGAL
-        assert get_run(conn, rid)["status"] == current.value  # unchanged
+        assert get_run(conn, rid)["status"] == current.value
 
 
 def test_set_run_status_unknown_run(conn):
@@ -185,7 +178,6 @@ def test_write_read_config_roundtrip_and_upsert(conn):
     commit(conn)
     assert db_mod.read_config(conn, rid) == ("1.0.0", '{"a":1}')
 
-    # one row per run: a second write overwrites rather than duplicates.
     begin(conn)
     db_mod.write_config(conn, rid, "1.1.0", '{"a":2}')
     commit(conn)
@@ -213,7 +205,7 @@ def test_populate_visibility_registry_matches_python_source(conn):
     )
     begin(conn)
     db_mod.populate_visibility_registry(conn)
-    db_mod.populate_visibility_registry(conn)  # re-run is a no-op sync
+    db_mod.populate_visibility_registry(conn)
     commit(conn)
     rows = conn.execute(
         'SELECT "table", "column", visibility_class FROM _visibility_registry ORDER BY "table", "column"'
@@ -232,4 +224,4 @@ def test_new_run_id_unique():
     a = db_mod.new_run_id()
     b = db_mod.new_run_id()
     assert a != b
-    assert len(a) == 36  # canonical UUID string
+    assert len(a) == 36

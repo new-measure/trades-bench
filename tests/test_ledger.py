@@ -1,6 +1,3 @@
-"""Tests for the append-only integer-cent ledger + cash balance + bankruptcy
-(spec 02 §4.7, spec 06 §9.1; CSR-002 decision 9)."""
-
 from __future__ import annotations
 
 import sqlite3
@@ -73,9 +70,7 @@ def test_post_computes_running_balances_in_caller_order(ledger):
     commit(conn)
     rows = _stored_rows(conn)
     assert [r["amount_cents"] for r in rows] == [100000, 5000, -1500]
-    # balance_after_cents is the exact running total in caller order
     assert [r["balance_after_cents"] for r in rows] == [100000, 105000, 103500]
-    # cash is the ledger: the sum equals the last row's running balance
     assert lg.cash_balance() == 103500
     assert lg.cash_balance_money().cents == 103500
     assert lg.entry_count() == 3
@@ -112,8 +107,6 @@ def test_post_running_balance_continues_across_batches(ledger):
 
 def test_service_date_derived_in_phoenix_time_when_omitted(ledger):
     conn, lg = ledger
-    # 2026-10-01 23:00 Phoenix == 2026-10-02 06:00 UTC: the Phoenix-local date
-    # is the grouping key, never the UTC one (spec 01 §Canonical primitive types).
     late_ts = clock.phoenix_instant(2026, 10, 1, 23, 0)
     begin(conn)
     lg.post([LedgerEntry(LedgerCategory.REVENUE, 1000, late_ts)])
@@ -123,9 +116,6 @@ def test_service_date_derived_in_phoenix_time_when_omitted(ledger):
 
 def test_explicit_service_date_is_kept_not_rederived(ledger):
     conn, lg = ledger
-    # A warm-start opening row: occurred at the fixture's pin instant, dated
-    # before the run clock starts — the explicit date must survive untouched
-    # (decision 9), even though derivation would produce a different value.
     warm_ts = clock.phoenix_instant(2026, 9, 30, 23, 59) + 59 * 1000
     begin(conn)
     lg.post(
@@ -166,8 +156,6 @@ def test_unknown_origin_rejected(ledger):
 
 def test_post_round_trips_all_six_source_links_and_created_at(ledger):
     conn, lg = ledger
-    # Minimal parent rows so the six link FKs resolve through the real schema
-    # (the domain tables' own modules land in later chunks).
     begin(conn)
     conn.execute(
         "INSERT INTO _customers (id, name, segment, status, created_at, modified_at) "
@@ -257,7 +245,7 @@ def test_post_round_trips_all_six_source_links_and_created_at(ledger):
     assert row["technician_id"] == 1
     assert row["hiring_request_id"] == 1
     assert row["training_reservation_id"] == 1
-    assert row["created_at"] == TS  # created_at == occurred_at (append-only)
+    assert row["created_at"] == TS
     assert row["occurred_at"] == TS
     assert row["service_date"] == "2026-10-01"
     assert row["origin"] == "run"
@@ -282,10 +270,6 @@ def test_post_empty_batch_is_noop(ledger):
 
 
 def test_post_outside_open_transaction_raises_guard_error(ledger):
-    """Same guard pattern as its siblings (``Events.schedule``, events.py:70;
-    ``Rng.draw``, rng.py:383): the run connection is autocommit, so a post()
-    outside a transaction would otherwise commit immediately with no rollback
-    able to undo it."""
     conn, lg = ledger
     assert not conn.in_transaction
     with pytest.raises(EngineError) as ei:
@@ -300,7 +284,7 @@ def test_require_cash_sufficient_and_insufficient(ledger):
     begin(conn)
     lg.post([LedgerEntry(LedgerCategory.OPENING_BALANCE_ADJUSTMENT, 100000, TS)])
     commit(conn)
-    lg.require_cash(100000)  # exact fit passes
+    lg.require_cash(100000)
     with pytest.raises(EngineError) as ei:
         lg.require_cash(100001)
     assert ei.value.code is ErrorCode.INSUFFICIENT_CASH
@@ -319,7 +303,6 @@ def test_bankruptcy_check_flips_status_when_negative(ledger):
     begin(conn)
     lg.post([LedgerEntry(LedgerCategory.OPENING_BALANCE_ADJUSTMENT, 1000, TS)])
     commit(conn)
-    # an unavoidable settlement pushes cash negative
     begin(conn)
     lg.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1500, TS)])
     became = lg.bankruptcy_check()
@@ -346,7 +329,7 @@ def test_bankruptcy_check_idempotent_and_terminal_safe(ledger):
     begin(conn)
     lg.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1, TS)])
     assert lg.bankruptcy_check() is True
-    assert lg.bankruptcy_check() is False  # already bankrupt (no longer ACTIVE)
+    assert lg.bankruptcy_check() is False
     commit(conn)
     row = conn.execute("SELECT status FROM _run").fetchone()
     assert row["status"] == "bankrupt"
@@ -364,9 +347,6 @@ def test_bankruptcy_check_noop_when_run_already_terminal(ledger):
 
 
 def test_bankruptcy_check_outside_open_transaction_raises_guard_error(ledger):
-    """Same autocommit reasoning as ``post``: outside a transaction a status
-    flip would commit immediately and could never be rolled back with the
-    financial effect that caused it."""
     conn, lg = ledger
     assert not conn.in_transaction
     with pytest.raises(EngineError) as ei:
@@ -396,8 +376,6 @@ def test_reject_unknown_entry_type(ledger):
         LedgerEntry("not_a_category", 100, TS)  # type: ignore[arg-type]
 
 
-#: The eight members with a fixed sign; ``opening_balance_adjustment`` may be
-#: either sign (spec 06 §9.1 / spec 02 §4.7).
 _FIXED_SIGN_CATEGORIES = [
     c for c in LedgerCategory if c is not LedgerCategory.OPENING_BALANCE_ADJUSTMENT
 ]
@@ -412,7 +390,6 @@ def test_sign_rule_rejects_wrong_sign_amount(ledger, category):
 
 @pytest.mark.parametrize("category", _FIXED_SIGN_CATEGORIES)
 def test_sign_rule_rejects_zero_for_fixed_sign_members(ledger, category):
-    # zero is neither positive nor negative, so it violates a fixed-sign member
     with pytest.raises(EngineError):
         LedgerEntry(category, 0, TS)
 

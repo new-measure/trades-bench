@@ -1,11 +1,3 @@
-"""Canonical dump of REAL columns (migration 0001 geometry/coordinates).
-
-Migration 0001 mandates REAL columns (`_technician_locations.latitude/
-longitude`, etc.), so the dump must serialize floats deterministically rather
-than refuse them (they still never enter a money/probability decision path —
-this is serialization of stored geometry only).
-"""
-
 from __future__ import annotations
 
 import math
@@ -61,7 +53,7 @@ def test_dump_serializes_real_columns_and_is_stable():
 
     first = dump_bytes(conn, RUN_ID)
     second = dump_bytes(conn, RUN_ID)
-    assert first == second  # stable across calls, run state unchanged
+    assert first == second
 
 
 def test_ulp_difference_changes_the_dump():

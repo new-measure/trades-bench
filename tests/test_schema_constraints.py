@@ -1,24 +1,3 @@
-"""SCH-05 structural constraints (spec 02 §6, §13; CSR-002 decision 14).
-
-Property tests write candidate rows *directly* into the real schema — the
-constraints themselves are the deliverable under test — and the database's
-own constraints accept valid shapes and reject violations with stable
-failures. Decision 14: same-table rules are real CHECKs; the two cross-table
-block rules (count vs ``job_types.scheduled_blocks``, ordinal-1 alignment)
-are BEFORE INSERT triggers aborting with the stable sentinels
-``appointment_block_overflow`` and ``appointment_block_start_mismatch`` —
-asserted here via the trigger message inside the IntegrityError.
-
-``_technician_block_holds`` rows are deletable by design (spec 02 §4.4 note:
-the one deletion exception to §1.4), so this file's holds tests never trip
-the append-only triggers.
-
-"Single active call" is deliberately NOT a storage constraint (spec 02 §6.3:
-it is a consequence of the invocation contract, asserted by the
-invocation-exclusivity machinery — already tested) — the last test proves the
-database does not reject it.
-"""
-
 from __future__ import annotations
 
 import itertools
@@ -33,17 +12,13 @@ from csr_bench.clock import phoenix_instant
 from csr_bench.db import in_memory
 from csr_bench.migrations import migrate
 
-#: The six grid start minute-of-day values (spec 02 §6.4; constants.block_grid).
 GRID_START_MINUTES = tuple(b[0] for b in clock.BLOCK_GRID_MINUTES)
-#: block_code per grid start minute (the §4.4 code vocabulary).
 BLOCK_CODE_BY_MINUTE = {
     420: "B07_09", 540: "B09_11", 660: "B11_13",
     780: "B13_15", 900: "B15_17", 1020: "B17_19",
 }
 BLOCK_LENGTH_MS = 7_200_000
 
-#: Shared row-id source for every direct insert in this module — each test's
-#: writes get unique ids so hypothesis examples never collide.
 _IDS = itertools.count(10_000)
 
 
@@ -66,10 +41,6 @@ def _insert(conn, sql: str, params: tuple) -> None:
 
 
 def _parents(conn) -> None:
-    """One of each parent row the SCH-05 cases reference: customer, location,
-    call, job (types 1 and 2), appointment, technician, non-job appointment,
-    address-catalog row, and the block-hold pair. Idempotent.
-    """
     if conn.execute("SELECT 1 FROM _customers WHERE id = 1").fetchone():
         return
     _insert(
@@ -139,7 +110,6 @@ def _parents(conn) -> None:
 
 
 def _appointment(conn, job_id: int, scheduled_start: int) -> int:
-    """A fresh appointment on ``job_id`` starting at ``scheduled_start``."""
     aid = _next_id()
     _insert(
         conn,
@@ -167,22 +137,12 @@ def _block(conn, appointment_id: int, ordinal: int, block_start: int) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Block-grid membership (spec 02 §6.4; hypothesis property)
-# ---------------------------------------------------------------------------
-
-
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(minutes=st.one_of(st.integers(0, 1439), st.sampled_from(GRID_START_MINUTES)))
 def test_block_grid_membership_property(conn, minutes):
-    # Random off-grid block starts are rejected, on-grid starts accepted
-    # (decision 14: the grid is a same-table CHECK — no cross-row SQL needed).
-    # The shared in-memory database is deliberate: every example writes rows
-    # with unique ids, so examples never interfere (the fixture is not reset
-    # between hypothesis inputs — hence the health-check suppression).
     _parents(conn)
     start = phoenix_instant(2026, 10, 2, 0, 0) + minutes * 60_000
-    aid = _appointment(conn, 1, start)  # ordinal-1 alignment passes by construction
+    aid = _appointment(conn, 1, start)
     if minutes in GRID_START_MINUTES:
         _block(conn, aid, 1, start)
     else:
@@ -191,7 +151,6 @@ def test_block_grid_membership_property(conn, minutes):
 
 
 def test_block_end_must_be_start_plus_exactly_two_hours(conn):
-    # §6.4: `block_end = block_start + 7200000` is part of the grid CHECK.
     _parents(conn)
     start = phoenix_instant(2026, 10, 2, 9, 0)
     aid = _appointment(conn, 1, start)
@@ -204,16 +163,7 @@ def test_block_end_must_be_start_plus_exactly_two_hours(conn):
         )
 
 
-# ---------------------------------------------------------------------------
-# Block-count and ordinal-alignment triggers (decision 14's mechanism)
-# ---------------------------------------------------------------------------
-
-
 def test_block_count_overflow_trigger_per_job_type(conn):
-    # §6.4: blocks Must not exceed the job type's scheduled_blocks. The
-    # trigger counts existing rows and aborts the (N+1)-th with the stable
-    # sentinel (decision 14: SQLite forbids subqueries in CHECK, so the
-    # cross-table rule is a BEFORE INSERT trigger).
     _parents(conn)
     start = phoenix_instant(2026, 10, 2, 7, 0)
     for job_id, allowed in ((1, 1), (2, 2)):
@@ -227,8 +177,6 @@ def test_block_count_overflow_trigger_per_job_type(conn):
 
 
 def test_ordinal_one_block_must_start_at_scheduled_start(conn):
-    # §6.4: `scheduled_start` equals the first block's start — the second
-    # cross-table trigger, sentinel `appointment_block_start_mismatch`.
     _parents(conn)
     scheduled = phoenix_instant(2026, 10, 2, 9, 0)
     aid = _appointment(conn, 1, scheduled)
@@ -236,12 +184,7 @@ def test_ordinal_one_block_must_start_at_scheduled_start(conn):
         sqlite3.IntegrityError, match="appointment_block_start_mismatch"
     ):
         _block(conn, aid, 1, scheduled + BLOCK_LENGTH_MS)
-    _block(conn, aid, 1, scheduled)  # aligned: accepted
-
-
-# ---------------------------------------------------------------------------
-# One active assignment per appointment (spec 02 §6.3 partial unique index)
-# ---------------------------------------------------------------------------
+    _block(conn, aid, 1, scheduled)
 
 
 def test_one_active_assignment_per_appointment(conn):
@@ -254,12 +197,7 @@ def test_one_active_assignment_per_appointment(conn):
     _insert(conn, base, (_next_id(), "active", None))
     with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
         _insert(conn, base, (_next_id(), "active", None))
-    _insert(conn, base, (_next_id(), "reassigned", 0))  # non-active rows allowed
-
-
-# ---------------------------------------------------------------------------
-# One hold per (technician_id, block_start); exactly-one-link CHECK (§4.4)
-# ---------------------------------------------------------------------------
+    _insert(conn, base, (_next_id(), "reassigned", 0))
 
 
 def test_hold_primary_key_blocks_duplicates(conn):
@@ -276,7 +214,6 @@ def test_hold_primary_key_blocks_duplicates(conn):
 
 
 def test_hold_requires_exactly_one_link(conn):
-    # §4.4: CHECK ((appointment_id IS NULL) != (non_job_appointment_id IS NULL)).
     _parents(conn)
     start = phoenix_instant(2026, 10, 3, 11, 0)
     for kind, appointment, non_job in (
@@ -300,15 +237,7 @@ def test_hold_requires_exactly_one_link(conn):
     )
 
 
-# ---------------------------------------------------------------------------
-# Money and review CHECKs (spec 02 §4.7/§4.8)
-# ---------------------------------------------------------------------------
-
-
 def test_invoice_checks_no_charge_and_total(conn):
-    # §4.7/§6.4: `no_charge = 1 => total_cents = 0` and `total_cents >= 0` are
-    # same-table CHECKs. `UNIQUE (job_id)` (one invoice per job, §6.3) is
-    # respected by giving each accepted row its own job.
     _parents(conn)
     base = (
         "INSERT INTO _invoices (id, invoice_number, job_id, customer_id, location_id, "
@@ -319,8 +248,8 @@ def test_invoice_checks_no_charge_and_total(conn):
     for no_charge, total in ((1, 100), (0, -1)):
         with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
             _insert(conn, base, (_next_id(), f"I-{_next_id()}", 1, no_charge, total))
-    _insert(conn, base, (_next_id(), f"I-{_next_id()}", 1, 1, 0))  # no_charge => 0
-    _insert(conn, base, (_next_id(), f"I-{_next_id()}", 2, 0, 50))  # paid normal
+    _insert(conn, base, (_next_id(), f"I-{_next_id()}", 1, 1, 0))
+    _insert(conn, base, (_next_id(), f"I-{_next_id()}", 2, 0, 50))
 
 
 def test_review_stars_between_one_and_five(conn):
@@ -337,36 +266,11 @@ def test_review_stars_between_one_and_five(conn):
         _insert(conn, base, (_next_id(), stars))
 
 
-# ---------------------------------------------------------------------------
-# The nullable-FK matrix (spec 02 §6.2 + the §4-only columns, data-driven)
-# ---------------------------------------------------------------------------
-# Every <entity>_id is an FK with ON DELETE RESTRICT; the nullable ones are
-# §6.2's exhaustive lists (public views and private base tables) plus the two
-# columns §6.2 omits but §4's column lists mark NULL — `job_types.required_skill_code`
-# and `technician_shifts.on_call_rotation_id` (see the CSR-002 implementation
-# notes for the §6.2 stale-list reconciliation; final-branch audit F4 closed
-# the coverage gap for both).
-# Each case proves: NULL in the column is accepted, a nonexistent target is
-# rejected with the FK violation. Rows are built with explicit per-case
-# params so the variants never collide on the tables' other uniqueness
-# constraints (job numbers, canonical keys, the holds PK, the rotations
-# partial index); each variant gets a fresh row id / unique key. The
-# bad-target insert runs FIRST: it fails atomically at the FK check, so the
-# later variants never fight a leftover row — and for _technician_block_holds
-# the exactly-one-link CHECK is satisfied in the bad variant by leaving the
-# OTHER link NULL, so the FK is what fires. The two §4-only columns carry a
-# third, valid-target variant proving the positive direction ('hvac_service'
-# against the seeded `_skills`; a real rotation row for
-# `on_call_rotation_id`).
-
 _FK_CASES: list[
     tuple[str, str, str, tuple, tuple]
     | tuple[str, str, str, tuple, tuple, tuple]
     | tuple[str, str, str, tuple, tuple, None]
 ] = [
-    # (table, column, INSERT with ? per param, params for NULL-accepted,
-    #  params for the nonexistent-target rejection,
-    #  optional params for the valid-target acceptance — the two §4-only cases)
     ("_locations", "zone_id",
      "INSERT INTO _locations (id, customer_id, name, street, unit, city, state, "
      "postal_code, latitude, longitude, zone_id, active, created_at, modified_at, "
@@ -565,25 +469,17 @@ _FK_CASES: list[
      "status, created_at) VALUES (?, 'v', '1', 's', 'c', 'AZ', '85001', 'f', ?, 33.5, "
      "-112.0, ?, 1, 'a', 1.0, '[\"residential\"]', 'usable', 0)",
      (None,), (9_999_999,)),
-    # §4-only nullable FK closed by the final-branch audit (F4). Parent rows
-    # come from the migration seeds (_business_units, _skills); the valid
-    # variant proves the positive direction against the seeded skill code.
     ("_job_types", "required_skill_code",
      "INSERT INTO _job_types (id, code, name, business_unit_id, scheduled_blocks, "
      "required_skill_code, active, created_at) VALUES (?, ?, 'n', 1, 1, ?, 1, 0)",
      (None,), ("no_such_skill",), ("hvac_service",)),
-    # §4-only nullable FK closed by the final-branch audit (F4). The valid
-    # variant references a real rotation row (built by _shift_rotation); the
-    # technician parent is the shared row id 1.
     ("_technician_shifts", "on_call_rotation_id",
      "INSERT INTO _technician_shifts (id, technician_id, shift_type, start_at, "
      "end_at, service_date, active, on_call_rotation_id, created_at) VALUES (?, 1, "
      "'office', 0, 0, '2026-10-01', 1, ?, 0)",
-     (None,), (9_999_999,), None),  # valid params filled in by _shift_rotation
+     (None,), (9_999_999,), None),
 ]
 
-#: Per-table builders for the unique keys that keep matrix rows apart
-#: (job/invoice numbers, job-type codes, address-catalog keys).
 _UNIQUE_KEYS: dict[str, str] = {
     "_jobs": "job_number",
     "_invoices": "invoice_number",
@@ -593,13 +489,6 @@ _UNIQUE_KEYS: dict[str, str] = {
 
 
 def _shift_rotation(conn) -> int:
-    """A fresh, valid on-call rotation for the technician_shifts FK case.
-
-    The valid variant of `_technician_shifts.on_call_rotation_id` needs a real
-    target row; a fresh id and start date keep it clear of the rotations
-    partial index (`_on_call_rotations_live`) and of the matrix's own
-    rotations case (final-branch audit F4).
-    """
     rid = _next_id()
     _insert(
         conn,
@@ -612,11 +501,6 @@ def _shift_rotation(conn) -> int:
 
 
 def test_nullable_fk_matrix(conn):
-    # §6.2's exhaustive nullable-FK list, both directions: NULL is accepted,
-    # a nonexistent target is rejected by the FK (ON DELETE RESTRICT). The
-    # bad-target insert runs first and fails atomically, so the later
-    # variants never collide with a leftover row; the two §4-only cases also
-    # prove the positive direction with a valid target (final-branch audit F4).
     _parents(conn)
     hold_start = 50_000
     for index, case in enumerate(_FK_CASES):
@@ -632,10 +516,6 @@ def test_nullable_fk_matrix(conn):
         for params, expect_ok in variants:
             row_id = _next_id()
             if table == "_technician_block_holds":
-                # no id column in this table's INSERT — the PK is
-                # (technician_id, block_start); the bad variant fails at the
-                # FK before anything persists, so the later variants never
-                # collide on the PK
                 full = (hold_start + index * 1000, *params)
             else:
                 key = None if key_col is None else f"{key_col}-{row_id}"
@@ -650,16 +530,7 @@ def test_nullable_fk_matrix(conn):
         assert f"{table}.{column} covered"
 
 
-# ---------------------------------------------------------------------------
-# Single active call is NOT a storage constraint (spec 02 §6.3)
-# ---------------------------------------------------------------------------
-
-
 def test_two_active_calls_are_not_rejected_at_storage(conn):
-    # §6.3: at most one active call is a consequence of the invocation
-    # contract (one active invocation; a call invocation ends only in a
-    # terminal call state), asserted by the invocation-exclusivity machinery
-    # — deliberately not a database constraint, and the DB must prove it.
     _parents(conn)
     for _n in (2, 3):
         _insert(

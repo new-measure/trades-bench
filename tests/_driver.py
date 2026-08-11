@@ -1,30 +1,3 @@
-"""Scripted determinism driver (docs/CSR-001.md decision 6; tests only).
-
-A tiny, fully deterministic "day" played through the **real** machinery: events
-are popped in ``(scheduled_at, priority, event_id)`` order via
-:class:`csr_bench.events.Events` with toy handlers, and a recorded script of fake
-agent commands runs through :func:`csr_bench.txn.command` /
-:func:`csr_bench.txn.privileged`, posting to :class:`csr_bench.ledger.Ledger` and
-pulling both keyed draws and sequential-stream draws (``weather_process``,
-``labor_economy``) so ``_rng_state`` genuinely matters at a resume boundary.
-
-The script is :data:`SCRIPT`: :data:`N_COMMITS` numbered steps, each of which is
-exactly **one committed transaction** — i.e. one resume boundary for DET-02.
-Every step derives what it needs from committed rows (the active invocation, the
-next pending event, the next invocation sequence), never from in-process state,
-which is what lets a fresh process pick the script up mid-way.
-
-Every timestamp is simulated (built with :func:`csr_bench.clock.phoenix_instant`);
-wall clock never enters the database.
-
-Also runnable as a subprocess entry point for the fresh-process proofs::
-
-    python tests/_driver.py --db RUN.db --create --first 1 --last 12
-
-which prints one canonical JSON line: the dump hash, the observed draws, and the
-side notes the DET-04/05 test inspects.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -64,22 +37,14 @@ from csr_bench.migrations import migrate
 from csr_bench.rng import Rng, chance
 from csr_bench.txn import Services, TxnContext, command, privileged, privileged_request_id
 
-# ---------------------------------------------------------------------------
-# Fixed inputs — the script is a pure function of these
-# ---------------------------------------------------------------------------
 
 MASTER_SEED = 20261001
-#: A fixed run id: the driver's databases are compared across processes, and a
-#: UUID would differ per process. (:mod:`csr_bench._dump` also normalizes it, so
-#: the proofs hold either way.)
 RUN_ID = "contract-test-run"
 TIMEZONE = "America/Phoenix"
 FIRST_SERVICE_DATE = "2026-10-01"
 LAST_SERVICE_DATE = "2027-09-30"
 
-#: The single simulated service day the script plays.
 DAY = (2026, 10, 1)
-#: Scope string for every keyed draw in the script (the Phoenix service date).
 SCOPE = FIRST_SERVICE_DATE
 
 ENTITY = EntityType.CONTRACT_TEST_ENTITY.value
@@ -93,7 +58,6 @@ SETTLE_DEBIT_CENTS = 12_000
 SETTLE_CREDIT_CENTS = 41_000
 PAYROLL_BASE_CENTS = 180_000
 DAILY_REVENUE_CENTS = 196_500
-#: Far beyond any balance the script reaches — the variant-B overspend probe.
 OVERSPEND_CENTS = 10_000_000_000
 
 BOOK_ENTITY_ID = 11
@@ -116,9 +80,6 @@ T_CALL = _ts(12, 0)
 T_RESCHEDULED = _ts(15, 30)
 T_SETTLE = _ts(19, 0)
 
-#: Seeded world events, deliberately inserted out of chronological order and with
-#: a ``(8:00, priority 20)`` tie so the pop order exercises all three ordering
-#: keys: ``(scheduled_at, priority, event_id)``.
 SEED_EVENTS: tuple[tuple[EventKind, int, int, int, int], ...] = (
     (EventKind.CONTRACT_TEST_EVENT, 11, 0, 10, 3),
     (EventKind.CONTRACT_TEST_EVENT, 8, 0, 20, 1),
@@ -129,12 +90,7 @@ SEED_EVENTS: tuple[tuple[EventKind, int, int, int, int], ...] = (
 
 
 class DriverError(RuntimeError):
-    """The script could not proceed — a driver bug, never an expected outcome."""
-
-
-# ---------------------------------------------------------------------------
-# Run context
-# ---------------------------------------------------------------------------
+    pass
 
 
 @dataclass
@@ -148,13 +104,9 @@ class RunContext:
     invocations: Invocations
     services: Services
     variant: str = "A"
-    #: Draw outcomes, in consumption order. Must be identical between variants.
     observations: list[tuple[str, str]] = field(default_factory=list)
-    #: Side channel for the variant-B probes (stored responses, retries,
-    #: rejection codes) that the test inspects but that carry no draw.
     notes: list[tuple[str, str]] = field(default_factory=list)
     steps_run: list[str] = field(default_factory=list)
-    #: Committed public request ids, for the idempotent-retry probe.
     public_request_ids: list[str] = field(default_factory=list)
 
     def __enter__(self) -> RunContext:
@@ -174,7 +126,6 @@ def _observe(run: RunContext, label: str, value: object) -> None:
 
 
 def _audit_recorder(conn: sqlite3.Connection) -> Callable[..., None]:
-    """Persist each consumed draw key with the run's *simulated* timestamp."""
 
     def rec(**kw: object) -> None:
         conn.execute(
@@ -197,7 +148,6 @@ def _audit_recorder(conn: sqlite3.Connection) -> Callable[..., None]:
 
 
 def create_run(path: str | Path, *, master_seed: int = MASTER_SEED) -> None:
-    """Initialize a fresh run database and seed the world (one committed txn each)."""
     conn = connect(path)
     try:
         migrate(conn)
@@ -225,11 +175,6 @@ def create_run(path: str | Path, *, master_seed: int = MASTER_SEED) -> None:
 
 
 def open_run(path: str | Path, *, master_seed: int = MASTER_SEED, variant: str = "A") -> RunContext:
-    """Wire the real services over an existing run database.
-
-    Nothing in-memory is carried over from a previous process: sequential stream
-    counters are adopted from committed ``_rng_state`` rows by :class:`Rng`.
-    """
     conn = connect(path)
     rng = Rng(
         master_seed,
@@ -254,11 +199,6 @@ def open_run(path: str | Path, *, master_seed: int = MASTER_SEED, variant: str =
     )
 
 
-# ---------------------------------------------------------------------------
-# Shared transaction helpers
-# ---------------------------------------------------------------------------
-
-
 def _require_ok(what: str, response: bytes) -> dict:
     body = json.loads(response)
     if not body.get("ok"):
@@ -267,7 +207,6 @@ def _require_ok(what: str, response: bytes) -> dict:
 
 
 def _advance_to(ctx: TxnContext, ts_ms: int) -> int:
-    """Move simulated time to ``ts_ms``, never backwards (spec 01 invariant #3)."""
     now = max(int(ctx.now_ms), int(ts_ms))
     clock.advance(ctx.conn, now)
     ctx.now_ms = now
@@ -279,24 +218,15 @@ def _payload(event: sqlite3.Row) -> dict:
     return json.loads(raw) if raw else {}
 
 
-# ---------------------------------------------------------------------------
-# Toy event handlers
-# ---------------------------------------------------------------------------
-
-
 def _handle_tick(run: RunContext, ctx: TxnContext, event: sqlite3.Row) -> dict:
-    """A world tick: advance the weather process, price the tick, maybe cascade."""
     entity_id = int(event["entity_id"])
     kind = str(event["kind"])
     now = _advance_to(ctx, int(event["scheduled_at_ms"]))
 
-    # Sequential: the weather process evolves with world time, never with how
-    # many actions the agent took (spec 09 DET-05).
     u = ctx.rng.stream(SequentialStreamName.WEATHER_PROCESS.value).next()
     temp_index = u % 100
     _observe(run, f"weather_process/tick/{event['event_id']}", u)
 
-    # Keyed: order-independent forecast noise for this entity.
     f = ctx.rng.draw(
         KeyedStreamName.WEATHER_FORECAST.value,
         ENTITY,
@@ -335,7 +265,6 @@ def _handle_tick(run: RunContext, ctx: TxnContext, event: sqlite3.Row) -> dict:
 def _handle_settlement(
     amount_cents: int, category: LedgerCategory
 ) -> Callable[[RunContext, TxnContext, sqlite3.Row], dict]:
-    """An unavoidable settlement effect: a fixed amount, no draw."""
 
     def handler(run: RunContext, ctx: TxnContext, event: sqlite3.Row) -> dict:
         now = _advance_to(ctx, int(event["scheduled_at_ms"]))
@@ -364,14 +293,7 @@ HANDLERS: dict[EventKind, Callable[[RunContext, TxnContext, sqlite3.Row], dict]]
 }
 
 
-# ---------------------------------------------------------------------------
-# Fake agent commands (recorded script)
-# ---------------------------------------------------------------------------
-
-
 def _cmd_book(run: RunContext, ctx: TxnContext) -> dict:
-    # Discretionary immediate cost: cash-guarded before any write or draw
-    # (docs/CSR-001.md decision 4).
     ctx.services.ledger.require_cash(BOOK_PRICE_CENTS)
     u = ctx.rng.draw(
         KeyedStreamName.ACCEPTANCE.value,
@@ -458,19 +380,12 @@ def _cmd_reschedule(run: RunContext, ctx: TxnContext) -> dict:
 
 
 def _cmd_overspend(run: RunContext, ctx: TxnContext) -> dict:
-    """The variant-B failed validation: rejected before any write or draw."""
     ctx.services.ledger.require_cash(OVERSPEND_CENTS)
     raise DriverError("overspend probe unexpectedly passed the cash guard")
 
 
 def _replay_trap(ctx: TxnContext) -> dict:
-    """Body for an idempotent retry: reaching it means the response was re-run."""
     raise DriverError("idempotent retry re-executed the command body")
-
-
-# ---------------------------------------------------------------------------
-# Script steps — one committed transaction each
-# ---------------------------------------------------------------------------
 
 
 def _run_command(run: RunContext, name: str, fn: Callable[[TxnContext], dict]) -> None:
@@ -546,8 +461,6 @@ def _step_cmd_reschedule(run: RunContext, name: str) -> None:
     _run_command(run, name, partial(_cmd_reschedule, run))
 
 
-#: The recorded script. Index (1-based) is the commit point number; every entry
-#: commits exactly one transaction, so boundary ``i`` means "steps 1..i applied".
 SCRIPT: tuple[tuple[str, Callable[[RunContext, str], None]], ...] = (
     ("01_open_opening_invocation", _step_open_opening),
     ("02_cmd_book", _step_cmd_book),
@@ -589,29 +502,19 @@ def _seed_world(run: RunContext) -> None:
     _require_ok("seed_world", privileged(run.services, privileged_request_id("seed_world", 1), fn))
 
 
-# ---------------------------------------------------------------------------
-# Variant B — noise that must not move a single draw (DET-04 / DET-05)
-# ---------------------------------------------------------------------------
-
-
 def _interleave(run: RunContext, after: str) -> None:
     if run.variant != "B":
         return
-    # (a) extra read-only queries — no write, no draw.
     run.conn.execute("SELECT COUNT(*) FROM _events").fetchone()
     run.conn.execute("SELECT COUNT(*) FROM _random_audit").fetchone()
     run.ledger.cash_balance()
     run.events.pending_in_order()
 
-    # (b) idempotent retries of already-committed request ids — the stored
-    # response comes back without the body running (``_replay_trap``).
     for request_id in run.public_request_ids:
         run.notes.append(
             (f"retry:{request_id}", command(run.services, request_id, _replay_trap).hex())
         )
 
-    # (c) a failed validation: a discretionary overspend, refused before any
-    # write or draw. Only reachable while an invocation is active.
     if run.invocations.active() is not None:
         request_id = f"probe:overspend:{after}"
         body = json.loads(command(run.services, request_id, partial(_cmd_overspend, run)))
@@ -619,7 +522,6 @@ def _interleave(run: RunContext, after: str) -> None:
 
 
 def run_steps(run: RunContext, first: int = 1, last: int = N_COMMITS) -> None:
-    """Play commit points ``first..last`` (1-based, inclusive) of :data:`SCRIPT`."""
     for index, (name, step) in enumerate(SCRIPT, start=1):
         if not (first <= index <= last):
             continue
@@ -635,11 +537,6 @@ def report(run: RunContext) -> dict:
         "notes": [list(n) for n in run.notes],
         "steps": list(run.steps_run),
     }
-
-
-# ---------------------------------------------------------------------------
-# Subprocess entry point
-# ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:

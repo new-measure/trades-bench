@@ -1,13 +1,8 @@
-"""tools.geo_build.normalize_stage: grammar composition and the two
-rejection paths (research/osm-data.md §4.3; CSR-003b, RES-60). Uses plain
-synthetic `Candidate` objects — this stage never touches OSM parsing.
-"""
-
 from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("shapely")  # transitively required by geo_build.models' package
+pytest.importorskip("shapely")
 
 from csr_bench.address import load_default_abbreviation_table  # noqa: E402
 from geo_build import normalize_stage  # noqa: E402
@@ -56,21 +51,18 @@ def test_normalize_candidate_applies_suffix_and_directional_abbreviation():
 
 
 def test_normalize_candidate_grammar_failure_is_rejected():
-    # A house number with no digit/letter content dies in normalize()'s
-    # grammar check before ever reaching the ambiguity check.
     c = _candidate(house_number="!!!")
     rejection = normalize_stage.normalize_candidate(c, TABLE)
     assert rejection is not None
     assert rejection.reason == normalize_stage.REASON_GRAMMAR_INVALID
     assert rejection.source_type == "node"
     assert rejection.source_id == 1
-    # candidate is left unmutated on failure.
     assert c.formatted_address is None
 
 
 def test_normalize_candidate_ambiguous_table_is_rejected():
     ambiguous_table = {
-        "suffixes": {"Road": "Rd", "ROAD": "Way"},  # collides under case-folding
+        "suffixes": {"Road": "Rd", "ROAD": "Way"},
     }
     c = _candidate(street="100 Some Road")
     rejection = normalize_stage.normalize_candidate(c, ambiguous_table)
@@ -79,13 +71,10 @@ def test_normalize_candidate_ambiguous_table_is_rejected():
 
 
 def test_normalize_candidate_ambiguous_table_rejects_even_without_using_the_colliding_word():
-    # The ambiguity check runs over the whole table, independent of whether
-    # this candidate's own street uses the colliding entry (mirrors
-    # test_address.py's own coverage of this normalize() property).
     ambiguous_table = {
         "suffixes": {"Road": "Rd", "ROAD": "Way"},
     }
-    c = _candidate(street="Main St")  # does not mention "Road" at all
+    c = _candidate(street="Main St")
     rejection = normalize_stage.normalize_candidate(c, ambiguous_table)
     assert rejection is not None
     assert rejection.reason == normalize_stage.REASON_AMBIGUOUS

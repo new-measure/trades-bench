@@ -1,21 +1,3 @@
-"""SCH-06 append-only (spec 02 §1.4, §13; CSR-002 decision 15).
-
-Two layers. The static scan reads every ``src/csr_bench/*.py`` and the
-determinism driver and asserts no ``UPDATE``/``DELETE`` statement targets any
-of the six append-only tables — with the one spec-01-forced carve-out:
-``_events`` updates live only in ``events.py`` and touch only the
-``status``/``applied_at_ms`` columns (decision 15, resolved conflict). The
-runtime layer proves the permanent guard triggers fire with the stable
-``append_only_table`` abort for both UPDATE and DELETE on all six tables,
-and that the ``_events`` carve-out update still works (SQLite has no
-append-only triggers on ``_events`` — the static scan is its guard).
-
-The static scan is a regex over the module sources: a schema-qualified
-(``UPDATE _db._events``) or string-concatenated table name would not match,
-so the permanent triggers on the six tables are the real backstop — the
-regex only has to be right about the ``_events`` carve-out.
-"""
-
 from __future__ import annotations
 
 import re
@@ -27,8 +9,6 @@ import pytest
 from csr_bench.db import in_memory
 from csr_bench.migrations import migrate
 
-#: The six append-only tables of spec 02 §1.4, other than ``_events``
-#: (decision 15's carve-out).
 APPEND_ONLY_TABLES: tuple[str, ...] = (
     "_ledger_entries",
     "_notifications",
@@ -38,56 +18,31 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "_appointment_events",
 )
 
-#: Every engine source that can hold SQL literals: the package modules plus
-#: the determinism driver (a test module that writes real commands through
-#: real machinery — it must obey the same rule).
 _SOURCE_FILES: tuple[Path, ...] = tuple(
     sorted(Path(__file__).resolve().parents[1].joinpath("src", "csr_bench").glob("*.py"))
 ) + (Path(__file__).resolve().parent / "_driver.py",)
 
-#: An UPDATE/DELETE statement naming a table: ``UPDATE <table> ...`` or
-#: ``DELETE [FROM] <table> ...``. The optional interposed segments mirror
-#: what SQLite's lexer accepts between the keyword and the table name:
-#: a ``FROM`` keyword, a ``/* ... */`` comment (comment-adjacent forms like
-#: ``UPDATE /*c*/ _events`` lex with no whitespace), and quoted-identifier
-#: quotes (``UPDATE "_events" ...``) — the final-branch audit F6 gap. The
-#: identifier group still requires the ``_`` prefix, so non-private targets
-#: stay ignored. Known limit, documented: the comment pattern
-#: ``/\*[^*]*\*/`` does not span multiple ``*``-containing segments and the
-#: regex is not a parser — a string-concatenated or schema-qualified name
-#: would slip, which is why the permanent triggers are the real backstop.
 _DML_TARGET = re.compile(
     r"\b(?:UPDATE|DELETE)\s+(?:(?:FROM|/\*[^*]*\*/)\s+)*[\"'`]?(_[A-Za-z0-9_]+)[\"'`]?",
     re.IGNORECASE,
 )
 
-#: The SET clause of an ``UPDATE _events`` statement (up to the WHERE), with
-#: the same optional comment/quoted-identifier prefix as :data:`_DML_TARGET`
-#: (including the closing quote).
 _EVENTS_SET = re.compile(
     r"\bUPDATE\s+(?:/\*[^*]*\*/\s*)*[\"'`]?_events[\"'`]?\s+SET\s+(.*?)(?:WHERE|$)",
     re.IGNORECASE | re.DOTALL,
 )
 
-#: The two columns the events module may update in place (decision 15).
 _EVENTS_ALLOWED_COLUMNS = frozenset({"status", "applied_at_ms"})
 
 _SQLITE_COLUMN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*=")
 
 
 def _dml_targets(source: str) -> list[tuple[str, str]]:
-    """``(table, statement_snippet)`` for every DML statement that names a
-    ``_`` table in ``source``."""
     out: list[tuple[str, str]] = []
     for match in _DML_TARGET.finditer(source):
         statement = source[match.start():]
         out.append((match.group(1), statement[: len(match.group(0)) + 120]))
     return out
-
-
-# ---------------------------------------------------------------------------
-# Static scan (SCH-06 first half)
-# ---------------------------------------------------------------------------
 
 
 def test_no_source_updates_or_deletes_an_append_only_table():
@@ -101,9 +56,6 @@ def test_no_source_updates_or_deletes_an_append_only_table():
 
 
 def test_events_carve_out_is_exactly_events_py_status_and_applied_at():
-    # decision 15: only the events module may update `_events`, and only its
-    # status/applied_at_ms columns — the spec-01 envelope requires in-place
-    # status transitions (pending -> processing -> applied/cancelled).
     for path in _SOURCE_FILES:
         source = path.read_text()
         for table, statement in _dml_targets(source):
@@ -124,12 +76,6 @@ def test_events_carve_out_is_exactly_events_py_status_and_applied_at():
 
 
 def test_static_scan_catches_quoted_and_comment_adjacent_dml_spellings():
-    # Final-branch audit F6: a naive `UPDATE\s+_events` regex misses quoted
-    # (`UPDATE "_events" SET`) and comment-adjacent (`UPDATE /*c*/ _events SET`)
-    # spellings, both of which SQLite lexes as plain identifier access. The
-    # synthetic module string stands in for a future source that writes SQL
-    # with quoting or comments; the scan must flag every `_` table it names,
-    # and the _events carve-out must still extract its SET columns.
     synthetic = (
         "UPDATE \"_events\" SET status = 'applied'\n"
         "UPDATE /*c*/ _events SET status = 'processing'\n"
@@ -154,20 +100,8 @@ def test_static_scan_catches_quoted_and_comment_adjacent_dml_spellings():
         assert set_match is not None, f"synthetic spelling missed by _EVENTS_SET: {statement!r}"
         columns = {m.group(1) for m in _SQLITE_COLUMN.finditer(set_match.group(1))}
         assert columns == {"status"}, f"{statement!r}: SET {columns}"
-    # the quoted/comment spellings surface the same targets as plain ones:
-    # the append-only tables are all caught, so a future module using these
-    # spellings fails the static scan exactly like a plain `UPDATE` would
-    # the quoted/comment spellings surface the same targets as plain ones:
-    # the append-only tables present in the synthetic source are all caught,
-    # so a future module using these spellings fails the static scan exactly
-    # like a plain `UPDATE` would
     caught = {table for table, _ in targets}
     assert {"_ledger_entries", "_reviews"} <= caught
-
-
-# ---------------------------------------------------------------------------
-# Runtime triggers (SCH-06 second half)
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -181,8 +115,6 @@ def conn():
 
 
 def _parents(conn) -> None:
-    """The minimal parents the six tables' FKs need (customer for reviews,
-    the job/appointment chain for appointment_events)."""
     conn.execute(
         "INSERT INTO _customers (id, name, segment, status, created_at, modified_at) "
         "VALUES (1, 'Acme', 'commercial', 'active', 0, 0)"
@@ -211,8 +143,6 @@ def _parents(conn) -> None:
     )
 
 
-#: (table, row INSERT, a column-writing UPDATE) — one minimal row per
-#: append-only table; the UPDATE names a column the table actually has.
 _ONE_ROW: dict[str, tuple[str, str]] = {
     "_ledger_entries": (
         "INSERT INTO _ledger_entries (id, occurred_at, service_date, entry_type, "
@@ -252,10 +182,6 @@ _ONE_ROW: dict[str, tuple[str, str]] = {
 
 
 def test_update_and_delete_trigger_fires_on_every_append_only_table(conn):
-    # The permanent guard triggers (migration 0001 section E) abort both
-    # UPDATE and DELETE with the stable `append_only_table` message —
-    # production defense in depth: a future buggy module fails at the
-    # database, rolls back, and surfaces a stable error (decision 15).
     _parents(conn)
     for table, (insert_sql, update_sql) in _ONE_ROW.items():
         conn.execute(insert_sql)
@@ -265,9 +191,6 @@ def test_update_and_delete_trigger_fires_on_every_append_only_table(conn):
 
 
 def test_events_carve_out_update_still_works(conn):
-    # `_events` carries no append-only triggers (decision 15: the spec-01
-    # envelope requires in-place status transitions); the static scan is its
-    # guard, and the storage layer must prove the carve-out actually works.
     conn.execute(
         "INSERT INTO _events (event_id, kind, scheduled_at_ms, priority, status, "
         "created_at_ms) VALUES (1, 'contract_test', 0, 0, 'pending', 0)"
@@ -275,7 +198,6 @@ def test_events_carve_out_update_still_works(conn):
     conn.execute("UPDATE _events SET status = 'applied', applied_at_ms = 5")
     row = conn.execute("SELECT status, applied_at_ms FROM _events WHERE event_id = 1").fetchone()
     assert (row["status"], row["applied_at_ms"]) == ("applied", 5)
-    # no append-only triggers exist on _events
     triggers = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='_events'"
     ).fetchall()

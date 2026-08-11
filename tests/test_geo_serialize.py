@@ -1,7 +1,3 @@
-"""tools.geo_build.serialize: deterministic CSV writing, address_id
-assignment, and rejected-row sorting (CSR-003 decision 3; CSR-003b, RES-60).
-"""
-
 from __future__ import annotations
 
 import csv
@@ -60,7 +56,7 @@ def test_write_csv_uses_lf_line_endings_and_a_header(tmp_path):
     serialize.write_csv(path, ("a", "b"), [{"a": 1, "b": None}, {"a": 2, "b": "x"}])
     raw = path.read_bytes()
     assert b"\r\n" not in raw
-    assert raw.count(b"\n") == 3  # header + 2 rows
+    assert raw.count(b"\n") == 3
     text = raw.decode("utf-8")
     lines = text.splitlines()
     assert lines[0] == "a,b"
@@ -73,7 +69,7 @@ def test_write_csv_quotes_fields_containing_the_delimiter(tmp_path):
     serialize.write_csv(path, ("a",), [{"a": "residential,apartment"}])
     with open(path, newline="", encoding="utf-8") as f:
         rows = list(csv.reader(f))
-    assert rows[1] == ["residential,apartment"]  # round-trips through csv quoting
+    assert rows[1] == ["residential,apartment"]
 
 
 def test_write_csv_is_byte_identical_across_reruns(tmp_path):

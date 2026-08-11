@@ -1,22 +1,3 @@
-"""Event envelope + ordering + atomic apply (spec 01 §Event envelope and ordering,
-§Invariants #3/#4; §Command transactions for the transactional apply).
-
-Every world event uses one envelope ordered strictly by
-``(scheduled_at, priority, event_id)`` (``event_id`` is monotonically assigned
-within the run, so it is a deterministic tiebreaker). Event kinds come from the
-central registry (:mod:`csr_bench.enums`); priorities are stubs now — their
-meaningful table lands with CSR-005/011 (owned by spec 07).
-
-Event application is atomic together with every resulting record, ledger entry,
-notification row, newly scheduled event, and random-state change, and an applied
-event is never reapplied. Events apply only while no invocation is active. A
-cancelled event leaves no world effect other than its own status row.
-
-``Events.schedule`` is callable only inside an open transaction so a rollback
-discards the scheduled event together with any draw that produced it
-(spec 01 §Interfaces).
-"""
-
 from __future__ import annotations
 
 import json
@@ -33,8 +14,6 @@ EventHandler = Callable[[TxnContext, sqlite3.Row], dict | None]
 
 
 class Events:
-    """The world-event envelope table owner. Construct with the shared rng so
-    :meth:`schedule` can enforce the open-transaction guard."""
 
     __slots__ = ("conn", "rng")
 
@@ -42,7 +21,6 @@ class Events:
         self.conn = conn
         self.rng = rng
 
-    # ------------------------------------------------------------------
     def _require_txn(self, what: str) -> None:
         if not self.rng.is_txn_open():
             raise EngineError(
@@ -61,7 +39,6 @@ class Events:
         payload: dict | None = None,
         payload_version: int = 1,
     ) -> int:
-        """Insert a ``pending`` event and return its monotonically assigned id."""
         self._require_txn("Events.schedule")
         if not isinstance(kind, EventKind):
             raise EngineError(ErrorCode.STATE_ILLEGAL, f"unknown event kind {kind!r}")
@@ -95,7 +72,6 @@ class Events:
         return int(cur.lastrowid)
 
     def cancel(self, event_id: int) -> None:
-        """Transition ``pending -> cancelled``; a cancelled event leaves no effect."""
         self._require_txn("Events.cancel")
         cur = self.conn.execute(
             "UPDATE _events SET status = 'cancelled' WHERE event_id=? "
@@ -121,7 +97,6 @@ class Events:
         return EventStatus(row["status"]) if row is not None else None
 
     def next_pending(self) -> sqlite3.Row | None:
-        """Earliest pending event by ``(scheduled_at, priority, event_id)``."""
         return self.conn.execute(
             "SELECT * FROM _events WHERE status='pending' "
             "ORDER BY scheduled_at_ms, priority, event_id LIMIT 1",
@@ -142,18 +117,7 @@ class Events:
         ).fetchone()
         return int(row["c"])
 
-    # ------------------------------------------------------------------
     def apply(self, event_id: int, handler: EventHandler, *, services: Any) -> bytes:
-        """Atomically apply event ``event_id`` via ``handler(ctx, event)``.
-
-        Guarantees (spec 01 §Event envelope, §Invariants #3/#4):
-        - world events apply only while no invocation is active;
-        - an applied event is never reapplied (resume is idempotent via the
-          privileged ``apply_event:<id>`` request id);
-        - all resulting records / ledger / nested events / draws commit together
-          and roll back together; after a committed financial effect the run
-          may flip to ``bankrupt`` (handled by the privileged txn layer).
-        """
 
         def inner(ctx: TxnContext) -> dict:
             if services.invocations is not None and services.invocations.active() is not None:

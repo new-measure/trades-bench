@@ -1,6 +1,3 @@
-"""Tests for the closed enumerations (spec 01 §Canonical primitive types,
-§Deterministic randomness, §Event envelope)."""
-
 from __future__ import annotations
 
 import json
@@ -58,8 +55,6 @@ def test_visibility_classes():
 
 
 def test_ledger_categories_closed_9_member_set():
-    # spec 06 §9.1 — the closed v1 entry-type set; adding a member is a
-    # spec_version change. Values and order are pinned exactly as spelled.
     assert [c.value for c in LedgerCategory] == [
         "opening_balance_adjustment",
         "revenue",
@@ -114,7 +109,6 @@ def test_keyed_stream_table_complete():
     }
     keyed = {str(s) for s in KeyedStreamName}
     assert keyed == expected
-    # weather_forecast is keyed, NOT sequential (spec 01 §Keyed-draw registry).
     assert "weather_forecast" not in {str(s) for s in SequentialStreamName}
     assert "weather_forecast" in keyed
 
@@ -135,8 +129,6 @@ def test_entity_type_is_contract_test_only_now():
 
 
 def test_condition_code_closed_7_member_set():
-    # spec 05 §2.2 — CSR-003 decision 9: defined here so travel.weather_travel_
-    # multipliers (03 §5.1) can be total over it before CSR-004 exists.
     assert {c.value for c in ConditionCode} == {
         "clear",
         "hot",

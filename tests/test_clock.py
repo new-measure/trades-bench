@@ -1,6 +1,3 @@
-"""Tests for the Phoenix-aware simulated clock (spec 01 §Run identity and time,
-§Canonical primitive types, §Scheduling and execution)."""
-
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
@@ -41,7 +38,6 @@ from csr_bench.migrations import migrate
 
 
 def test_phoenix_is_fixed_offset_no_dst():
-    # America/Phoenix is -07:00 year-round; no DST across a summer/winter check.
     summer = phoenix_local(phoenix_instant(2026, 7, 1, 12, 0))
     winter = phoenix_local(phoenix_instant(2027, 1, 1, 12, 0))
     assert summer.utcoffset() == winter.utcoffset()
@@ -51,7 +47,6 @@ def test_phoenix_is_fixed_offset_no_dst():
 def test_iso8601_has_explicit_offset():
     ts = phoenix_instant(2026, 10, 1, 6, 45)
     assert to_iso8601(ts) == "2026-10-01T06:45:00-07:00"
-    # noon is unambiguous with offset.
     assert to_iso8601(phoenix_instant(2026, 10, 1, 12, 0)) == "2026-10-01T12:00:00-07:00"
 
 
@@ -60,7 +55,6 @@ def test_opening_is_06_45():
 
 
 def test_block_grid_contiguous_five_plus_after_hours():
-    # Five office blocks contiguous 07:00..17:00, after-hours 17:00..19:00.
     assert OFFICE_BLOCKS == (
         (7 * 60, 9 * 60),
         (9 * 60, 11 * 60),
@@ -68,8 +62,6 @@ def test_block_grid_contiguous_five_plus_after_hours():
         (13 * 60, 15 * 60),
         (15 * 60, 17 * 60),
     )
-    # No gaps: each block starts where the previous ended (sliding window of
-    # adjacent pairs, so the two iterables are intentionally unequal length).
     for prev, cur in zip(OFFICE_BLOCKS, OFFICE_BLOCKS[1:], strict=False):
         assert prev[1] == cur[0]
     assert OFFICE_BLOCKS[-1][1] == AFTER_HOURS[0]
@@ -80,7 +72,6 @@ def test_block_of_classifies_each_grid_minute():
     def blk(hh, mm):
         return Block.from_minutes(hh * 60 + mm)
 
-    # Boundaries belong to the block that starts at that minute.
     assert blk(7, 0) is Block.BLOCK_1
     assert blk(8, 59) is Block.BLOCK_1
     assert blk(9, 0) is Block.BLOCK_2
@@ -89,17 +80,15 @@ def test_block_of_classifies_each_grid_minute():
     assert blk(15, 0) is Block.BLOCK_5
     assert blk(17, 0) is Block.AFTER_HOURS
     assert blk(18, 59) is Block.AFTER_HOURS
-    # Outside the grid -> None.
-    assert blk(6, 45) is None  # opening is before the first block
+    assert blk(6, 45) is None
     assert blk(19, 0) is None
     assert blk(2, 0) is None
-    assert Block.office_blocks() == tuple(range(1, 6))  # 1..5
+    assert Block.office_blocks() == tuple(range(1, 6))
 
 
 def test_clock_now_frozen_and_monotonic():
     c = Clock(phoenix_instant(2026, 10, 1, 6, 45))
     assert c.now() == phoenix_instant(2026, 10, 1, 6, 45)
-    # now() is stable across repeated calls (frozen, not wall-clock).
     assert c.now() == c.now()
     c.advance_to(phoenix_instant(2026, 10, 1, 7, 0))
     assert c.now() == phoenix_instant(2026, 10, 1, 7, 0)
@@ -112,14 +101,13 @@ def test_clock_refuses_to_go_backwards():
 
 
 def test_clock_local_date_and_weekend():
-    # 2026-10-02 is a Friday, 2026-10-03 a Saturday (Phoenix). Advance forward.
     c = Clock(phoenix_instant(2026, 10, 2, 12, 0))
     assert c.local_date() == date(2026, 10, 2)
     assert c.is_weekend() is False
     c.advance_to(phoenix_instant(2026, 10, 3, 12, 0))
     assert c.is_weekend() is True
     c.advance_to(phoenix_instant(2026, 10, 5, 8, 0))
-    assert c.is_weekend() is False  # Monday
+    assert c.is_weekend() is False
 
 
 def test_clock_block_of_now():
@@ -136,26 +124,17 @@ def test_day_start_millis_is_midnight_phoenix():
 
 
 def test_clock_is_independent_of_wall_clock():
-    # Building a timestamp from components must not depend on the system clock;
-    # verifying the same instant round-trips to the same components.
     ts = phoenix_instant(2027, 2, 9, 17, 30)
     dt = phoenix_local(ts)
     assert (dt.year, dt.month, dt.day, dt.hour, dt.minute) == (2027, 2, 9, 17, 30)
     assert dt.tzinfo is PHOENIX_TZ
-    # And the epoch millis are deterministic (no wall clock).
     assert ts == int(datetime(2027, 2, 9, 17, 30, tzinfo=PHOENIX_TZ).timestamp() * 1000)
-    # sanity: tzinfo is real (UTC comparison)
     assert phoenix_local(ts).astimezone(UTC).tzinfo is UTC
 
 
-# alias to keep the unused AH import meaningful for lint
 def test_alias_matches():
     assert AH is AFTER_HOURS
 
-
-# ---------------------------------------------------------------------------
-# DB-backed current time (_clock is the single time source, decision 3)
-# ---------------------------------------------------------------------------
 
 OPENING = phoenix_instant(2026, 10, 1, 6, 45)
 
@@ -193,8 +172,6 @@ def test_service_date_for_ms_known_instant():
 
 
 def test_service_date_for_ms_near_midnight():
-    # the date flips at Phoenix-local midnight, not UTC midnight: 2026-10-02
-    # 06:59 UTC is still 2026-10-01 23:59 in Phoenix (-07:00).
     last_instant = phoenix_instant(2026, 10, 1, 23, 59)
     assert service_date_for_ms(last_instant) == "2026-10-01"
     next_instant = phoenix_instant(2026, 10, 2, 0, 1)
@@ -224,19 +201,19 @@ def test_clock_db_advance_moves_forward_and_derives_service_date(conn):
     advance(conn, later)
     commit(conn)
     assert now(conn) == later
-    assert now_service_date(conn) == "2026-10-01"  # derived, same Phoenix day
+    assert now_service_date(conn) == "2026-10-01"
 
     next_day = phoenix_instant(2026, 10, 2, 8, 0)
     begin(conn)
     advance(conn, next_day)
     commit(conn)
-    assert now_service_date(conn) == "2026-10-02"  # derived across the date flip
+    assert now_service_date(conn) == "2026-10-02"
 
 
 def test_clock_db_advance_accepts_explicit_service_date(conn):
     _seed(conn)
     begin(conn)
-    advance(conn, OPENING, service_date="2026-10-01")  # equal instant is legal
+    advance(conn, OPENING, service_date="2026-10-01")
     commit(conn)
     assert now(conn) == OPENING
     assert now_service_date(conn) == "2026-10-01"
@@ -248,7 +225,7 @@ def test_clock_db_advance_refuses_backwards(conn):
     with pytest.raises(EngineError) as ei:
         advance(conn, OPENING - 1)
     assert ei.value.code is ErrorCode.STATE_ILLEGAL
-    assert now(conn) == OPENING  # unchanged
+    assert now(conn) == OPENING
     commit(conn)
 
 
@@ -257,7 +234,7 @@ def test_clock_db_advance_requires_open_transaction(conn):
     with pytest.raises(EngineError) as ei:
         advance(conn, OPENING + 1)
     assert ei.value.code is ErrorCode.DRAW_OUTSIDE_TXN
-    assert now(conn) == OPENING  # nothing committed
+    assert now(conn) == OPENING
 
 
 def test_clock_db_rollback_discards_the_time_change(conn):

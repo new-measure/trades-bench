@@ -1,6 +1,3 @@
-"""Tests for invocation exclusivity + lifecycle + closing restriction (spec 01
-§Invocation contract; acceptance #10 exclusivity, #11 closing restriction)."""
-
 from __future__ import annotations
 
 import json
@@ -23,7 +20,6 @@ def test_open_and_sequence_and_active():
     assert row["status"] == "active"
     sv.invocations.complete(i1, services=sv)
     assert sv.invocations.active() is None
-    # sequence keeps incrementing across completions
     i2 = sv.invocations.open(InvocationType.OPENING, 110, services=sv)
     assert i2 == i1 + 1
     sv.invocations.complete(i2, services=sv)
@@ -34,7 +30,6 @@ def test_open_second_invocation_fails_exclusivity():
     i1 = sv.invocations.open(InvocationType.CALL, 100, services=sv)
     r = sv.invocations.open(InvocationType.OPENING, 110, services=sv)
     assert json.loads(r)["error"]["code"] == "invocation_conflict"
-    # only one invocation row exists
     n = conn.execute("SELECT COUNT(*) c FROM _invocations").fetchone()["c"]
     assert n == 1
     assert sv.invocations.active()["invocation_id"] == i1
@@ -45,7 +40,6 @@ def test_complete_terminal_and_idempotent_violations():
     i = sv.invocations.open(InvocationType.OPENING, 100, services=sv)
     r = sv.invocations.complete(i, services=sv)
     assert json.loads(r)["ok"] is True
-    # second complete fails: not active
     r2 = sv.invocations.complete(i, services=sv)
     assert json.loads(r2)["error"]["code"] == "state_illegal"
 
@@ -62,8 +56,6 @@ def test_invocation_freezes_current_time_for_commands():
 
     command(sv, "noop.read.1", fn)
     assert frozen["v"] == ts
-    # the clock row is frozen at ts (CSR-002 decision 3: _clock is the
-    # single time source)
     assert clock.now(conn) == ts
     sv.invocations.complete(iv, services=sv)
 
@@ -80,7 +72,6 @@ def test_world_event_cannot_commit_while_invocation_active():
     r = events.apply(eid, lambda ctx, e: None, services=sv)
     assert json.loads(r)["error"]["code"] == "invocation_conflict"
     assert events.status(eid).value == "pending"
-    # after completing the invocation, the event applies
     sv.invocations.complete(sv.invocations.active()["invocation_id"], services=sv)
     r2 = events.apply(eid, lambda ctx, e: None, services=sv)
     assert json.loads(r2)["ok"] is True
@@ -93,12 +84,8 @@ def test_record_attempt_and_three_attempt_terminal():
     for expect in (1, 2, 3):
         r = sv.invocations.record_attempt(i, services=sv)
         assert json.loads(r)["result"]["attempt_count"] == expect
-    # mark_unanswered before 3 would already be exactly at 3 -> succeeds now
     r = sv.invocations.mark_call_unanswered(i, services=sv)
     result = json.loads(r)["result"]
-    # status is the closed InvocationStatus value actually persisted;
-    # "unanswered" is not a member of that enum (decision 5) — it is the
-    # call-level outcome, carried in a separate field (CSR-001 chunk 6).
     assert result["status"] == "completed"
     assert result["outcome"] == "unanswered"
     assert sv.invocations.active() is None
@@ -125,15 +112,7 @@ def test_mark_unanswered_requires_call_invocation():
     sv.invocations.complete(i, services=sv)
 
 
-# ---------------------------------------------------------------------------
-# Acceptance #11 — closing restriction (future-facing only)
-# ---------------------------------------------------------------------------
-
-
 def _closing_restricted_command(services, request_id, target_ts):
-    """A toy command that enforces the closing-day restriction (CSR-008 owns the
-    real ones). During a closing invocation a mutation at/before the closing
-    timestamp fails (CLOSING_RESTRICTED); future-facing succeeds."""
 
     def fn(ctx):
         inv = ctx.invocation
@@ -150,13 +129,10 @@ def test_closing_invocation_rejects_finished_day_mutation_and_allows_future():
     closing_ts = 10_000
     sv.invocations.open(InvocationType.CLOSING, closing_ts, services=sv)
 
-    # a mutation targeting the finished day (<= closing_ts) fails with the stable
-    # code; no ledger row written.
     r_bad = _closing_restricted_command(sv, "schedule.yesterday", closing_ts - 1)
     assert json.loads(r_bad)["error"]["code"] == "closing_restricted"
     assert ledger.entry_count() == 0
 
-    # a future-facing mutation (strictly after closing_ts) succeeds.
     r_ok = _closing_restricted_command(sv, "schedule.tomorrow", closing_ts + 1)
     assert json.loads(r_ok)["ok"] is True
     assert ledger.entry_count() == 1
@@ -166,7 +142,6 @@ def test_closing_invocation_rejects_finished_day_mutation_and_allows_future():
 def test_non_closing_invocation_allows_current_time_mutation():
     conn, rid, sv, ledger, events, rng = make_services()
     sv.invocations.open(InvocationType.CALL, 5_000, services=sv)
-    # a call invocation is not restricted to future-facing only
-    r = _closing_restricted_command(sv, "job.book", 5_000)  # target == ts (not closing)
+    r = _closing_restricted_command(sv, "job.book", 5_000)
     assert json.loads(r)["ok"] is True
     sv.invocations.complete(sv.invocations.active()["invocation_id"], services=sv)

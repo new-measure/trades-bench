@@ -1,7 +1,3 @@
-"""tools.geo_build.strip: projection to exactly the 03 §3.1 catalog columns
-(research/osm-data.md §4.6; CSR-003b, RES-60).
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -50,7 +46,7 @@ def test_catalog_row_excludes_osm_ids_and_tags():
     assert "source_id" not in serialized_keys
     assert "source_type" not in serialized_keys
     assert "tags" not in serialized_keys
-    assert "unit" not in serialized_keys  # 03 §3.1: "There is no unit column"
+    assert "unit" not in serialized_keys
 
 
 def test_catalog_row_values_carry_through():
@@ -81,7 +77,6 @@ def test_catalog_row_routability_fields_are_pending_placeholders():
     assert row["anchor_id"] is None
     assert row["access_distance_km"] is None
     assert row["status"] == strip.PENDING_STATUS
-    # deliberately not one of 03 §3.1's real usable/unusable enum members.
     assert row["status"] not in ("usable", "unusable")
     assert row["unusable_reason"] is None
 

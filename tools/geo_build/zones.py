@@ -1,23 +1,3 @@
-"""Zone polygon extraction (research/osm-data.md §4.7 provenance half; CSR-003
-decision 6): the eight municipal-relation zones, the composite
-``west_valley_goodyear``, and the Central/North Phoenix split — plus the
-"which raw municipal relation contains this point" lookup that
-:mod:`tools.geo_build.extract` needs for §4.2's ``city`` derivation (a
-different, finer-grained thing than the ten *zone* polygons — the seeded
-``cities_json`` shows why: a Goodyear address should derive ``city ==
-"Goodyear"``, not the zone name ``"West Valley/Goodyear"``, even though both
-resolve to the same ``zone_id``).
-
-pyosmium assembles administrative-relation ring geometry automatically: when
-a handler defines an ``area()`` callback, ``apply_file(..., locations=True)``
-does the two-pass multipolygon assembly internally (verified empirically —
-see the CSR-003.md implementation note) and hands back an ``Area`` whose
-``orig_id()`` is the *relation's* id and whose tags are the relation's tags.
-:func:`osmium.geom.GeoJSONFactory.create_multipolygon` turns that into a
-GeoJSON string this module feeds straight to ``shapely.geometry.shape`` — no
-hand-rolled ring/multi-segment merging needed.
-"""
-
 from __future__ import annotations
 
 import json
@@ -35,11 +15,6 @@ from csr_bench.migrations import migrate
 
 from . import geometry
 
-#: 03 §2.1's canonical zone order/codes, mirrored here so callers never
-#: recompute it. Asserted against `constants.ZONE_NAMES` (same order, same
-#: count) and against the migrated `_zones.code` column in tests — this is
-#: the one place geo_build hardcodes the taxonomy shared with the rest of the
-#: engine.
 ZONE_CODES: tuple[str, ...] = (
     "central_phoenix",
     "north_phoenix",
@@ -54,18 +29,9 @@ ZONE_CODES: tuple[str, ...] = (
 )
 assert len(ZONE_CODES) == len(constants.ZONE_NAMES) == 10
 
-#: Central Phoenix / North Phoenix dividing line (CSR-003 decision 6):
-#: "pinned latitude line at Northern Ave (~33.553°N)". Not an OSM boundary —
-#: recorded here as "user-decided v1 constant" per the same decision, and
-#: reproduced verbatim in every emitted `zone_provenance.json`.
 PHOENIX_SPLIT_LATITUDE = 33.553
 PHOENIX_SPLIT_PROVENANCE_NOTE = "user-decided v1 constant"
 
-#: Zone codes sourced from exactly one OSM administrative relation each
-#: (research/osm-data.md §4.7 / CSR-003 decision 6's "the other eight zones
-#: come from OSM municipal admin relations" — eight, counting Phoenix's own
-#: relation before the split; the codes below are the seven that are *also*
-#: single zones with no split or union).
 _SINGLE_RELATION_ZONE_CODES: tuple[str, ...] = (
     "scottsdale",
     "tempe",
@@ -76,21 +42,12 @@ _SINGLE_RELATION_ZONE_CODES: tuple[str, ...] = (
     "peoria",
 )
 
-#: The zone code whose relation is split rather than used whole.
 _PHOENIX_SPLIT_ZONE_CODES: tuple[str, str] = ("central_phoenix", "north_phoenix")
 
-#: The composite zone code, built from a union of several relations.
 _COMPOSITE_ZONE_CODE = "west_valley_goodyear"
 
 
 def seeded_zone_cities() -> dict[str, list[str]]:
-    """``zone code -> cities_json`` list, read from a freshly migrated
-    in-memory database — the seeded ``_zones`` rows of
-    ``schema/0001_baseline.sql:226`` are decision 6's "composition source of
-    truth" for ``west_valley_goodyear``, and this module reuses the same rows
-    to name every other zone's expected OSM relation(s) rather than
-    hardcoding city names a second time.
-    """
     conn = in_memory()
     try:
         migrate(conn)
@@ -102,10 +59,6 @@ def seeded_zone_cities() -> dict[str, list[str]]:
 
 @dataclass(frozen=True)
 class MunicipalRelation:
-    """One raw OSM administrative relation, before any zone-level split or
-    union — the granularity §4.2 city derivation needs (e.g. "Goodyear", not
-    "West Valley/Goodyear").
-    """
 
     name: str
     osm_relation_id: int
@@ -114,14 +67,11 @@ class MunicipalRelation:
 
 @dataclass(frozen=True)
 class ZonePolygon:
-    """One of the ten final 03 §2.1 zones."""
 
     zone_id: int
     code: str
     name: str
     polygon: BaseGeometry
-    #: Source OSM relation ids that fed this zone (1 for the seven singles, 1
-    #: for each Phoenix half, 3 for the composite).
     source_relation_ids: tuple[int, ...]
 
 
@@ -131,36 +81,13 @@ class ZoneExtractionResult:
     municipal_relations: tuple[MunicipalRelation, ...]
 
     def zone_polygons_in_order(self) -> list[BaseGeometry]:
-        """Zone polygons ordered by ``zone_id`` (1..10) — the order every
-        containment/nearest-zone lookup in :mod:`tools.geo_build.zone_assign`
-        relies on for its "ties broken by lowest zone_id" rule.
-        """
         return [z.polygon for z in sorted(self.zones, key=lambda z: z.zone_id)]
 
 
-#: US incorporated-municipality admin_level (OSM tagging convention). Without
-#: this filter, county (`admin_level=6`) and state (`admin_level=4`)
-#: relations sharing a name-adjacent tag would also be collected — real
-#: Geofabrik extracts carry all of these layered on the same territory.
 _MUNICIPALITY_ADMIN_LEVEL = "8"
 
 
 class _AdminAreaHandler(osmium.SimpleHandler):
-    """Collects every administrative-boundary relation's assembled polygon.
-
-    Filters on ``a.from_way() is False`` — pyosmium's area assembler also
-    independently re-emits any closed way that happens to satisfy its own
-    "looks like an area" tag heuristic (verified empirically: a closed way
-    tagged ``area=yes`` gets its own ``Area`` alongside the relation's). This
-    module only wants the relation-derived polygon, further filtered to
-    ``admin_level=8`` (incorporated municipalities) — an unfiltered read
-    would also collect county/state relations, which commonly reuse or
-    contain the same names. A duplicate name *within* the filtered
-    (municipality-only) set is a build error, not a silent overwrite: two
-    same-named incorporated municipalities in one build area would make
-    `extract_zones`'s name-based lookup ambiguous with no way to tell which
-    one was kept.
-    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -189,15 +116,6 @@ class _AdminAreaHandler(osmium.SimpleHandler):
         try:
             geojson_text = self._factory.create_multipolygon(a)  # type: ignore[attr-defined]
         except RuntimeError as exc:
-            # pyosmium's own area assembler does its own ring-validity check
-            # and can reject a self-intersecting ring (a "bowtie") before
-            # shapely ever sees it — verified empirically: reordering one
-            # rectangle way's corners into a bowtie raises exactly this,
-            # "invalid area (area_id=...)", with no relation identity in the
-            # message. Re-raised here as the same clear, relation-naming
-            # error `validate_or_repair_polygon` gives for the geometries
-            # that *do* reach shapely — the build must fail loudly either
-            # way, not with a bare, unlabeled RuntimeError.
             raise ValueError(f"{label}: pyosmium rejected the assembled area ({exc})") from exc
         polygon = shape(json.loads(geojson_text))
         polygon = geometry.validate_or_repair_polygon(polygon, label=label)
@@ -215,13 +133,6 @@ def _read_admin_relations(osm_path: str) -> dict[str, MunicipalRelation]:
 
 
 def extract_zones(osm_path: str) -> ZoneExtractionResult:
-    """Build all ten 03 §2.1 zone polygons from the administrative relations
-    found in ``osm_path``.
-
-    Raises ``ValueError`` naming the missing relation if an expected
-    municipality is absent, or (via :func:`tools.geo_build.geometry.assert_pairwise_disjoint`)
-    if the resulting zones are not pairwise disjoint.
-    """
     seeded_cities = seeded_zone_cities()
     relations_by_name = _read_admin_relations(osm_path)
 
@@ -238,7 +149,6 @@ def extract_zones(osm_path: str) -> ZoneExtractionResult:
     zones: list[ZonePolygon] = []
     code_to_zone_id = {code: i + 1 for i, code in enumerate(ZONE_CODES)}
 
-    # -- the seven single-relation zones --------------------------------
     for code in _SINGLE_RELATION_ZONE_CODES:
         cities = seeded_cities[code]
         if len(cities) != 1:
@@ -258,7 +168,6 @@ def extract_zones(osm_path: str) -> ZoneExtractionResult:
             )
         )
 
-    # -- the Central/North Phoenix split ---------------------------------
     central_cities = set(seeded_cities["central_phoenix"])
     north_cities = set(seeded_cities["north_phoenix"])
     shared = central_cities & north_cities
@@ -271,9 +180,7 @@ def extract_zones(osm_path: str) -> ZoneExtractionResult:
     phoenix_rel = _require(phoenix_name)
     municipal_relations.append(phoenix_rel)
 
-    split_line_bounds = phoenix_rel.polygon.bounds  # (minx, miny, maxx, maxy)
-    # A generously overlong east-west line at the pinned latitude — must
-    # fully cross the polygon regardless of its longitude extent.
+    split_line_bounds = phoenix_rel.polygon.bounds
     from shapely.geometry import LineString
 
     span = max(1.0, split_line_bounds[2] - split_line_bounds[0])
@@ -304,7 +211,6 @@ def extract_zones(osm_path: str) -> ZoneExtractionResult:
             )
         )
 
-    # -- the composite west_valley_goodyear -------------------------------
     component_names = seeded_cities[_COMPOSITE_ZONE_CODE]
     component_rels = [_require(n) for n in component_names]
     municipal_relations.extend(component_rels)

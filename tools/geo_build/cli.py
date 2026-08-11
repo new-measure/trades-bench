@@ -1,16 +1,19 @@
-"""``python -m geo_build`` — the CLI skeleton (research/osm-data.md §7:
-"a single scripted, non-interactive pipeline"). CSR-003c/003g extend this
-with §4.8 routability and the full manifest/report/license bundle; this
-sub-issue wires §4.1-§4.7 behind one ``build`` subcommand so later work
-extends one entry point instead of inventing a second.
-"""
-
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 from pathlib import Path
 
-from .pipeline import run_pipeline, write_artifact
+from .anchors import DEFAULT_ANCHOR_CANDIDATE_K, DEFAULT_ANCHOR_GRID_KM
+from .gates import (
+    DEFAULT_ACCURACY_MIN_EVALUATED_FRACTION,
+    DEFAULT_ACCURACY_SAMPLE_SIZE,
+    DEFAULT_ACCURACY_SEED,
+)
+from .manifest import PLACEHOLDER, SourceSnapshot
+from .osrm import OsrmService
+from .pipeline import BuildParameters, run_pipeline, write_artifact
+from .routing import FakeBackend
 
 
 def _build(args: argparse.Namespace) -> int:
@@ -18,18 +21,50 @@ def _build(args: argparse.Namespace) -> int:
     if args.scenario:
         scenario_json = Path(args.scenario).read_text(encoding="utf-8")
 
-    result = run_pipeline(
-        args.osm_input,
-        dataset_version=args.dataset_version,
-        scenario_json=scenario_json,
+    parameters = BuildParameters(
+        anchor_grid_km=args.anchor_grid_km,
+        anchor_candidate_k=args.anchor_candidate_k,
+        accuracy_sample_size=args.accuracy_sample_size,
+        accuracy_seed=args.accuracy_seed,
+        accuracy_min_evaluated_fraction=args.accuracy_min_evaluated_fraction,
+    )
+    source = SourceSnapshot(
+        url=args.source_url or PLACEHOLDER,
+        published_at=args.source_published_at or PLACEHOLDER,
+        bytes=args.source_bytes or 0,
+        sha256=args.source_sha256 or PLACEHOLDER,
+    )
+
+    context = (
+        nullcontext(FakeBackend()) if args.fake_backend else OsrmService(args.osm_input)
     )
     output_dir = Path(args.output_dir)
-    write_artifact(result, output_dir)
+    with context as backend:
+        result = run_pipeline(
+            args.osm_input,
+            dataset_version=args.dataset_version,
+            backend=backend,
+            scenario_json=scenario_json,
+            parameters=parameters,
+        )
+        manifest = write_artifact(
+            result,
+            output_dir,
+            artifact_id=args.artifact_id or args.dataset_version,
+            source=source,
+        )
 
     funnel = result.funnel
+    accuracy = result.routing.accuracy
     print(
-        f"geo_build: {funnel.accepted} accepted / {funnel.candidates_total} candidates "
-        f"({funnel.total_rejected()} rejected) -> {output_dir}"
+        f"geo_build: {funnel.accepted} usable / {funnel.candidates_total} candidates "
+        f"({funnel.total_rejected()} rejected), {len(result.routing.anchors)} anchors, "
+        f"accuracy median {accuracy.median_pct:.2f}% / p95 {accuracy.p95_pct:.2f}% -> "
+        f"{output_dir}"
+    )
+    print(
+        f"geo_build: artifact_sha256={manifest['artifact_sha256']} "
+        f"packageable={str(manifest['packageable']).lower()}"
     )
     return 0
 
@@ -37,16 +72,16 @@ def _build(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m geo_build",
-        description="Build-time OSM geography pipeline (CSR-003, §4.1-§4.7).",
+        description="Build-time OSM geography pipeline (CSR-003).",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     build = subparsers.add_parser(
-        "build", help="run the full crop -> extract -> ... -> serialize pipeline"
+        "build", help="run the full crop -> ... -> routing -> gates -> package pipeline"
     )
     build.add_argument("osm_input", help="path to a .osm or .osm.pbf source file")
     build.add_argument(
-        "output_dir", help="directory to write the zones/addresses/reports artifact tree into"
+        "output_dir", help="directory to write the full §6 artifact tree into"
     )
     build.add_argument(
         "--dataset-version",
@@ -54,10 +89,66 @@ def build_parser() -> argparse.ArgumentParser:
         help="the dataset_version stamped onto every catalog row",
     )
     build.add_argument(
+        "--artifact-id",
+        default=None,
+        help="manifest artifact_id (defaults to --dataset-version)",
+    )
+    build.add_argument(
         "--scenario",
         default=None,
         help="optional scenario JSON overriding geography.* config defaults",
     )
+
+    routing = build.add_argument_group("routing backend")
+    routing.add_argument(
+        "--fake-backend",
+        action="store_true",
+        help="use the deterministic synthetic backend instead of Dockerized OSRM; "
+        "the manifest records it and marks the artifact non-packageable",
+    )
+    routing.add_argument(
+        "--anchor-grid-km",
+        type=float,
+        default=DEFAULT_ANCHOR_GRID_KM,
+        help=f"anchor grid cell size in km (default {DEFAULT_ANCHOR_GRID_KM})",
+    )
+    routing.add_argument(
+        "--anchor-candidate-k",
+        type=int,
+        default=DEFAULT_ANCHOR_CANDIDATE_K,
+        help="how many straight-line-nearest anchors each address routes against "
+        f"(default {DEFAULT_ANCHOR_CANDIDATE_K})",
+    )
+
+    gate = build.add_argument_group("accuracy gate (§5.3)")
+    gate.add_argument(
+        "--accuracy-sample-size",
+        type=int,
+        default=DEFAULT_ACCURACY_SAMPLE_SIZE,
+        help=f"held-out address pairs to measure (default {DEFAULT_ACCURACY_SAMPLE_SIZE})",
+    )
+    gate.add_argument(
+        "--accuracy-seed",
+        default=DEFAULT_ACCURACY_SEED,
+        help="seed for the held-out sample; recorded in the manifest and the report",
+    )
+    gate.add_argument(
+        "--accuracy-min-evaluated-fraction",
+        type=float,
+        default=DEFAULT_ACCURACY_MIN_EVALUATED_FRACTION,
+        help="share of the drawn sample that must actually produce a measurement "
+        "before the gate may pass; a gate that skipped every pair would otherwise "
+        f"pass on an empty distribution (default {DEFAULT_ACCURACY_MIN_EVALUATED_FRACTION})",
+    )
+
+    snapshot = build.add_argument_group("pinned source snapshot (§2, manifest §7)")
+    snapshot.add_argument("--source-url", default=None, help="resolved Geofabrik download URL")
+    snapshot.add_argument(
+        "--source-published-at", default=None, help="server-reported publication date"
+    )
+    snapshot.add_argument("--source-bytes", type=int, default=None, help="downloaded byte size")
+    snapshot.add_argument("--source-sha256", default=None, help="SHA-256 of the downloaded file")
+
     build.set_defaults(func=_build)
 
     return parser

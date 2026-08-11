@@ -1,28 +1,3 @@
-"""Immutable validated configuration + canonical hash + deferred-value manifest
-(spec 01 §Configuration, §Deferred-value registry; docs/CSR-001.md decisions 2–3).
-
-Layering: a versioned scenario JSON overlays versioned defaults JSON. Both are
-parsed with ``parse_float=Decimal`` so probabilities never touch floats. Unknown
-keys are rejected; out-of-range probabilities, negative costs, ``min > max``
-ranges, non-contiguous block grids, non-monotone acceptance curves, and any
-attempt to override a user-decided constant are each rejected *before*
-initialization, each with a dedicated error code.
-
-The resolved :class:`RunConfig` is immutable. Probability keys have their
-``floor(p × 2^64)`` threshold computed once at resolution and stored as a plain
-int (decision 1), so the decision path is pure-integer. The canonical
-sorted-JSON serialization is SHA-256-hashed to give a config_hash stable across
-input key ordering (CAL-02).
-
-The assembled section registry is the union of the "config keys owned by this
-file" sections of the domain specs. The **constants** section (``constants.*``,
-``constant=True``) ships from :mod:`csr_bench.constants`; non-constant domain
-keys (``finance.*``, ``weather.*``, …) are registered by their owning tickets
-via :data:`_DOMAIN_ENTRIES`. A config-validation matrix test may register
-synthetic test-only keys to exercise every rejection path — see
-:func:`assemble_registry`'s ``extra_entries``.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -36,43 +11,17 @@ from .constants import CONSTANT_ENTRIES
 from .enums import ConditionCode
 from .errors import EngineError, ErrorCode
 
-#: The config version this engine ships defaults for (conventions).
 DEFAULT_CONFIG_VERSION: str = "1.0.0"
 
-#: ``2 ** 64``, used for probability thresholds (decision 1) and RNG masking.
 U64_MOD: int = 1 << 64
 
-#: Decimal precision for ``Decimal(2**64) * probability`` in :func:`probability_threshold`
-#: — applied via a local context there, never the process-wide default context, so
-#: importing this module cannot change another module's Decimal arithmetic
-#: (a global ``getcontext().prec`` mutation made ``rng.uniform01`` import-order
-#: dependent — a replay-determinism threat).
 _THRESHOLD_PREC = 60
 
-#: Sentinel character for :func:`_dump_scalar`'s placeholder tokens — a control
-#: character that cannot appear in any registered default's string/path value,
-#: so token substring replacement in :func:`dump_defaults` cannot collide.
 _NUL = chr(0)
-
-
-# ---------------------------------------------------------------------------
-# Registry assembly
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class KeySpec:
-    """A declarative description of one configuration key.
-
-    Attributes:
-        path: dotted key path, e.g. ``"constants.opening_hour"``.
-        type: one of the supported validator types (see ``_VALIDATORS``).
-        default: the default value (canonical for the shipped defaults JSON).
-        owning_spec: the owning spec filename, e.g. ``"01-run-contracts.md"``.
-        constant: True for user-decided constants — scenario override rejected.
-        deferred: ``None`` | ``"provisional"`` | ``"calibrated"`` status marker.
-        min/max: optional integer bounds for ``int`` keys.
-    """
 
     path: str
     type: str
@@ -85,10 +34,6 @@ class KeySpec:
     description: str = ""
 
 
-#: Non-constant domain keys registered by their owning tickets (CSR-002+).
-#: Entries have the same ``(path, type, default, meta)`` shape as
-#: :data:`csr_bench.constants.CONSTANT_ENTRIES`; they default to
-#: ``constant=False`` and may carry any of the KeySpec meta fields.
 _DOMAIN_ENTRIES: list[Any] = [
     (
         "finance.starting_cash",
@@ -112,12 +57,6 @@ _DOMAIN_ENTRIES: list[Any] = [
             "(spec 04 §14, hiring section).",
         },
     ),
-    # -- CSR-003a: 03 §13 geography.* (15 keys) -------------------------------
-    # `artifact_id`/`artifact_sha256` are the two exceptions in this block:
-    # they default to "" rather than a deferred-provisional calibration value
-    # (CSR-003 decision 7 footer). 003g pins the real values once the
-    # production build exists; an empty value is rejected at run
-    # initialization, not at config load (03 §1.2).
     (
         "geography.artifact_id",
         "string",
@@ -280,7 +219,6 @@ _DOMAIN_ENTRIES: list[Any] = [
             "min=1: this is a divisor in the §9.2 quantization, so 0 would divide by zero.",
         },
     ),
-    # -- CSR-003a: 03 §13 travel.* (7 keys) ------------------------------------
     (
         "travel.time_of_day_bands",
         "time_of_day_bands",
@@ -385,7 +323,6 @@ _DOMAIN_ENTRIES: list[Any] = [
             "description": "Floor on any realized trip (03 §5.1, §13).",
         },
     ),
-    # -- CSR-003a: 03 §13 appointments.* (2 keys) ------------------------------
     (
         "appointments.min_actual_duration_minutes",
         "int",
@@ -415,16 +352,6 @@ def assemble_registry(
     extra_entries: list[Any] | None = None,
     extra_owning_spec: str = "test",
 ) -> dict[str, KeySpec]:
-    """Build the assembled section registry from the constant + domain + extra
-    providers.
-
-    Each entry is a ``(path, type, default, meta)`` tuple (see
-    :data:`csr_bench.constants.CONSTANT_ENTRIES`) or a :class:`KeySpec`.
-    Constant entries are marked ``constant=True``; domain entries
-    (:data:`_DOMAIN_ENTRIES`) and synthetic test-only entries passed via
-    ``extra_entries`` default to ``constant=False`` unless their meta says
-    otherwise.
-    """
     registry: dict[str, KeySpec] = {}
 
     def _add(entry: object) -> None:
@@ -454,7 +381,6 @@ def assemble_registry(
             )
         registry[spec.path] = spec
 
-    # Constants own every user-decided constant; scenario overrides must fail.
     for entry in CONSTANT_ENTRIES:
         path, type_, default, meta = entry  # type: ignore[misc]
         _add(
@@ -479,17 +405,11 @@ def assemble_registry(
     return registry
 
 
-# ---------------------------------------------------------------------------
-# Validators (raise EngineError(CONFIG_VALUE_INVALID) on any bad value)
-# ---------------------------------------------------------------------------
-
-
 def _is_bool(x: Any) -> bool:
     return isinstance(x, bool)
 
 
 def _as_int(x: Any) -> int:
-    """Coerce an int / integral Decimal to a Python int; reject bool & float."""
     if _is_bool(x):
         raise _bad("bool is not a number")
     if isinstance(x, int):
@@ -549,7 +469,7 @@ def _v_cost_map(spec: KeySpec, value: Any) -> dict[str, int]:
     for k, v in value.items():
         if not isinstance(k, str) or not k:
             raise _bad(f"{spec.path}: cost-map keys must be non-empty strings")
-        n = _as_int(v)  # rejects bool / float / non-numeric
+        n = _as_int(v)
         if n < 0:
             raise _bad(f"{spec.path}: negative cost {n!r} for {k!r}")
         out[k] = n
@@ -585,13 +505,10 @@ def _v_block_grid(spec: KeySpec, value: Any) -> list[list[int]]:
     return pairs
 
 
-#: The two day types the speed table is keyed by (03 §5.1) — a fixed
-#: structural pair from the spec text, not a calibration value.
 _DAY_TYPES = frozenset({"weekday", "weekend"})
 
 
 def _v_time_of_day_bands(spec: KeySpec, value: Any) -> list[tuple[str, int, int]]:
-    """Ordered, contiguous partition of [00:00, 24:00) (03 §5.1, §13, §631)."""
     if not isinstance(value, list) or not value:
         raise _bad(f"{spec.path}: time_of_day_bands must be a non-empty list")
     prev_end = 0
@@ -624,11 +541,6 @@ def _v_time_of_day_bands(spec: KeySpec, value: Any) -> list[tuple[str, int, int]
 
 
 def _v_speed_by_time_band(spec: KeySpec, value: Any) -> dict[str, dict[str, Decimal]]:
-    """Structural half of 03 §5.1's speed table: day_type keys, positive finite
-    speeds. The band-key-set-matches-configured-bands half is a cross-field
-    constraint (see :data:`_CROSS_FIELD_VALIDATORS`) — a single key's own
-    validator cannot see ``travel.time_of_day_bands``'s value.
-    """
     if not isinstance(value, dict):
         raise _bad(f"{spec.path}: expected map, got {type(value).__name__}")
     if set(value.keys()) != _DAY_TYPES:
@@ -656,10 +568,6 @@ def _v_speed_by_time_band(spec: KeySpec, value: Any) -> dict[str, dict[str, Deci
 
 
 def _v_weather_multiplier_map(spec: KeySpec, value: Any) -> dict[str, Decimal]:
-    """03 §5.1/§13: keyed exactly on `05`'s closed ``ConditionCode`` enum —
-    every member present, no extra key, every multiplier finite and strictly
-    positive.
-    """
     if not isinstance(value, dict):
         raise _bad(f"{spec.path}: expected map, got {type(value).__name__}")
     expected = {c.value for c in ConditionCode}
@@ -757,29 +665,10 @@ _VALIDATORS = {
 
 
 def validate_value(spec: KeySpec, value: Any) -> Any:
-    """Validate one value against its :class:`KeySpec`; return the normalized value.
-
-    Raises :class:`EngineError` with :data:`ErrorCode.CONFIG_VALUE_INVALID` on
-    any structural / range / monotonicity failure.
-    """
     validator = _VALIDATORS.get(spec.type)
     if validator is None:
         raise _bad(f"{spec.path}: unknown key type {spec.type!r}")
     return validator(spec, value)
-
-
-# ---------------------------------------------------------------------------
-# Cross-field validators — a key's own type validator only ever sees its own
-# value, but two of 03 §13's rules span keys: the speed table's band keys
-# must match the *configured* `travel.time_of_day_bands` (03 §5.1), and the
-# noise clamp is a min/max relationship between two separate keys (03:631).
-# No such mechanism existed before this ticket (every prior validator was
-# single-key); this is the minimal named-check list :func:`load_run_config`
-# runs once every key has resolved. Each check is skipped, not failed, when
-# its keys are not both registered — a registry that omits `travel.*`
-# (impossible via :func:`assemble_registry`, but not enforced by the type
-# system) must not KeyError instead of just not applying the rule.
-# ---------------------------------------------------------------------------
 
 
 def _validate_noise_clamp(base: dict[str, Any]) -> None:
@@ -803,8 +692,6 @@ def _validate_speed_table_bands(base: dict[str, Any]) -> None:
             )
 
 
-#: (required key paths, check) pairs, run in order once every registered key
-#: has a resolved value.
 _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
     (
         frozenset({"travel.noise.min_multiplier", "travel.noise.max_multiplier"}),
@@ -823,14 +710,8 @@ def _validate_cross_field(base: dict[str, Any]) -> None:
             check(base)
 
 
-# ---------------------------------------------------------------------------
-# Canonical serialization + hash
-# ---------------------------------------------------------------------------
-
-
 def _canon_scalar(v: Any) -> Any:
     if isinstance(v, Decimal):
-        # No float on the path; exact values only. Normalize/trailing zeros.
         if v == v.to_integral_value() and abs(v) < Decimal(10**18):
             return int(v.to_integral_value())
         s = format(v, "f")
@@ -852,12 +733,11 @@ def _canon_scalar(v: Any) -> Any:
     if isinstance(v, dict):
         return {str(k): _canon_scalar(x) for k, x in v.items()}
     if isinstance(v, KeySpec):
-        return v.path  # not expected in canonical values
+        return v.path
     raise _bad(f"cannot canonicalize {type(v).__name__} for hashing")
 
 
 def canonical_config_bytes(config_version: str, resolved: Mapping[str, Any]) -> bytes:
-    """Canonical sorted-JSON of the resolved config (config_version + keys)."""
     canon = {"config_version": str(config_version), "keys": {}}
     for path in sorted(resolved):
         canon["keys"][path] = _canon_scalar(resolved[path])
@@ -865,24 +745,10 @@ def canonical_config_bytes(config_version: str, resolved: Mapping[str, Any]) -> 
 
 
 def config_hash(config_version: str, resolved: Mapping[str, Any]) -> str:
-    """SHA-256 hex digest of the canonical config, stable across key ordering."""
     return hashlib.sha256(canonical_config_bytes(config_version, resolved)).hexdigest()
 
 
-# ---------------------------------------------------------------------------
-# Probability threshold (decision 1) — computed once, plain int on the path
-# ---------------------------------------------------------------------------
-
-
 def probability_threshold(p: Decimal) -> int:
-    """``floor(p × 2^64)`` with integer math only (decision 1).
-
-    Comparison against a u64 draw is then ``u < threshold``, never float. The
-    precision needed for ``Decimal(2**64) * probability`` is scoped to a
-    ``localcontext`` here rather than mutating the process-wide default
-    context, so importing this module never changes another module's Decimal
-    arithmetic (e.g. :func:`csr_bench.rng.uniform01`).
-    """
     if not isinstance(p, Decimal):
         p = Decimal(p)
     with localcontext() as ctx:
@@ -891,17 +757,11 @@ def probability_threshold(p: Decimal) -> int:
         return int(scaled.to_integral_value(rounding=ROUND_FLOOR))
 
 
-# ---------------------------------------------------------------------------
-# RunConfig — the immutable resolved artifact
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class RunConfig:
-    """The immutable resolved configuration artifact (spec 01 §Interfaces)."""
 
     config_version: str
-    resolved: Mapping[str, Any]  # read-only mapping of path -> validated value
+    resolved: Mapping[str, Any]
     _thresholds: Mapping[str, int] = field(default_factory=dict)  # type: ignore[var-annotated]
     _canonical_bytes: bytes = b""
     config_hash: str = ""
@@ -911,7 +771,7 @@ class RunConfig:
 
     def get_int(self, path: str) -> int:
         v = self.resolved[path]
-        if isinstance(v, tuple):  # int_range stored as (lo, hi)
+        if isinstance(v, tuple):
             raise TypeError(f"{path!r} is a range, use get_range()")
         return int(v)
 
@@ -920,10 +780,8 @@ class RunConfig:
         return v if isinstance(v, Decimal) else Decimal(v)
 
     def get_prob_threshold(self, path: str) -> int:
-        # Probability keys carry a precomputed floor(p × 2**64) threshold.
         if path in self._thresholds:
             return self._thresholds[path]
-        # Fall back (e.g. a constant integral probability-like) by recomputing.
         return probability_threshold(self.get_decimal(path))
 
     def get_range(self, path: str) -> tuple[int, int]:
@@ -954,15 +812,6 @@ def _registry_defaults(registry: dict[str, KeySpec]) -> dict[str, Any]:
 
 
 def _dump_scalar(v: Any, placeholders: dict[str, str]) -> Any:
-    """Recursive scalar transform for :func:`dump_defaults`.
-
-    Unlike :func:`_canon_scalar` (used only for hash-only canonical bytes that
-    are never re-parsed), a non-integral ``Decimal`` here must come back out of
-    :func:`load_run_config`'s ``json.loads(..., parse_float=Decimal)`` as a
-    ``Decimal`` — quoting it as a string would fail :func:`_as_decimal` on
-    load. It is swapped for a unique placeholder token that :func:`dump_defaults`
-    splices back in as a bare numeric literal after ``json.dumps``.
-    """
     if isinstance(v, Decimal):
         if v == v.to_integral_value():
             return int(v.to_integral_value())
@@ -976,18 +825,10 @@ def _dump_scalar(v: Any, placeholders: dict[str, str]) -> Any:
         return [_dump_scalar(x, placeholders) for x in v]
     if isinstance(v, dict):
         return {str(k): _dump_scalar(x, placeholders) for k, x in v.items()}
-    return v  # bool / int / str are already JSON-native
+    return v
 
 
 def dump_defaults(registry: dict[str, KeySpec], config_version: str) -> bytes:
-    """Emit the versioned defaults JSON derived from the registry.
-
-    A non-integral ``Decimal`` default (a probability, say) is emitted as a
-    bare JSON numeric literal via :func:`_dump_scalar`, not the quoted string
-    :func:`_canon_scalar` would produce — this file IS re-parsed by
-    :func:`load_run_config`, so it must round-trip through
-    ``json.loads(..., parse_float=Decimal)`` back to ``Decimal``.
-    """
     placeholders: dict[str, str] = {}
     keys = {
         path: _dump_scalar(default, placeholders)
@@ -1003,7 +844,6 @@ def dump_defaults(registry: dict[str, KeySpec], config_version: str) -> bytes:
 def _parse_layer(
     payload_json: str | bytes | None, *, source_name: str
 ) -> tuple[str | None, dict[str, Any]]:
-    """Parse a layer JSON, returning ``(config_version, keys)`` (or empty)."""
     if payload_json in (None, ""):
         return None, {}
     try:
@@ -1028,7 +868,6 @@ def _parse_layer(
     keys_raw = data.get("keys", {})
     if not isinstance(keys_raw, dict):
         keys_raw = {}
-    # Reject non-string keys early (dotted paths are strings).
     cleaned: dict[str, Any] = {}
     for k, v in keys_raw.items():
         if not isinstance(k, str):
@@ -1044,16 +883,8 @@ def load_run_config(
     registry: dict[str, KeySpec] | None = None,
     config_version: str | None = None,
 ) -> RunConfig:
-    """Resolve defaults + scenario into an immutable validated :class:`RunConfig`.
-
-    Validation order: unknown keys, then constant-override, then per-key value
-    validation — all *before* any run record is written. A scenario that merely
-    mentions a ``constant=True`` key is rejected (user-decided constants are not
-    scenario knobs).
-    """
     reg = registry if registry is not None else assemble_registry()
 
-    # --- base layer (defaults) ---------------------------------------------
     if defaults_json in (None, ""):
         base: dict[str, Any] = {}
         for path, spec in reg.items():
@@ -1076,7 +907,6 @@ def load_run_config(
                 )
             base[path] = validate_value(reg[path], raw)
 
-    # --- scenario overlay ---------------------------------------------------
     scenario_cv, scenario_keys = _parse_layer(scenario_json, source_name="scenario")
     if scenario_cv is not None:
         cv = scenario_cv
@@ -1090,7 +920,6 @@ def load_run_config(
             )
         base[path] = validate_value(reg[path], raw)
 
-    # --- every registered key resolved? ------------------------------------
     missing = [p for p in reg if p not in base]
     if missing:
         raise EngineError(
@@ -1098,10 +927,8 @@ def load_run_config(
             f"missing required config keys: {sorted(missing)}",
         )
 
-    # --- cross-field validation (constraints spanning multiple keys) --------
     _validate_cross_field(base)
 
-    # --- probability thresholds (decision 1) --------------------------------
     thresholds: dict[str, int] = {}
     for path, spec in reg.items():
         if spec.type == "probability":
@@ -1120,13 +947,6 @@ def load_run_config(
     )
 
 
-# ---------------------------------------------------------------------------
-# Deferred-value manifest (spec 01 §Deferred-value registry; decision 3)
-# ---------------------------------------------------------------------------
-
-#: Deferred numeric items from 00-decisions "Deferred to calibration or later
-#: evaluation", each mapped to the registered config key path(s) it resolves to.
-#: Status is provisional until the owning calibration ticket (CSR-015) lands.
 DEFERRED_ITEMS: list[dict[str, Any]] = [
     {"name": "starting_cash", "key_paths": ["finance.starting_cash"], "status": "provisional"},
     {
@@ -1167,8 +987,6 @@ DEFERRED_ITEMS: list[dict[str, Any]] = [
         "status": "provisional",
     },
     {
-        # Re-pointed from `calibration.minimum_address_catalog_size` now that
-        # CSR-003a registers the real key (CSR-003 decision 14).
         "name": "minimum_address_catalog_size",
         "key_paths": ["geography.min_address_catalog_size"],
         "status": "provisional",
@@ -1177,7 +995,6 @@ DEFERRED_ITEMS: list[dict[str, Any]] = [
 
 
 def build_deferred_manifest() -> bytes:
-    """Emit the machine-readable deferred-value manifest JSON."""
     return json.dumps({"items": DEFERRED_ITEMS}, sort_keys=True, separators=(",", ":")).encode(
         "utf-8"
     )
@@ -1195,7 +1012,7 @@ class ResolveReport:
 
 def _key_resolves(path_or_wild: str, registry: dict[str, KeySpec]) -> bool:
     if path_or_wild.endswith(".*"):
-        prefix = path_or_wild[:-1]  # keep the dot
+        prefix = path_or_wild[:-1]
         return any(p.startswith(prefix) for p in registry)
     return path_or_wild in registry
 
@@ -1207,14 +1024,6 @@ def resolve_deferred_manifest(
     items: list[dict[str, Any]] | None = None,
     strict: bool = False,
 ) -> ResolveReport:
-    """Resolve a deferred-value manifest against the assembled registry.
-
-    Lenient (``strict=False``, default) simply reports what resolves and what
-    does not — the resolve-test starts lenient and tightens as domain tickets
-    land (decision 3). Strict (``strict=True``) raises the moment any item maps
-    to no registered key, or any *registered* key it maps to is still
-    ``provisional`` (the release-build guard, CAL-01 / CAL-04).
-    """
     reg = registry if registry is not None else assemble_registry()
     if items is None:
         if manifest_json in (None, ""):
@@ -1271,5 +1080,4 @@ __all__ = [
     "resolve_deferred_manifest",
     "validate_value",
 ]
-# expose `resolve` alias without duplicating the name in a way ruff flags
 resolve = resolve_deferred_manifest

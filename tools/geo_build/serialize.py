@@ -1,33 +1,18 @@
-"""Deterministic serialization (CSR-003 decision 3): every tabular artifact
-file is sorted CSV with LF line endings and a stated sort key, coordinates
-and JSON both at fixed decimal precision, and no wall-clock timestamps
-inside any hashed/emitted content — running a stage twice on the same input
-Must produce byte-identical files.
-
-CSV was chosen over parquet because the runtime (`src/csr_bench`) is
-stdlib-only and must be able to read the artifact without a third-party
-dependency (decision 3; research/osm-data.md §6 records the same choice).
-"""
-
 from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
+from .anchors import ANCHOR_COLUMNS, ANCHOR_DECIMAL_PLACES, Anchor
 from .funnel import FunnelCounts
 from .models import RejectedCandidate
 from .strip import COORDINATE_DECIMAL_PLACES
 from .zones import PHOENIX_SPLIT_LATITUDE, PHOENIX_SPLIT_PROVENANCE_NOTE, ZoneExtractionResult
 
-#: catalog.csv's sort key (research/osm-data.md §7: "deterministic sorting
-#: ... not tolerated" otherwise). `canonical_key` is unique post-dedupe and
-#: orders the catalog by its own formatted address — a human skimming the
-#: file finds addresses in a legible, address-like order for free.
 CATALOG_SORT_KEY = "canonical_key"
 
-#: rejected.csv's sort key: the same (source_type, source_id) order dedupe
-#: already walks candidates in (node < way < relation, then ascending id).
 _SOURCE_TYPE_RANK = {"node": 0, "way": 1, "relation": 2}
 
 
@@ -42,11 +27,6 @@ def _csv_cell(value: object) -> str:
 
 
 def write_csv(path: Path, columns: tuple[str, ...], rows: list[dict[str, object]]) -> None:
-    """Write ``rows`` (already in final sorted order) as CSV with a fixed
-    ``\\n`` line terminator — the csv module's own default is ``\\r\\n``,
-    which would make the artifact's byte identity depend on the writer's
-    platform default rather than only on its content.
-    """
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f, lineterminator="\n")
         writer.writerow(columns)
@@ -55,11 +35,6 @@ def write_csv(path: Path, columns: tuple[str, ...], rows: list[dict[str, object]
 
 
 def assign_address_ids(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Sort catalog rows by :data:`CATALOG_SORT_KEY` and assign the opaque,
-    1-based ``address_id`` from that final order — a pure function of the
-    deterministic row order, never of any OSM element id (03 §3.1: "no OSM
-    ids" in the catalog).
-    """
     ordered = sorted(rows, key=lambda r: r[CATALOG_SORT_KEY])
     for i, row in enumerate(ordered, start=1):
         row["address_id"] = i
@@ -83,11 +58,6 @@ REJECTED_COLUMNS: tuple[str, ...] = ("source_type", "source_id", "reason", "deta
 
 
 def _round_coords(obj: object) -> object:
-    """Recursively round every numeric leaf of a GeoJSON ``coordinates``
-    structure to :data:`tools.geo_build.strip.COORDINATE_DECIMAL_PLACES` —
-    the same fixed precision the catalog uses, so the whole artifact agrees
-    on coordinate resolution.
-    """
     if isinstance(obj, (list, tuple)):
         if obj and all(isinstance(x, (int, float)) for x in obj):
             return [round(float(x), COORDINATE_DECIMAL_PLACES) for x in obj]
@@ -95,16 +65,19 @@ def _round_coords(obj: object) -> object:
     return obj
 
 
+def canonical_geometry_payload(geometry_mapping: dict) -> dict[str, object]:
+    return {
+        "type": geometry_mapping["type"],
+        "coordinates": _round_coords(geometry_mapping["coordinates"]),
+    }
+
+
 def write_zone_geojson(path: Path, zone_result: ZoneExtractionResult) -> None:
-    """``zones/zone_definitions.geojson`` (research/osm-data.md §6): one
-    Feature per zone, ordered by ``zone_id``, coordinates at fixed precision.
-    """
     from shapely.geometry import mapping
 
     features = []
     for zone in sorted(zone_result.zones, key=lambda z: z.zone_id):
-        geom = mapping(zone.polygon)
-        geom = {"type": geom["type"], "coordinates": _round_coords(geom["coordinates"])}
+        geom = canonical_geometry_payload(mapping(zone.polygon))
         features.append(
             {
                 "type": "Feature",
@@ -119,10 +92,6 @@ def write_zone_geojson(path: Path, zone_result: ZoneExtractionResult) -> None:
 
 
 def write_zone_provenance(path: Path, zone_result: ZoneExtractionResult) -> None:
-    """``zones/zone_provenance.json`` (research/osm-data.md §4.7: "the OSM
-    administrative relation identifiers used for each incorporated
-    municipality, and ... the pinned dividing geometry").
-    """
     zones_payload = []
     for zone in sorted(zone_result.zones, key=lambda z: z.zone_id):
         entry: dict[str, object] = {
@@ -174,12 +143,34 @@ def write_funnel_json(path: Path, funnel: FunnelCounts) -> None:
         f.write("\n")
 
 
+def write_anchors_csv(path: Path, anchors: Sequence[Anchor]) -> None:
+    rows = [
+        {
+            "anchor_id": anchor.anchor_id,
+            "latitude": f"{anchor.lat:.{ANCHOR_DECIMAL_PLACES}f}",
+            "longitude": f"{anchor.lon:.{ANCHOR_DECIMAL_PLACES}f}",
+            "selection_cell": anchor.selection_cell,
+        }
+        for anchor in sorted(anchors, key=lambda a: a.anchor_id)
+    ]
+    write_csv(path, ANCHOR_COLUMNS, rows)
+
+
+def write_abbreviation_table(path: Path, table: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(table, f, sort_keys=True, separators=(",", ":"))
+        f.write("\n")
+
+
 __all__ = [
     "CATALOG_SORT_KEY",
     "REJECTED_COLUMNS",
     "assign_address_ids",
+    "canonical_geometry_payload",
     "rejected_to_row",
     "sort_rejected",
+    "write_abbreviation_table",
+    "write_anchors_csv",
     "write_csv",
     "write_funnel_csv",
     "write_funnel_json",

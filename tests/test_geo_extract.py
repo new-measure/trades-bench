@@ -1,7 +1,3 @@
-"""tools.geo_build.extract: hard-tag rejection, city/state derivation, and
-provenance flags (research/osm-data.md §4.2; CSR-003b, RES-60).
-"""
-
 from __future__ import annotations
 
 from decimal import Decimal
@@ -31,10 +27,6 @@ def _extract_from(path: str):
 
 
 def _zones_fixture_with(extra_xml: str, tmp_path: Path) -> str:
-    """The zone-relations-only fixture plus one extra hand-written element,
-    injected just before ``</osm>`` — avoids fragile string-splicing against
-    the larger address fixture for tests that only need one element.
-    """
     base = Path(ZONES_ONLY_FIXTURE).read_text(encoding="utf-8")
     injected = base.replace("</osm>\n", extra_xml + "</osm>\n")
     assert injected != base
@@ -64,7 +56,6 @@ def test_hard_tag_candidates_accepted():
     cropped, ctx = _cropped_elements_and_ctx()
     candidates, rejected = extract.extract_candidates(cropped, ctx)
     accepted_ids = {c.source_id for c in candidates}
-    # 1001 (residential node), 1003 (commercial node), 2100 (apartment way).
     assert {1001, 1003, 2100}.issubset(accepted_ids)
 
 
@@ -113,7 +104,7 @@ def test_city_derived_from_zone_fallback_when_outside_every_relation():
     candidates, _rejected = extract.extract_candidates(cropped, ctx)
     by_id = _candidates_by_id(candidates)
     outlying = by_id[1008]
-    assert outlying.city == "Tempe"  # nearest zone's principal city
+    assert outlying.city == "Tempe"
     assert outlying.city_source == "zone"
 
 
@@ -126,26 +117,14 @@ def test_state_derived_from_crop_when_tag_absent():
 
 
 def test_addr_unit_tag_is_dropped_and_does_not_affect_unit_relevant_fields():
-    # research/osm-data.md §4.2: "addr:unit, addr:flats, and similar are
-    # dropped." Node 1013 carries addr:unit="4B" on a street name
-    # ("Cactus Ln") that shares no word with normalize()'s unit-keyword
-    # vocabulary, so this isolates the OSM *tag* from the unrelated
-    # street-embedded-unit-token mechanism normalize() implements.
     cropped, ctx = _cropped_elements_and_ctx()
     candidates, _rejected = extract.extract_candidates(cropped, ctx)
     by_id = _candidates_by_id(candidates)
     node_1013 = by_id[1013]
 
-    # The tag never survives into the subset of raw tags carried forward
-    # for the later eligibility stage.
     assert "addr:unit" not in node_1013.tags
-    # And it never populated any unit-relevant field: at this stage `unit`
-    # is not yet set at all (normalize() is what fills it in, from a token
-    # embedded in the *street text*, never from this tag).
     assert node_1013.unit is None
 
-    # Confirm normalize() agrees: no unit token found in "Cactus Ln" either,
-    # so `unit` stays None end-to-end, not just pre-normalize.
     rejection = normalize_stage.normalize_candidate(node_1013, TABLE)
     assert rejection is None
     assert node_1013.unit is None
@@ -153,10 +132,6 @@ def test_addr_unit_tag_is_dropped_and_does_not_affect_unit_relevant_fields():
 
 
 def test_relation_candidate_uses_member_way_centroid(tmp_path):
-    # A relation directly carrying address tags, with no geometry of its own
-    # other than a member way (the way itself carries no tags at all, the
-    # common real-world shape) - exercises the relation branch of extraction
-    # (rare in real data, but named by the spec).
     extra = (
         '  <node id="3001" lat="33.56" lon="-111.80"/>\n'
         '  <node id="3002" lat="33.56" lon="-111.79"/>\n'
@@ -177,6 +152,5 @@ def test_relation_candidate_uses_member_way_centroid(tmp_path):
     assert 3200 in by_id
     rel_candidate = by_id[3200]
     assert rel_candidate.source_type == "relation"
-    # centroid of the two-node way: midpoint of (-111.80,33.56),(-111.79,33.56)
     assert abs(rel_candidate.longitude - (-111.795)) < 1e-6
     assert abs(rel_candidate.latitude - 33.56) < 1e-6

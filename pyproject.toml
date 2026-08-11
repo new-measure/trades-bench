@@ -37,7 +37,15 @@ packages = ["src/csr_bench"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+# CSR-003 decision 8: Docker-dependent tests are opt-in. The default run
+# deselects them, so `uv run pytest` stays Python-only; select them
+# explicitly with `uv run --group geo pytest -m docker` (a later `-m` on the
+# command line overrides the one here). AGENTS.md records that the marked
+# suite must pass before merging any pipeline change.
+addopts = "-ra -m 'not docker'"
+markers = [
+    "docker: needs a running Docker daemon and pulls the digest-pinned OSRM image (CSR-003 decision 8)",
+]
 # `tools/` holds CSR-003b's build-time-only `geo_build` package (never a
 # runtime dependency of csr_bench, never packaged in the wheel — see
 # `tools/geo_build/__init__.py`). Adding it to pythonpath lets tests

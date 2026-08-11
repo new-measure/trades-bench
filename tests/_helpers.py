@@ -1,9 +1,3 @@
-"""Plain test helper utilities (no pytest fixtures) shared across the suite.
-
-Kept separate from ``conftest.py`` so test modules can ``from _helpers import ...``
-without importing the conftest module.
-"""
-
 from __future__ import annotations
 
 import sqlite3
@@ -17,8 +11,6 @@ from csr_bench.migrations import migrate
 from csr_bench.rng import Rng
 from csr_bench.txn import Services
 
-# Connections opened by per-test helper functions, closed by the autouse
-# ``_close_open_conns`` fixture in conftest.
 _OPEN_CONNS: list = []
 
 
@@ -27,7 +19,6 @@ def register_conn(conn) -> None:
 
 
 def audit_recorder(conn: sqlite3.Connection):
-    """A draw-audit recorder that persists keys inside the open transaction."""
 
     def rec(**kw):
         conn.execute(
@@ -54,11 +45,6 @@ def make_services(
     status: RunStatus = RunStatus.ACTIVE,
     master_seed: int = 1,
 ):
-    """Build a fresh in-memory run + wired :class:`Services` for a test.
-
-    Returns ``(conn, run_id, services, ledger, events, rng)``. Connections are
-    auto-closed via :data:`_OPEN_CONNS`.
-    """
     conn = in_memory()
     register_conn(conn)
     migrate(conn)

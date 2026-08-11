@@ -1,6 +1,3 @@
-"""Tests for event envelope + ordering + atomic apply (spec 01 §Event envelope and
-ordering, §Invariants #3/#4; acceptance #10 invocation exclusivity)."""
-
 from __future__ import annotations
 
 import json
@@ -30,10 +27,10 @@ def test_schedule_inside_txn_inserts_pending_event_with_monotonic_id():
     e2 = events.schedule(EventKind.CONTRACT_TEST_EVENT, 90, 0)
     rng.exit_txn()
     commit(conn)
-    assert e1 == 1 and e2 == 2  # monotonic within the run
+    assert e1 == 1 and e2 == 2
     assert events.status(e1) is EventStatus.PENDING
     order = [r["event_id"] for r in events.pending_in_order()]
-    assert order == [e2, e1]  # by (scheduled_at, priority, event_id): 90<100
+    assert order == [e2, e1]
 
 
 def test_next_pending_orders_by_scheduled_at_priority_event_id():
@@ -41,13 +38,13 @@ def test_next_pending_orders_by_scheduled_at_priority_event_id():
     begin(conn)
     rng.enter_txn()
     a = events.schedule(EventKind.CONTRACT_TEST_EVENT, 100, 5)
-    b = events.schedule(EventKind.CONTRACT_TEST_EVENT, 100, 1)  # same ts, lower priority first
-    c = events.schedule(EventKind.CONTRACT_TEST_EVENT, 100, 1)  # same ts+priority -> event_id order
+    b = events.schedule(EventKind.CONTRACT_TEST_EVENT, 100, 1)
+    c = events.schedule(EventKind.CONTRACT_TEST_EVENT, 100, 1)
     rng.exit_txn()
     commit(conn)
     seq = [r["event_id"] for r in events.pending_in_order()]
     assert seq == [b, c, a]
-    assert events.next_pending()["event_id"] == b  # 100/1/2 -> b
+    assert events.next_pending()["event_id"] == b
 
 
 def test_payload_canonical_sorted_on_storage():
@@ -64,7 +61,7 @@ def test_payload_canonical_sorted_on_storage():
         "a": 2,
         "b": 1,
         "z": [3, 2, 1],
-    }  # keys sorted, list order kept
+    }
 
 
 def test_cancel_pending_event_then_cannot_reapply_as_pending():
@@ -83,7 +80,7 @@ def test_cancel_pending_event_then_cannot_reapply_as_pending():
     begin(conn)
     rng.enter_txn()
     with pytest.raises(EngineError):
-        events.cancel(eid)  # already cancelled
+        events.cancel(eid)
     rng.exit_txn()
     commit(conn)
 
@@ -118,7 +115,6 @@ def test_apply_atomic_with_draws_ledger_nested_events_and_marks_applied():
                 )
             ]
         )
-        # schedule a nested event inside the apply txn
         ctx.services.events.schedule(EventKind.CONTRACT_TEST_EVENT, 200, 0)
 
     r = events.apply(eid, handler, services=sv)
@@ -126,8 +122,8 @@ def test_apply_atomic_with_draws_ledger_nested_events_and_marks_applied():
     assert events.status(eid) is EventStatus.APPLIED
     assert events.applied_count() == 1
     assert ledger.entry_count() == 1
-    assert audit_count(conn) == 1  # one draw, one audit
-    assert len(events.pending_in_order()) == 1  # the nested event survived
+    assert audit_count(conn) == 1
+    assert len(events.pending_in_order()) == 1
 
 
 def test_re_apply_is_idempotent_never_reapplies():
@@ -147,8 +143,8 @@ def test_re_apply_is_idempotent_never_reapplies():
     r1 = events.apply(eid, handler, services=sv)
     r2 = events.apply(eid, handler, services=sv)
     assert r1 == r2
-    assert calls["n"] == 1  # handler ran once
-    assert ledger.entry_count() == 1  # no duplicate
+    assert calls["n"] == 1
+    assert ledger.entry_count() == 1
     assert events.applied_count() == 1
 
 
@@ -172,8 +168,8 @@ def test_apply_rejects_when_invocation_active_and_leaves_no_trace():
 
     r = events.apply(eid, handler, services=sv)
     assert json.loads(r)["error"]["code"] == "invocation_conflict"
-    assert drew["n"] == 0  # handler never ran (guard before handler)
-    assert events.status(eid) is EventStatus.PENDING  # rolled back, not applied
+    assert drew["n"] == 0
+    assert events.status(eid) is EventStatus.PENDING
     assert ledger.entry_count() == 0
     assert audit_count(conn) == 0
 
@@ -199,14 +195,13 @@ def test_apply_rolls_back_on_handler_failure_and_is_idempotent():
     assert r1 == r2
     assert json.loads(r1)["error"]["code"] == "state_illegal"
     assert runs["n"] == 1
-    assert events.status(eid) is EventStatus.PENDING  # not applied
+    assert events.status(eid) is EventStatus.PENDING
     assert ledger.entry_count() == 0
     assert audit_count(conn) == 0
 
 
 def test_apply_event_bankruptcy_via_unavoidable_settle_event():
     conn, rid, sv, ledger, events, rng = make_services(active_invocation=False)
-    # bring cash to a small positive then settle negatively
     begin(conn)
     rng.enter_txn()
     ledger.post([LedgerEntry(LedgerCategory.OPENING_BALANCE_ADJUSTMENT, 1000, 0)])
@@ -228,7 +223,6 @@ def test_apply_event_bankruptcy_via_unavoidable_settle_event():
 
 
 def test_cancel_via_privileged_id_stable():
-    # Smoke: privileged request-id for a settle is deterministic & contains reason.
     ridp = privileged_request_id("apply_event", 99)
     assert ridp == "__control__:apply_event:99"
     assert privileged.__name__ == "privileged"
