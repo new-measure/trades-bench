@@ -1,0 +1,11 @@
+{
+  "requested_url": "https://download.geofabrik.de/north-america/us/arizona-latest.osm.pbf",
+  "resolved_url": "https://download.geofabrik.de/north-america/us/arizona-260810.osm.pbf",
+  "published_at": "2026-08-11T00:23:47Z",
+  "bytes": 300567093,
+  "sha256": "6ae84b0b5401cbfc5039696d8ffc8f7d229c9745ede48639279ef4cc3270ec9a",
+  "downloaded_at": "2026-08-11T08:09:21Z",
+  "license": "ODbL-1.0",
+  "attribution": "Map data © OpenStreetMap contributors, available under the Open Database License (ODbL 1.0). Extract via Geofabrik GmbH.",
+  "archived_path": "data/snapshots/arizona-latest.osm.pbf"
+}

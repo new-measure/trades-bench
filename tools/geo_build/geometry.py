@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from shapely.affinity import affine_transform
 from shapely.geometry.base import BaseGeometry
-from shapely.ops import nearest_points
+from shapely.ops import nearest_points, unary_union
 from shapely.validation import make_valid
 
 EARTH_RADIUS_KM = 6371.0088
@@ -95,10 +95,42 @@ def assert_pairwise_disjoint(named_polygons: dict[str, BaseGeometry]) -> None:
                 )
 
 
+def area_km2(geom: BaseGeometry, *, ref_lat: float | None = None) -> float:
+    if geom.is_empty:
+        return 0.0
+    if ref_lat is None:
+        ref_lat = geom.centroid.y
+    return geom.area * _km_per_deg_lon(ref_lat) * _KM_PER_DEG_LAT
+
+
+def reconcile_pairwise_overlaps(
+    ordered: list[tuple[str, BaseGeometry]],
+) -> tuple[dict[str, BaseGeometry], list[dict[str, object]]]:
+    polygons = dict(ordered)
+    keys = [key for key, _ in ordered]
+    reassignments: list[dict[str, object]] = []
+    for i, kept_key in enumerate(keys):
+        for ceded_key in keys[i + 1 :]:
+            kept_poly = polygons[kept_key]
+            ceded_poly = polygons[ceded_key]
+            overlap = kept_poly.intersection(ceded_poly)
+            if overlap.is_empty or overlap.area <= 0:
+                continue
+            reassignments.append(
+                {
+                    "kept_by": kept_key,
+                    "ceded_by": ceded_key,
+                    "area_km2": round(area_km2(overlap), 6),
+                }
+            )
+            polygons[ceded_key] = ceded_poly.difference(kept_poly)
+    return polygons, reassignments
+
+
 def validate_or_repair_polygon(polygon: BaseGeometry, *, label: str) -> BaseGeometry:
     if polygon.is_valid:
         return polygon
-    repaired = make_valid(polygon)
+    repaired = _polygonal_parts_only(make_valid(polygon))
     if not repaired.is_valid or repaired.is_empty or repaired.area <= 0:
         raise ValueError(
             f"{label}: assembled polygon is invalid (self-intersecting ring?) "
@@ -107,14 +139,25 @@ def validate_or_repair_polygon(polygon: BaseGeometry, *, label: str) -> BaseGeom
     return repaired
 
 
+def _polygonal_parts_only(geom: BaseGeometry) -> BaseGeometry:
+    if geom.geom_type != "GeometryCollection":
+        return geom
+    polygons = [g for g in geom.geoms if g.geom_type in ("Polygon", "MultiPolygon")]
+    if not polygons:
+        return geom
+    return unary_union(polygons)
+
+
 __all__ = [
     "EARTH_RADIUS_KM",
     "KM_PER_DEG_LAT",
+    "area_km2",
     "assert_pairwise_disjoint",
     "buffer_km",
     "containing_index",
     "haversine_km",
     "km_per_deg_lon",
     "nearest_index",
+    "reconcile_pairwise_overlaps",
     "validate_or_repair_polygon",
 ]

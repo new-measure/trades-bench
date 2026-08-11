@@ -46,6 +46,7 @@ def _build(args: argparse.Namespace) -> int:
             backend=backend,
             scenario_json=scenario_json,
             parameters=parameters,
+            zones_from_file=args.zones_from_file,
         )
         manifest = write_artifact(
             result,
@@ -97,6 +98,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--scenario",
         default=None,
         help="optional scenario JSON overriding geography.* config defaults",
+    )
+    build.add_argument(
+        "--zones-from-file",
+        default=None,
+        help="load zone_definitions.geojson (with a sibling zone_provenance.json) "
+        "instead of extracting the ten municipal relations from osm_input; needed "
+        "whenever osm_input does not carry all ten (e.g. a small carved fixture)",
     )
 
     routing = build.add_argument_group("routing backend")

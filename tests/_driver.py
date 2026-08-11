@@ -37,7 +37,6 @@ from csr_bench.migrations import migrate
 from csr_bench.rng import Rng, chance
 from csr_bench.txn import Services, TxnContext, command, privileged, privileged_request_id
 
-
 MASTER_SEED = 20261001
 RUN_ID = "contract-test-run"
 TIMEZONE = "America/Phoenix"

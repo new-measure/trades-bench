@@ -133,6 +133,34 @@ def test_cli_scenario_override_flows_through(tmp_path):
     assert "Second Ave" not in catalog_text
 
 
+def test_cli_zones_from_file_runs_end_to_end_with_a_fake_backend(tmp_path):
+    tempe_pbf = str(Path(__file__).parent / "fixtures" / "geo" / "tempe_carve.osm.pbf")
+    tempe_zones = str(Path(__file__).parent / "fixtures" / "geo" / "zone_definitions.geojson")
+    out_dir = tmp_path / "geography-tempe-dev"
+    exit_code = main(
+        [
+            "build",
+            tempe_pbf,
+            str(out_dir),
+            "--dataset-version",
+            "tempe-dev-test",
+            "--fake-backend",
+            "--anchor-grid-km",
+            "0.03",
+            "--scenario",
+            FIXTURE_SCENARIO,
+            "--zones-from-file",
+            tempe_zones,
+        ]
+    )
+    assert exit_code == 0
+    manifest = json.loads((out_dir / "manifest.json").read_text())
+    assert manifest["counts"]["usable_by_zone"]["4"] > 0
+    for zone_id, count in manifest["counts"]["usable_by_zone"].items():
+        if zone_id != "4":
+            assert count == 0
+
+
 def test_module_entry_point_runs_as_a_subprocess(tmp_path):
     out_dir = tmp_path / "geography-dev"
     proc = subprocess.run(

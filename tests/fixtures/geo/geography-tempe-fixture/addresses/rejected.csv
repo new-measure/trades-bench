@@ -1,0 +1,41 @@
+source_type,source_id,reason,detail
+node,11935728723,duplicate_coordinate,E Broadway Rd
+way,807913820,duplicate_key,"707 E BROADWAY RD, TEMPE, AZ 85282"
+way,808163067,incomplete_address,missing tags: addr:housenumber
+way,808193744,duplicate_key,"625 E BROADWAY RD, TEMPE, AZ 85282"
+way,808193745,duplicate_key,"625 E BROADWAY RD, TEMPE, AZ 85282"
+way,808543393,duplicate_key,"917 E BROADWAY RD, TEMPE, AZ 85282"
+way,813242555,duplicate_key,"1735 S COLLEGE AVE, TEMPE, AZ 85282"
+way,813242558,duplicate_key,"1735 S COLLEGE AVE, TEMPE, AZ 85282"
+way,813274401,duplicate_key,"2018 S COLLEGE AVE, TEMPE, AZ 85282"
+way,818646483,duplicate_key,"2525 S RURAL RD, TEMPE, AZ 85282"
+way,938172438,incomplete_address,missing tags: addr:postcode
+way,938172439,incomplete_address,missing tags: addr:postcode
+way,938172440,incomplete_address,missing tags: addr:postcode
+way,938172441,incomplete_address,missing tags: addr:postcode
+way,938172442,incomplete_address,missing tags: addr:postcode
+way,938172444,incomplete_address,missing tags: addr:postcode
+way,938172445,incomplete_address,missing tags: addr:postcode
+way,938172446,incomplete_address,missing tags: addr:postcode
+way,938172447,incomplete_address,missing tags: addr:postcode
+way,938172455,incomplete_address,missing tags: addr:postcode
+way,938172471,incomplete_address,missing tags: addr:postcode
+way,938172472,incomplete_address,missing tags: addr:postcode
+way,938172473,incomplete_address,missing tags: addr:postcode
+way,938172474,incomplete_address,missing tags: addr:postcode
+way,938172475,incomplete_address,missing tags: addr:postcode
+way,938172476,incomplete_address,missing tags: addr:postcode
+way,938172529,incomplete_address,missing tags: addr:postcode
+way,938172530,incomplete_address,missing tags: addr:postcode
+way,938172531,incomplete_address,missing tags: addr:postcode
+way,1021750911,duplicate_key,"2707 S COLLEGE AVE, TEMPE, AZ 85282"
+way,1072820372,incomplete_address,missing tags: addr:housenumber
+way,1189002475,incomplete_address,missing tags: addr:housenumber
+way,1189002476,incomplete_address,missing tags: addr:housenumber
+way,1189002477,incomplete_address,missing tags: addr:housenumber
+way,1189002478,incomplete_address,missing tags: addr:housenumber
+way,1189002479,incomplete_address,missing tags: addr:housenumber
+way,1189002480,incomplete_address,missing tags: addr:housenumber
+way,1189002481,incomplete_address,missing tags: addr:housenumber
+way,1189002482,incomplete_address,missing tags: addr:housenumber
+way,1280719538,duplicate_key,"3031 S RURAL RD, TEMPE, AZ 85282"

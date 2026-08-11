@@ -147,3 +147,16 @@ def test_validate_or_repair_polygon_raises_loudly_on_an_unrecoverable_polygon():
     degenerate = Polygon([(5, 5), (5, 5), (5, 5), (5, 5)])
     with pytest.raises(ValueError, match="administrative relation 42"):
         geometry.validate_or_repair_polygon(degenerate, label="administrative relation 42")
+
+
+def test_validate_or_repair_polygon_drops_stray_non_polygonal_repair_artifacts():
+    spiked = Polygon([(0, 0), (4, 0), (4, 4), (2, 4), (2, 6), (2, 4), (0, 4), (0, 0)])
+    assert not spiked.is_valid
+    from shapely.validation import make_valid
+
+    assert make_valid(spiked).geom_type == "GeometryCollection"
+
+    repaired = geometry.validate_or_repair_polygon(spiked, label="spiked relation")
+    assert repaired.geom_type in ("Polygon", "MultiPolygon")
+    assert repaired.is_valid
+    assert repaired.area == pytest.approx(16.0)

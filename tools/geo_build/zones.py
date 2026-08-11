@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 
 import osmium
 import osmium.geom
@@ -79,6 +80,7 @@ class ZonePolygon:
 class ZoneExtractionResult:
     zones: tuple[ZonePolygon, ...]
     municipal_relations: tuple[MunicipalRelation, ...]
+    overlap_reconciliations: tuple[dict[str, object], ...] = ()
 
     def zone_polygons_in_order(self) -> list[BaseGeometry]:
         return [z.polygon for z in sorted(self.zones, key=lambda z: z.zone_id)]
@@ -225,11 +227,76 @@ def extract_zones(osm_path: str) -> ZoneExtractionResult:
         )
     )
 
-    geometry.assert_pairwise_disjoint({z.code: z.polygon for z in zones})
+    ordered = sorted(zones, key=lambda z: z.zone_id)
+    reconciled_polygons, overlap_reconciliations = geometry.reconcile_pairwise_overlaps(
+        [(z.code, z.polygon) for z in ordered]
+    )
+    ordered = [replace(z, polygon=reconciled_polygons[z.code]) for z in ordered]
+
+    geometry.assert_pairwise_disjoint({z.code: z.polygon for z in ordered})
 
     return ZoneExtractionResult(
-        zones=tuple(zones),
+        zones=tuple(ordered),
         municipal_relations=tuple(municipal_relations),
+        overlap_reconciliations=tuple(overlap_reconciliations),
+    )
+
+
+ZONE_PROVENANCE_FILENAME = "zone_provenance.json"
+
+
+def load_zone_definitions(
+    geojson_path: str | Path, provenance_path: str | Path | None = None
+) -> ZoneExtractionResult:
+    geojson_path = Path(geojson_path)
+    if provenance_path is None:
+        provenance_path = geojson_path.parent / ZONE_PROVENANCE_FILENAME
+    else:
+        provenance_path = Path(provenance_path)
+
+    payload = json.loads(geojson_path.read_text(encoding="utf-8"))
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    source_relation_ids_by_zone_id = {
+        int(entry["zone_id"]): tuple(int(r) for r in entry["source_relation_ids"])
+        for entry in provenance["zones"]
+    }
+
+    zones: list[ZonePolygon] = []
+    for feature in payload["features"]:
+        props = feature["properties"]
+        zone_id = int(props["zone_id"])
+        code = str(props["code"])
+        polygon = geometry.validate_or_repair_polygon(
+            shape(feature["geometry"]), label=f"zones-from-file zone {code!r}"
+        )
+        zones.append(
+            ZonePolygon(
+                zone_id=zone_id,
+                code=code,
+                name=str(props["name"]),
+                polygon=polygon,
+                source_relation_ids=source_relation_ids_by_zone_id[zone_id],
+            )
+        )
+    zones.sort(key=lambda z: z.zone_id)
+    reconciled_polygons, overlap_reconciliations = geometry.reconcile_pairwise_overlaps(
+        [(z.code, z.polygon) for z in zones]
+    )
+    zones = [replace(z, polygon=reconciled_polygons[z.code]) for z in zones]
+    geometry.assert_pairwise_disjoint({z.code: z.polygon for z in zones})
+
+    municipal_relations = tuple(
+        MunicipalRelation(
+            name=zone.name,
+            osm_relation_id=zone.source_relation_ids[0],
+            polygon=zone.polygon,
+        )
+        for zone in zones
+    )
+    return ZoneExtractionResult(
+        zones=tuple(zones),
+        municipal_relations=municipal_relations,
+        overlap_reconciliations=tuple(overlap_reconciliations),
     )
 
 
@@ -237,9 +304,11 @@ __all__ = [
     "PHOENIX_SPLIT_LATITUDE",
     "PHOENIX_SPLIT_PROVENANCE_NOTE",
     "ZONE_CODES",
+    "ZONE_PROVENANCE_FILENAME",
     "MunicipalRelation",
     "ZoneExtractionResult",
     "ZonePolygon",
     "extract_zones",
+    "load_zone_definitions",
     "seeded_zone_cities",
 ]

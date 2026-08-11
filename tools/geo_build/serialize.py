@@ -113,7 +113,16 @@ def write_zone_provenance(path: Path, zone_result: ZoneExtractionResult) -> None
         for m in sorted(zone_result.municipal_relations, key=lambda m: m.osm_relation_id)
     ]
 
-    payload = {"zones": zones_payload, "municipal_relations": municipal_payload}
+    overlap_payload = sorted(
+        (dict(r) for r in zone_result.overlap_reconciliations),
+        key=lambda r: (str(r["kept_by"]), str(r["ceded_by"])),
+    )
+
+    payload = {
+        "zones": zones_payload,
+        "municipal_relations": municipal_payload,
+        "overlap_reconciliations": overlap_payload,
+    }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, sort_keys=True, separators=(",", ":"))
         f.write("\n")

@@ -9,3 +9,6 @@ __pycache__/
 
 docs/
 AGENTS.md
+
+data/snapshots/*
+!data/snapshots/*.source.json

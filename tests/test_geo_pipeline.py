@@ -328,3 +328,13 @@ def test_default_config_values_are_read_from_the_registry_not_hardcoded():
     registry = assemble_registry()
     assert registry["geography.duplicate_coordinate_meters"].default == Decimal("10.0")
     assert registry["geography.outlying_buffer_km"].default == Decimal("15.0")
+
+
+def test_zones_from_file_kwarg_runs_end_to_end_with_a_fake_backend():
+    from _geo_real_fixture import TEMPE_ZONE_ID, run_tempe_fixture_pipeline
+
+    result = run_tempe_fixture_pipeline(backend=FakeBackend())
+    usable = [row for row in result.catalog_rows if row["status"] == "usable"]
+    assert usable
+    assert {row["zone_id"] for row in usable} == {TEMPE_ZONE_ID}
+    assert {row["effective_zone_id"] for row in usable} == {TEMPE_ZONE_ID}

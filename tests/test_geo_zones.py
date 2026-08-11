@@ -10,9 +10,10 @@ pytest.importorskip("shapely")
 from csr_bench import constants  # noqa: E402
 from csr_bench.db import in_memory  # noqa: E402
 from csr_bench.migrations import migrate  # noqa: E402
-from geo_build import zones  # noqa: E402
+from geo_build import geometry, zones  # noqa: E402
 
 FIXTURE = str(Path(__file__).parent / "fixtures" / "geo" / "zones_basic.osm")
+REAL_ZONES_GEOJSON = str(Path(__file__).parent / "fixtures" / "geo" / "zone_definitions.geojson")
 
 
 def test_zone_codes_match_constants_zone_names_order_and_count():
@@ -109,7 +110,7 @@ def test_extract_zones_missing_relation_raises_clear_error(tmp_path):
         zones.extract_zones(str(trimmed))
 
 
-def test_extract_zones_disjointness_failure_surfaces_from_a_real_overlap(tmp_path):
+def test_extract_zones_reconciles_a_real_overlap_instead_of_raising(tmp_path):
     text = Path(FIXTURE).read_text(encoding="utf-8")
     overlapping = text
     overlapping = overlapping.replace(
@@ -132,8 +133,24 @@ def test_extract_zones_disjointness_failure_surfaces_from_a_real_overlap(tmp_pat
     moved = tmp_path / "overlap.osm"
     moved.write_text(overlapping, encoding="utf-8")
 
-    with pytest.raises(ValueError, match="not pairwise disjoint"):
-        zones.extract_zones(str(moved))
+    baseline = zones.extract_zones(FIXTURE)
+    baseline_gilbert_area = {z.code: z for z in baseline.zones}["gilbert"].polygon.area
+
+    result = zones.extract_zones(str(moved))
+    by_code = {z.code: z for z in result.zones}
+    chandler = by_code["chandler"]
+    gilbert = by_code["gilbert"]
+
+    assert chandler.zone_id < gilbert.zone_id
+    assert chandler.polygon.intersection(gilbert.polygon).area == 0.0
+    assert gilbert.polygon.area < baseline_gilbert_area
+
+    reassignment = next(
+        r
+        for r in result.overlap_reconciliations
+        if r["kept_by"] == "chandler" and r["ceded_by"] == "gilbert"
+    )
+    assert reassignment["area_km2"] > 0.0
 
 
 def test_seeded_zone_cities_matches_schema_seed():
@@ -228,3 +245,34 @@ def test_duplicate_admin_level_8_name_raises_clear_error(tmp_path):
 
     with pytest.raises(ValueError, match="[Dd]uplicate.*Scottsdale|Scottsdale.*duplicate"):
         zones.extract_zones(path)
+
+
+def test_load_zone_definitions_parses_the_committed_real_zone_file():
+    result = zones.load_zone_definitions(REAL_ZONES_GEOJSON)
+    assert len(result.zones) == 10
+
+    ordered = sorted(result.zones, key=lambda z: z.zone_id)
+    assert tuple(z.code for z in ordered) == zones.ZONE_CODES
+    for i, z in enumerate(ordered, start=1):
+        assert z.zone_id == i
+        assert z.name == constants.ZONE_NAMES[i - 1]
+        assert z.source_relation_ids
+
+    by_code = {z.code: z for z in result.zones}
+    assert by_code["tempe"].source_relation_ids == (110833,)
+    assert by_code["scottsdale"].source_relation_ids == (110826,)
+    assert set(by_code["west_valley_goodyear"].source_relation_ids) == {110782, 110810, 110811}
+
+    geometry.assert_pairwise_disjoint({z.code: z.polygon for z in result.zones})
+    for r in result.overlap_reconciliations:
+        assert by_code[r["kept_by"]].zone_id < by_code[r["ceded_by"]].zone_id
+        assert r["area_km2"] >= 0.0
+
+
+def test_load_zone_definitions_resolves_the_previously_double_claimed_point():
+    from shapely.geometry import Point
+
+    result = zones.load_zone_definitions(REAL_ZONES_GEOJSON)
+    point = Point(-112.205405, 33.696293)
+    containing = [z.code for z in result.zones if z.polygon.covers(point)]
+    assert containing == ["glendale"]

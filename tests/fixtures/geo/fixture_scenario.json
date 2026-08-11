@@ -3,6 +3,6 @@
     "geography.min_address_catalog_size": 1,
     "geography.min_addresses_per_zone": 0,
     "geography.min_addresses_per_zone_segment": 0,
-    "geography.min_outlying_addresses": 1
+    "geography.min_outlying_addresses": 0
   }
 }

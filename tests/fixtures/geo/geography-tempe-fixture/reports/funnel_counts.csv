@@ -1,0 +1,8 @@
+category,key,count
+summary,candidates_total,763
+summary,accepted,723
+rejected_by_reason,duplicate_coordinate,1
+rejected_by_reason,duplicate_key,10
+rejected_by_reason,incomplete_address,29
+city_source,tag,734
+state_source,tag,734

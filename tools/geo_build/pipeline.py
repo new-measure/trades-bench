@@ -62,7 +62,7 @@ from .serialize import (
     write_zone_provenance,
 )
 from .strip import CATALOG_COLUMNS, PENDING_STATUS
-from .zones import ZoneExtractionResult, extract_zones
+from .zones import ZoneExtractionResult, extract_zones, load_zone_definitions
 
 
 @dataclass(frozen=True)
@@ -140,6 +140,7 @@ def run_pipeline(
     scenario_json: str | bytes | None = None,
     abbreviation_table: dict | None = None,
     parameters: BuildParameters | None = None,
+    zones_from_file: str | Path | None = None,
 ) -> PipelineResult:
     config = load_run_config(scenario_json=scenario_json)
     params = parameters or BuildParameters()
@@ -149,7 +150,11 @@ def run_pipeline(
     if abbreviation_table is None:
         abbreviation_table = load_default_abbreviation_table()
 
-    zone_result = extract_zones(osm_path)
+    zone_result = (
+        load_zone_definitions(zones_from_file)
+        if zones_from_file is not None
+        else extract_zones(osm_path)
+    )
     zone_polygons_in_order = zone_result.zone_polygons_in_order()
 
     area = crop.build_area(zone_polygons_in_order, outlying_buffer_km)
