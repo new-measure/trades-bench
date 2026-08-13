@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import subprocess
 import sys
@@ -11,6 +12,7 @@ pytest.importorskip("osmium")
 pytest.importorskip("shapely")
 
 from geo_build.cli import main  # noqa: E402
+from geo_build.manifest import missing_required_fields  # noqa: E402
 
 FIXTURE = str(Path(__file__).parent / "fixtures" / "geo" / "pipeline_fixture.osm")
 FIXTURE_SCENARIO = str(Path(__file__).parent / "fixtures" / "geo" / "fixture_scenario.json")
@@ -36,7 +38,9 @@ def test_cli_build_writes_the_artifact_tree(tmp_path):
     assert (out_dir / "routing" / "anchors.csv").exists()
     assert (out_dir / "routing" / "anchor_distance.bin").exists()
     assert (out_dir / "manifest.json").exists()
-    assert (out_dir / "reports" / "data_quality.md").exists()
+    assert not (out_dir / "addresses" / "rejected.csv").exists()
+    assert not (out_dir / "reports").exists()
+    assert not (tmp_path / "geography-dev-reports").exists()
 
     catalog_text = (out_dir / "addresses" / "catalog.csv").read_text()
     assert "dev-test" in catalog_text
@@ -56,13 +60,11 @@ def test_cli_has_no_skip_routing_escape_hatch():
         main(["build", FIXTURE, "/tmp/unused", "--dataset-version", "x", "--skip-routing"])
 
 
-def test_cli_fake_backend_artifact_is_marked_non_packageable(tmp_path):
+def test_cli_fake_backend_build_still_writes_a_complete_manifest(tmp_path):
     out_dir = tmp_path / "geography-dev"
     main(["build", FIXTURE, str(out_dir), "--dataset-version", "dev-test", *FIXTURE_FLAGS])
     manifest = json.loads((out_dir / "manifest.json").read_text())
-    assert manifest["packageable"] is False
-    assert manifest["routing_backend"]["name"] == "fake-straight-line"
-    assert any(t["name"] == "fake-straight-line" for t in manifest["tools"])
+    assert missing_required_fields(manifest) == []
 
 
 def test_cli_source_flags_flow_into_the_manifest(tmp_path):
@@ -93,8 +95,7 @@ def test_cli_source_flags_flow_into_the_manifest(tmp_path):
     assert manifest["source"]["published_at"] == "2026-08-01"
     assert manifest["source"]["bytes"] == 312345678
     assert manifest["source"]["sha256"] == "a" * 64
-    assert manifest["source"]["placeholder"] is False
-    assert manifest["packageable"] is False
+    assert set(manifest["source"]) == {"url", "published_at", "bytes", "sha256"}
 
 
 def test_cli_scenario_override_flows_through(tmp_path):
@@ -154,11 +155,10 @@ def test_cli_zones_from_file_runs_end_to_end_with_a_fake_backend(tmp_path):
         ]
     )
     assert exit_code == 0
-    manifest = json.loads((out_dir / "manifest.json").read_text())
-    assert manifest["counts"]["usable_by_zone"]["4"] > 0
-    for zone_id, count in manifest["counts"]["usable_by_zone"].items():
-        if zone_id != "4":
-            assert count == 0
+    with open(out_dir / "addresses" / "catalog.csv", newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    usable_zone_ids = {row["zone_id"] for row in rows if row["status"] == "usable"}
+    assert usable_zone_ids == {"4"}
 
 
 def test_module_entry_point_runs_as_a_subprocess(tmp_path):

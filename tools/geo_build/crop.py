@@ -32,17 +32,4 @@ def filter_to_build_area(elements: OsmElements, area: BaseGeometry) -> OsmElemen
     return OsmElements(nodes=kept_nodes, ways=kept_ways, relations=kept_relations)
 
 
-def build_area_sha256(area: BaseGeometry) -> str:
-    import hashlib
-    import json
-
-    from shapely.geometry import mapping
-
-    from .serialize import canonical_geometry_payload
-
-    payload = canonical_geometry_payload(mapping(area))
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-__all__ = ["build_area", "build_area_sha256", "filter_to_build_area"]
+__all__ = ["build_area", "filter_to_build_area"]

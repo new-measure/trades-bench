@@ -101,3 +101,38 @@ def test_candidate_may_carry_more_than_one_eligibility():
 def test_eligibility_result_is_a_frozenset():
     result = classify_eligibility({"building": "house"})
     assert isinstance(result, frozenset)
+
+
+def test_unit_tag_present_adds_apartment_without_dropping_the_residential_fallback():
+    result = classify_eligibility({}, unit_tag_present=True)
+    assert result == {"residential", "apartment"}
+
+
+def test_unit_tag_present_adds_apartment_on_top_of_a_commercial_building():
+    result = classify_eligibility({"building": "office"}, unit_tag_present=True)
+    assert result == {"commercial", "apartment"}
+
+
+def test_unit_tag_absent_and_no_footprint_leaves_classification_unchanged():
+    result = classify_eligibility({"building": "house"})
+    assert result == {"residential"}
+    assert classify_eligibility(
+        {"building": "house"}, unit_tag_present=False, inside_apartment_footprint=False
+    ) == {"residential"}
+
+
+def test_inside_apartment_footprint_adds_apartment_without_dropping_the_residential_fallback():
+    result = classify_eligibility({}, inside_apartment_footprint=True)
+    assert result == {"residential", "apartment"}
+
+
+def test_inside_apartment_footprint_is_idempotent_with_an_already_apartment_building():
+    result = classify_eligibility({"building": "apartments"}, inside_apartment_footprint=True)
+    assert result == {"apartment"}
+
+
+def test_both_new_signals_together_still_only_add_apartment_once():
+    result = classify_eligibility(
+        {"building": "house"}, unit_tag_present=True, inside_apartment_footprint=True
+    )
+    assert result == {"residential", "apartment"}

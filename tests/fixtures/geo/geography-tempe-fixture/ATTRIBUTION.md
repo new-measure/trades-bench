@@ -12,6 +12,6 @@ same license, so this artifact — and any bundle that ships it — is
 licensed under ODbL 1.0. The full text is in `LICENSE`.
 
 No OpenStreetMap contributor metadata (user names, user IDs, changeset
-ids) is present: the build strips every tag outside the address column
-list of `03-geography-and-scheduling.md` §3.1. No real person is
-represented anywhere in this artifact.
+ids) is present: the build strips every tag except the address columns
+published in `addresses/catalog.csv`. No real person is represented
+anywhere in this artifact.

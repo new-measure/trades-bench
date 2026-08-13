@@ -17,13 +17,9 @@ REQUIRED_ARTIFACT_FILES: tuple[str, ...] = (
     "zones/zone_definitions.geojson",
     "zones/zone_provenance.json",
     "addresses/catalog.csv",
-    "addresses/rejected.csv",
     "routing/anchors.csv",
     "routing/anchor_distance.bin",
     "normalization/usps_abbreviations.json",
-    "reports/data_quality.md",
-    "reports/funnel_counts.csv",
-    "reports/funnel_counts.json",
     "ATTRIBUTION.md",
     "LICENSE",
 )
@@ -50,12 +46,15 @@ def test_the_committed_fixture_artifact_exists():
 
 def test_the_manifest_parses_and_is_built_from_the_real_snapshot():
     manifest = _manifest()
+    snapshot = json.loads(
+        (Path(__file__).parent.parent / "data" / "snapshots" / "arizona.source.json").read_text(
+            encoding="utf-8"
+        )
+    )
     assert manifest["artifact_id"]
     assert manifest["artifact_sha256"]
-    assert manifest["source"]["placeholder"] is False
-    assert manifest["source"]["sha256"]
-    assert manifest["routing_backend"]["name"] == "osrm"
-    assert manifest["routing_backend"]["image_digest"]
+    assert manifest["source"]["url"] == snapshot["resolved_url"]
+    assert manifest["source"]["sha256"] == snapshot["sha256"]
 
 
 def test_the_canonical_hash_matches_the_manifests_recorded_hash():

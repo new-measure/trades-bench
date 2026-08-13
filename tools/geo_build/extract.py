@@ -137,6 +137,7 @@ def _extract_one(
         state=state,
         state_source=state_source,
         tags={k: v for k, v in tags.items() if k not in _DROPPED_UNIT_TAGS},
+        unit_tag_present=any(k in tags for k in _DROPPED_UNIT_TAGS),
     )
 
 

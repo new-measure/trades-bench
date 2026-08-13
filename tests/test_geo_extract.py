@@ -131,6 +131,41 @@ def test_addr_unit_tag_is_dropped_and_does_not_affect_unit_relevant_fields():
     assert node_1013.formatted_address == "900 Cactus Ln, Scottsdale, AZ 85251"
 
 
+def test_addr_unit_tag_marks_the_candidate_unit_tag_present_even_after_the_tag_is_dropped():
+    cropped, ctx = _cropped_elements_and_ctx()
+    candidates, _rejected = extract.extract_candidates(cropped, ctx)
+    by_id = _candidates_by_id(candidates)
+    node_1013 = by_id[1013]
+
+    assert "addr:unit" not in node_1013.tags
+    assert node_1013.unit_tag_present is True
+
+
+def test_addr_flats_tag_also_marks_the_candidate_unit_tag_present(tmp_path):
+    extra = (
+        '  <node id="5002" lat="33.56" lon="-111.79">\n'
+        '    <tag k="addr:housenumber" v="1"/>\n'
+        '    <tag k="addr:street" v="Flats St"/>\n'
+        '    <tag k="addr:postcode" v="85251"/>\n'
+        '    <tag k="addr:flats" v="1-6"/>\n'
+        "  </node>\n"
+    )
+    path = _zones_fixture_with(extra, tmp_path)
+    candidates, _rejected = _extract_from(path)
+    by_id = _candidates_by_id(candidates)
+    node_5002 = by_id[5002]
+
+    assert "addr:flats" not in node_5002.tags
+    assert node_5002.unit_tag_present is True
+
+
+def test_a_candidate_without_addr_unit_or_addr_flats_is_not_unit_tag_present():
+    cropped, ctx = _cropped_elements_and_ctx()
+    candidates, _rejected = extract.extract_candidates(cropped, ctx)
+    by_id = _candidates_by_id(candidates)
+    assert by_id[1001].unit_tag_present is False
+
+
 def test_relation_candidate_uses_member_way_centroid(tmp_path):
     extra = (
         '  <node id="3001" lat="33.56" lon="-111.80"/>\n'

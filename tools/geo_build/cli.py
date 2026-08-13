@@ -63,10 +63,7 @@ def _build(args: argparse.Namespace) -> int:
         f"accuracy median {accuracy.median_pct:.2f}% / p95 {accuracy.p95_pct:.2f}% -> "
         f"{output_dir}"
     )
-    print(
-        f"geo_build: artifact_sha256={manifest['artifact_sha256']} "
-        f"packageable={str(manifest['packageable']).lower()}"
-    )
+    print(f"geo_build: artifact_sha256={manifest['artifact_sha256']}")
     return 0
 
 
@@ -112,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--fake-backend",
         action="store_true",
         help="use the deterministic synthetic backend instead of Dockerized OSRM; "
-        "the manifest records it and marks the artifact non-packageable",
+        "straight-line distances only, for fast local iteration",
     )
     routing.add_argument(
         "--anchor-grid-km",

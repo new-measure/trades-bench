@@ -299,6 +299,37 @@
     <tag k="addr:street" v="Main St"/>
     <tag k="addr:postcode" v="85251"/>
   </way>
+  <!-- inside-footprint apartment eligibility coverage: way 2200 carries no
+       addr:* tag of its own (never enters the address funnel) and exists
+       only as a building=apartments footprint; node 1015 sits inside it
+       and carries no building tag, so its own tags classify residential
+       and only the footprint join adds apartment. -->
+  <node id="2201" lat="33.62" lon="-111.755"/>
+  <node id="2202" lat="33.62" lon="-111.745"/>
+  <node id="2203" lat="33.63" lon="-111.745"/>
+  <node id="2204" lat="33.63" lon="-111.755"/>
+  <way id="2200">
+    <nd ref="2201"/>
+    <nd ref="2202"/>
+    <nd ref="2203"/>
+    <nd ref="2204"/>
+    <nd ref="2201"/>
+    <tag k="building" v="apartments"/>
+  </way>
+  <node id="1015" lat="33.625" lon="-111.75">
+    <tag k="addr:housenumber" v="950"/>
+    <tag k="addr:street" v="Palm Dr"/>
+    <tag k="addr:postcode" v="85251"/>
+  </node>
+  <!-- addr:flats unit-tag apartment eligibility coverage: node 1016 carries
+       no building tag and sits outside every footprint, so only the
+       addr:unit/addr:flats signal adds apartment. -->
+  <node id="1016" lat="33.615" lon="-111.775">
+    <tag k="addr:housenumber" v="960"/>
+    <tag k="addr:street" v="Palm Dr"/>
+    <tag k="addr:postcode" v="85251"/>
+    <tag k="addr:flats" v="1-6"/>
+  </node>
   <!-- drivable road grid (CSR-003c): a regular lattice covering the
        address elements above, so the opt-in OSRM tests have a real
        network to snap and route on. No addr:* tag, so none of these

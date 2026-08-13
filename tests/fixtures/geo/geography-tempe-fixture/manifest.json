@@ -1,159 +1,21 @@
 {
-  "accuracy_gate": {
-    "distribution": {
-      "max_pct": 66.66666666666664,
-      "mean_pct": 4.165914170742677,
-      "median_pct": 2.3006586312158595,
-      "min_pct": 0.030111412225230047,
-      "p25_pct": 0.8264462809917306,
-      "p75_pct": 4.970096927201487,
-      "p90_pct": 8.404914646080234,
-      "p95_pct": 13.492063492063478,
-      "p99_pct": 29.61938141794256
-    },
-    "evaluated_pairs": 150,
-    "histogram": {
-      "[0,1)": 45,
-      "[1,2.5)": 36,
-      "[10,25)": 8,
-      "[100,inf)": 0,
-      "[2.5,5)": 33,
-      "[25,50)": 3,
-      "[5,10)": 24,
-      "[50,100)": 1
-    },
-    "median_pct": 2.3006586312158595,
-    "min_evaluated_fraction": 0.9,
-    "min_evaluated_pairs": 135,
-    "p95_pct": 13.492063492063478,
-    "pass": true,
-    "sample_size": 150,
-    "seed": "csr-003d/tempe-fixture/accuracy-gate/v1",
-    "skipped_pairs": 0,
-    "thresholds": {
-      "median_pct": 10.0,
-      "p95_pct": 25.0
-    }
-  },
-  "anchor_matrix_sha256": "6a9f0c3fc905b71789e8a7d5336b3edb094d26cb84720d94743f603c13c7c134",
   "anchors": {
-    "count": 457,
-    "selection_procedure": {
-      "anchor_candidate_k": 8,
-      "anchor_rule": "backend snap of the cell's geometric centroid",
-      "cell_km": 0.03,
-      "duplicate_rule": "cells snapping to the same point collapse to the earlier cell",
-      "kind": "fixed_grid_cell_centroid_snap",
-      "occupied_cell_rule": "at least one snapped usable address in the cell",
-      "ordering": "ascending (row, col); anchor_id is 1-based in that order",
-      "origin_lat": 32.878691,
-      "origin_lon": -112.657483,
-      "pruned_not_mutually_routable": 0,
-      "reference_latitude": 33.484823
-    }
+    "count": 457
   },
   "artifact_id": "tempe-fixture-v1",
-  "artifact_sha256": "8a9566a852d008a3c916e51c49da666d34c836930f78967841d87d191349ff28",
-  "builder_version": "csr_bench/1.0.0+geo_build/1.0.0",
-  "built_at": "2026-08-11T09:32:45Z",
+  "artifact_sha256": "eab2f2e598d56b4eea52851140fea32922f7b67f6b1c18d9e32bdd632ea1237f",
   "counts": {
-    "accepted": 723,
-    "candidates": 763,
-    "catalog_rows": 723,
-    "outlying": 0,
-    "rejected_by_reason": {
-      "duplicate_coordinate": 1,
-      "duplicate_key": 10,
-      "incomplete_address": 29
-    },
-    "unusable": 0,
-    "usable_by_zone": {
-      "1": 0,
-      "10": 0,
-      "2": 0,
-      "3": 0,
-      "4": 723,
-      "5": 0,
-      "6": 0,
-      "7": 0,
-      "8": 0,
-      "9": 0
-    },
-    "usable_by_zone_segment": {
-      "10:apartment": 0,
-      "10:commercial": 0,
-      "10:residential": 0,
-      "1:apartment": 0,
-      "1:commercial": 0,
-      "1:residential": 0,
-      "2:apartment": 0,
-      "2:commercial": 0,
-      "2:residential": 0,
-      "3:apartment": 0,
-      "3:commercial": 0,
-      "3:residential": 0,
-      "4:apartment": 9,
-      "4:commercial": 44,
-      "4:residential": 670,
-      "5:apartment": 0,
-      "5:commercial": 0,
-      "5:residential": 0,
-      "6:apartment": 0,
-      "6:commercial": 0,
-      "6:residential": 0,
-      "7:apartment": 0,
-      "7:commercial": 0,
-      "7:residential": 0,
-      "8:apartment": 0,
-      "8:commercial": 0,
-      "8:residential": 0,
-      "9:apartment": 0,
-      "9:commercial": 0,
-      "9:residential": 0
-    }
-  },
-  "crop": {
-    "buffer_km": 15.0,
-    "polygon_sha256": "c60138ff8a2c014348ac19bbf0b69a81b8f89c4690cfc289883b2b94a219237d"
+    "catalog_rows": 723
   },
   "license": {
     "attribution": "Map data \u00a9 OpenStreetMap contributors, available under the Open Database License (ODbL 1.0). Extract via Geofabrik GmbH.",
     "id": "ODbL-1.0"
   },
-  "packageable": true,
-  "routing_backend": {
-    "image_digest": "sha256:3ac496ff8fd7e1af53846179d73d06a97f719c8ad2217d008ed868942398665c",
-    "name": "osrm",
-    "version": "v26.8.0"
-  },
   "source": {
     "bytes": 300567093,
-    "placeholder": false,
     "published_at": "2026-08-11T00:23:47Z",
     "sha256": "6ae84b0b5401cbfc5039696d8ffc8f7d229c9745ede48639279ef4cc3270ec9a",
     "url": "https://download.geofabrik.de/north-america/us/arizona-260810.osm.pbf"
   },
-  "tools": [
-    {
-      "image_digest": "sha256:3ac496ff8fd7e1af53846179d73d06a97f719c8ad2217d008ed868942398665c",
-      "name": "osrm",
-      "version": "v26.8.0"
-    },
-    {
-      "image_digest": null,
-      "name": "pyosmium",
-      "version": "4.3.1"
-    },
-    {
-      "image_digest": null,
-      "name": "python",
-      "version": "3.13.8"
-    },
-    {
-      "image_digest": null,
-      "name": "shapely",
-      "version": "2.1.2"
-    }
-  ],
   "zone_definitions_sha256": "b071bb549711af7f6c1e52bcb5fbdbe7696a22cfb70c8aae620a5139ca2b82da"
 }

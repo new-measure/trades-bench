@@ -42,6 +42,8 @@ def test_pipeline_produces_the_expected_accepted_addresses():
         "800 Elm St, Scottsdale, AZ 85251",
         "801 Elm St, Scottsdale, AZ 85251",
         "900 Cactus Ln, Scottsdale, AZ 85251",
+        "950 Palm Dr, Scottsdale, AZ 85251",
+        "960 Palm Dr, Scottsdale, AZ 85251",
     }
 
 
@@ -79,7 +81,7 @@ def test_funnel_candidates_total_counts_only_addr_tagged_elements():
     result = _run()
     expected = _count_addr_tagged_elements_in_crop(FIXTURE)
     assert result.funnel.candidates_total == expected
-    assert expected == 12
+    assert expected == 14
 
     boundary_way_ids = {101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111}
     boundary_relation_ids = {201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211}
@@ -92,8 +94,33 @@ def test_funnel_candidates_total_counts_only_addr_tagged_elements():
 def test_funnel_provenance_breakdown_matches_expected_derivation_paths():
     result = _run()
     funnel_dict = result.funnel.to_dict()
-    assert funnel_dict["city_source_counts"] == {"admin_relation": 8, "tag": 1, "zone": 1}
-    assert funnel_dict["state_source_counts"] == {"crop": 8, "tag": 2}
+    assert funnel_dict["city_source_counts"] == {"admin_relation": 10, "tag": 1, "zone": 1}
+    assert funnel_dict["state_source_counts"] == {"crop": 10, "tag": 2}
+
+
+def test_pipeline_classifies_a_footprint_only_address_as_apartment_via_the_inside_footprint_join():
+    result = _run()
+    by_address = {row["formatted_address"]: row for row in result.catalog_rows}
+    row = by_address["950 Palm Dr, Scottsdale, AZ 85251"]
+    segments = row["segment_eligibility"].split(",")
+    assert "apartment" in segments
+    assert "residential" in segments
+
+
+def test_pipeline_classifies_an_addr_flats_tagged_address_as_apartment():
+    result = _run()
+    by_address = {row["formatted_address"]: row for row in result.catalog_rows}
+    row = by_address["960 Palm Dr, Scottsdale, AZ 85251"]
+    segments = row["segment_eligibility"].split(",")
+    assert "apartment" in segments
+    assert "residential" in segments
+
+
+def test_pipeline_leaves_an_ordinary_address_outside_every_footprint_non_apartment():
+    result = _run()
+    by_address = {row["formatted_address"]: row for row in result.catalog_rows}
+    row = by_address["100 Main St, Scottsdale, AZ 85251"]
+    assert "apartment" not in row["segment_eligibility"].split(",")
 
 
 def test_pipeline_zone_assignment_on_real_catalog_rows():
@@ -142,7 +169,7 @@ def test_ambiguous_table_rejections_reach_the_funnel_with_the_right_reason():
     funnel.record_rejections(rejections)
 
     assert len(rejections) == len(candidates)
-    assert funnel.rejected_by_reason["normalization_ambiguous"] == 9
+    assert funnel.rejected_by_reason["normalization_ambiguous"] == 11
     by_source = {r.source_id: r.reason for r in rejections}
     assert by_source[1014] == "normalization_invalid"
 
@@ -150,22 +177,18 @@ def test_ambiguous_table_rejections_reach_the_funnel_with_the_right_reason():
 def test_pipeline_rerun_on_the_same_input_is_byte_identical(tmp_path):
     out1 = tmp_path / "out1"
     out2 = tmp_path / "out2"
-    manifest1 = write_artifact(_run(), out1, built_at="2020-01-01T00:00:00Z")
-    manifest2 = write_artifact(_run(), out2, built_at="2999-12-31T23:59:59Z")
+    manifest1 = write_artifact(_run(), out1)
+    manifest2 = write_artifact(_run(), out2)
 
     files1 = sorted(p.relative_to(out1) for p in out1.rglob("*") if p.is_file())
     files2 = sorted(p.relative_to(out2) for p in out2.rglob("*") if p.is_file())
     assert files1 == files2
     for rel in files1:
-        if rel.as_posix() == "manifest.json":
-            continue
         assert (out1 / rel).read_bytes() == (out2 / rel).read_bytes(), f"{rel} differs"
 
-    assert manifest1["artifact_sha256"] == manifest2["artifact_sha256"]
+    assert manifest1 == manifest2
+    assert manifest1["artifact_sha256"] == canonical_artifact_sha256(out1)
     assert canonical_artifact_sha256(out1) == canonical_artifact_sha256(out2)
-    assert {k: v for k, v in manifest1.items() if k != "built_at"} == {
-        k: v for k, v in manifest2.items() if k != "built_at"
-    }
 
 
 def test_write_artifact_emits_the_full_section_6_layout(tmp_path):
@@ -175,12 +198,8 @@ def test_write_artifact_emits_the_full_section_6_layout(tmp_path):
         "ATTRIBUTION.md",
         "LICENSE",
         "addresses/catalog.csv",
-        "addresses/rejected.csv",
         "manifest.json",
         "normalization/usps_abbreviations.json",
-        "reports/data_quality.md",
-        "reports/funnel_counts.csv",
-        "reports/funnel_counts.json",
         "routing/anchor_distance.bin",
         "routing/anchors.csv",
         "zones/zone_definitions.geojson",
@@ -188,6 +207,7 @@ def test_write_artifact_emits_the_full_section_6_layout(tmp_path):
     }
     actual = {p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file()}
     assert actual == expected
+    assert not (out / "reports").exists()
 
 
 def test_manifest_records_the_canonical_hash_of_everything_but_itself(tmp_path):
@@ -234,7 +254,7 @@ def test_unsnappable_rows_are_retained_as_unusable_catalog_rows(tmp_path):
     assert row["access_distance_km"] is None
 
     assert result.funnel.rejected_by_reason["unsnappable"] == 1
-    assert result.funnel.accepted == 6
+    assert result.funnel.accepted == 8
     assert result.funnel.is_balanced()
     assert all(r.reason != "unsnappable" for r in result.rejected_rows)
 
@@ -255,22 +275,12 @@ def test_accuracy_gate_fails_on_a_too_coarse_anchor_grid():
         _run(parameters=BuildParameters(anchor_grid_km=6.0, accuracy_sample_size=200))
 
 
-def test_data_quality_report_has_all_eight_required_sections(tmp_path):
+def test_write_artifact_produces_no_reports_directory_anywhere(tmp_path):
     out = tmp_path / "geography-dev"
     write_artifact(_run(), out)
-    text = (out / "reports" / "data_quality.md").read_text(encoding="utf-8")
-    for heading in (
-        "## 1. Source snapshot identity and checksums",
-        "## 2. Funnel counts",
-        "## 3. Usable addresses by zone, segment, and zone x segment",
-        "## 4. Coordinate and ZIP sanity checks",
-        "## 5. Anchor statistics",
-        "## 6. Accuracy gate",
-        "## 7. Known limitations",
-        "## 8. Attribution and license",
-    ):
-        assert heading in text
-    assert "Map data © OpenStreetMap contributors" in text
+    assert not (out / "reports").exists()
+    assert not (tmp_path / "geography-dev-reports").exists()
+    assert not any(p.name == "reports" for p in tmp_path.rglob("*"))
 
 
 def test_packaged_abbreviation_table_is_the_one_the_build_normalized_with(tmp_path):

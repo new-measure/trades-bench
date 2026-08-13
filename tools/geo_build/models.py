@@ -28,6 +28,8 @@ class Candidate:
     formatted_address: str | None = None
     canonical_key: str | None = None
 
+    unit_tag_present: bool = False
+
     segment_eligibility: frozenset[str] = field(default_factory=frozenset)
 
     zone_id: int | None = None

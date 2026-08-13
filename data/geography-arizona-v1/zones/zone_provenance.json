@@ -1,0 +1,117 @@
+{
+  "municipal_relations": [
+    { "name": "Peoria", "osm_relation_id": 110691 },
+    { "name": "Avondale", "osm_relation_id": 110782 },
+    { "name": "Chandler", "osm_relation_id": 110798 },
+    { "name": "Gilbert", "osm_relation_id": 110803 },
+    { "name": "Glendale", "osm_relation_id": 110806 },
+    { "name": "Goodyear", "osm_relation_id": 110810 },
+    { "name": "Litchfield Park", "osm_relation_id": 110811 },
+    { "name": "Mesa", "osm_relation_id": 110815 },
+    { "name": "Scottsdale", "osm_relation_id": 110826 },
+    { "name": "Tempe", "osm_relation_id": 110833 },
+    { "name": "Phoenix", "osm_relation_id": 111257 }
+  ],
+  "overlap_reconciliations": [
+    { "area_km2": 6e-6, "ceded_by": "glendale", "kept_by": "central_phoenix" },
+    {
+      "area_km2": 0.030914,
+      "ceded_by": "scottsdale",
+      "kept_by": "central_phoenix"
+    },
+    { "area_km2": 0.003768, "ceded_by": "tempe", "kept_by": "central_phoenix" },
+    {
+      "area_km2": 2e-5,
+      "ceded_by": "west_valley_goodyear",
+      "kept_by": "central_phoenix"
+    },
+    { "area_km2": 0.014398, "ceded_by": "gilbert", "kept_by": "chandler" },
+    { "area_km2": 0.354832, "ceded_by": "peoria", "kept_by": "glendale" },
+    { "area_km2": 0.000211, "ceded_by": "gilbert", "kept_by": "mesa" },
+    {
+      "area_km2": 0.042236,
+      "ceded_by": "glendale",
+      "kept_by": "north_phoenix"
+    },
+    { "area_km2": 0.01318, "ceded_by": "peoria", "kept_by": "north_phoenix" },
+    {
+      "area_km2": 0.015896,
+      "ceded_by": "scottsdale",
+      "kept_by": "north_phoenix"
+    },
+    { "area_km2": 0.038822, "ceded_by": "tempe", "kept_by": "scottsdale" },
+    { "area_km2": 0.052812, "ceded_by": "mesa", "kept_by": "tempe" }
+  ],
+  "zones": [
+    {
+      "code": "central_phoenix",
+      "dividing_geometry": {
+        "kind": "latitude_line",
+        "latitude": 33.553,
+        "provenance": "user-decided v1 constant"
+      },
+      "name": "Central Phoenix",
+      "source_relation_ids": [111257],
+      "zone_id": 1
+    },
+    {
+      "code": "north_phoenix",
+      "dividing_geometry": {
+        "kind": "latitude_line",
+        "latitude": 33.553,
+        "provenance": "user-decided v1 constant"
+      },
+      "name": "North Phoenix",
+      "source_relation_ids": [111257],
+      "zone_id": 2
+    },
+    {
+      "code": "scottsdale",
+      "name": "Scottsdale",
+      "source_relation_ids": [110826],
+      "zone_id": 3
+    },
+    {
+      "code": "tempe",
+      "name": "Tempe",
+      "source_relation_ids": [110833],
+      "zone_id": 4
+    },
+    {
+      "code": "mesa",
+      "name": "Mesa",
+      "source_relation_ids": [110815],
+      "zone_id": 5
+    },
+    {
+      "code": "chandler",
+      "name": "Chandler",
+      "source_relation_ids": [110798],
+      "zone_id": 6
+    },
+    {
+      "code": "gilbert",
+      "name": "Gilbert",
+      "source_relation_ids": [110803],
+      "zone_id": 7
+    },
+    {
+      "code": "glendale",
+      "name": "Glendale",
+      "source_relation_ids": [110806],
+      "zone_id": 8
+    },
+    {
+      "code": "peoria",
+      "name": "Peoria",
+      "source_relation_ids": [110691],
+      "zone_id": 9
+    },
+    {
+      "code": "west_valley_goodyear",
+      "name": "West Valley/Goodyear",
+      "source_relation_ids": [110782, 110810, 110811],
+      "zone_id": 10
+    }
+  ]
+}

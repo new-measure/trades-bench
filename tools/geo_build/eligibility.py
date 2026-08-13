@@ -36,7 +36,7 @@ def _flats_count(tags: Mapping[str, str]) -> int | None:
         return None
 
 
-def classify_eligibility(tags: Mapping[str, str]) -> frozenset[str]:
+def _classify_from_tags(tags: Mapping[str, str]) -> set[str]:
     result: set[str] = set()
 
     building = tags.get("building")
@@ -63,6 +63,18 @@ def classify_eligibility(tags: Mapping[str, str]) -> frozenset[str]:
     if not result:
         result.add("residential")
 
+    return result
+
+
+def classify_eligibility(
+    tags: Mapping[str, str],
+    *,
+    unit_tag_present: bool = False,
+    inside_apartment_footprint: bool = False,
+) -> frozenset[str]:
+    result = _classify_from_tags(tags)
+    if unit_tag_present or inside_apartment_footprint:
+        result.add("apartment")
     return frozenset(result)
 
 

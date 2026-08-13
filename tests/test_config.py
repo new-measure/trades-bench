@@ -263,8 +263,11 @@ _VALID_WEATHER = {
 
 def test_geography_and_travel_defaults_resolve():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
-    assert rc.get_string("geography.artifact_id") == ""
-    assert rc.get_string("geography.artifact_sha256") == ""
+    assert rc.get_string("geography.artifact_id") == "arizona-v1"
+    assert (
+        rc.get_string("geography.artifact_sha256")
+        == "5e526973b9a2b58641102bba760daa0b8b8b06701bc9264106e5c156cc0b92ec"
+    )
     assert rc.get_int("geography.min_address_catalog_size") == 30_000
     assert rc.resolved["travel.time_of_day_bands"][0] == ("night", 0, 360)
     assert rc.resolved["travel.speed_by_time_band"]["weekday"]["night"] == Decimal("62")
@@ -389,10 +392,13 @@ def test_reject_noise_min_greater_than_max():
     assert rc.get_decimal("travel.noise.min_multiplier") == Decimal("1.5")
 
 
-def test_geography_artifact_fields_default_empty_and_are_not_deferred():
+def test_geography_artifact_fields_are_pinned_and_not_deferred():
     reg = assemble_registry()
-    assert reg["geography.artifact_id"].default == ""
-    assert reg["geography.artifact_sha256"].default == ""
+    assert reg["geography.artifact_id"].default == "arizona-v1"
+    assert (
+        reg["geography.artifact_sha256"].default
+        == "5e526973b9a2b58641102bba760daa0b8b8b06701bc9264106e5c156cc0b92ec"
+    )
     assert reg["geography.artifact_id"].deferred is None
     assert reg["geography.artifact_sha256"].deferred is None
 

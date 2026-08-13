@@ -251,7 +251,7 @@ address_id,dataset_version,house_number,street,city,state,postal_code,formatted_
 250,tempe-fixture-v1,245,E Balboa Dr,Tempe,AZ,85282,"245 E Balboa Dr, Tempe, AZ 85282","245 E BALBOA DR, TEMPE, AZ 85282",33.398607,-111.935233,4,4,236,0.008,residential,usable,,0
 251,tempe-fixture-v1,245,E Cairo Dr,Tempe,AZ,85282,"245 E Cairo Dr, Tempe, AZ 85282","245 E CAIRO DR, TEMPE, AZ 85282",33.397848,-111.935198,4,4,174,0.005,residential,usable,,0
 252,tempe-fixture-v1,25,E Geneva Dr,Tempe,AZ,85282,"25 E Geneva Dr, Tempe, AZ 85282","25 E GENEVA DR, TEMPE, AZ 85282",33.395220,-111.938365,4,4,6,0.001,residential,usable,,0
-253,tempe-fixture-v1,2525,S Rural Rd,Tempe,AZ,85282,"2525 S Rural Rd, Tempe, AZ 85282","2525 S RURAL RD, TEMPE, AZ 85282",33.401250,-111.925979,4,4,350,0.011,commercial,usable,,0
+253,tempe-fixture-v1,2525,S Rural Rd,Tempe,AZ,85282,"2525 S Rural Rd, Tempe, AZ 85282","2525 S RURAL RD, TEMPE, AZ 85282",33.401250,-111.925979,4,4,350,0.011,"apartment,commercial",usable,,0
 254,tempe-fixture-v1,26,E Balboa Dr,Tempe,AZ,85282,"26 E Balboa Dr, Tempe, AZ 85282","26 E BALBOA DR, TEMPE, AZ 85282",33.399533,-111.938709,4,4,315,0.001,residential,usable,,0
 255,tempe-fixture-v1,26,E Erie Dr,Tempe,AZ,85282,"26 E Erie Dr, Tempe, AZ 85282","26 E ERIE DR, TEMPE, AZ 85282",33.397226,-111.938437,4,4,149,0.004,residential,usable,,0
 256,tempe-fixture-v1,26,E Geneva Dr,Tempe,AZ,85282,"26 E Geneva Dr, Tempe, AZ 85282","26 E GENEVA DR, TEMPE, AZ 85282",33.395651,-111.938379,4,4,56,0.005,residential,usable,,0

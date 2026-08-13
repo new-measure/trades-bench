@@ -38,11 +38,28 @@ class OsmWay:
         return _coords_centroid(self.coords)
 
 
+_OUTER_ROLES = frozenset({"", "outer"})
+
+
+@dataclass(frozen=True)
+class OsmRelationMember:
+    way_id: int
+    role: str = ""
+
+    @property
+    def is_outer(self) -> bool:
+        return self.role in _OUTER_ROLES
+
+    @property
+    def is_inner(self) -> bool:
+        return self.role == "inner"
+
+
 @dataclass(frozen=True)
 class OsmRelation:
     osm_id: int
     tags: Mapping[str, str]
-    member_way_ids: tuple[int, ...]
+    members: tuple[OsmRelationMember, ...]
 
     @property
     def element_type(self) -> str:
@@ -64,6 +81,20 @@ def _coords_centroid(coords: tuple[tuple[float, float], ...]) -> tuple[float, fl
     return (c.x, c.y)
 
 
+def _repair_polygonized(lines: list, *, label: str) -> list:
+    from shapely.ops import polygonize
+
+    from . import geometry
+
+    repaired = []
+    for polygon in polygonize(lines):
+        try:
+            repaired.append(geometry.validate_or_repair_polygon(polygon, label=label))
+        except ValueError:
+            continue
+    return repaired
+
+
 @dataclass(frozen=True)
 class OsmElements:
 
@@ -75,22 +106,70 @@ class OsmElements:
     def _ways_by_id(self) -> dict[int, OsmWay]:
         return {w.osm_id: w for w in self.ways}
 
-    def relation_centroid(self, relation: OsmRelation) -> tuple[float, float] | None:
-        from shapely.geometry import LineString, MultiLineString
-        from shapely.ops import polygonize, unary_union
+    def _lines_for_way_ids(self, way_ids) -> list:
+        from shapely.geometry import LineString
 
-        lines = [
+        return [
             LineString(way.coords)
-            for way_id in relation.member_way_ids
+            for way_id in way_ids
             if (way := self._ways_by_id.get(way_id)) is not None and len(way.coords) >= 2
         ]
+
+    def _member_lines(self, relation: OsmRelation) -> list:
+        return self._lines_for_way_ids(member.way_id for member in relation.members)
+
+    def relation_polygon(self, relation: OsmRelation):
+        from shapely.errors import GEOSException
+        from shapely.ops import unary_union
+
+        outer_way_ids = [m.way_id for m in relation.members if m.is_outer]
+        inner_way_ids = [m.way_id for m in relation.members if m.is_inner]
+
+        outer_lines = self._lines_for_way_ids(outer_way_ids)
+        if not outer_lines:
+            return None
+        outer_polygons = _repair_polygonized(
+            outer_lines, label=f"relation {relation.osm_id} outer footprint polygon"
+        )
+        if not outer_polygons:
+            return None
+        try:
+            shell = unary_union(outer_polygons)
+        except GEOSException:
+            return None
+
+        inner_lines = self._lines_for_way_ids(inner_way_ids)
+        if not inner_lines:
+            return shell
+        inner_polygons = _repair_polygonized(
+            inner_lines, label=f"relation {relation.osm_id} inner footprint polygon"
+        )
+        if not inner_polygons:
+            return shell
+        try:
+            return shell.difference(unary_union(inner_polygons))
+        except GEOSException:
+            return shell
+
+    def relation_centroid(self, relation: OsmRelation) -> tuple[float, float] | None:
+        from shapely.errors import GEOSException
+        from shapely.geometry import MultiLineString
+        from shapely.ops import unary_union
+
+        lines = self._member_lines(relation)
         if not lines:
             return None
 
-        polygons = list(polygonize(lines))
-        geom = unary_union(polygons) if polygons else (
-            lines[0] if len(lines) == 1 else MultiLineString([tuple(ln.coords) for ln in lines])
+        repaired_polygons = _repair_polygonized(
+            lines, label=f"relation {relation.osm_id} member polygon"
         )
+
+        try:
+            geom = unary_union(repaired_polygons) if repaired_polygons else (
+                lines[0] if len(lines) == 1 else MultiLineString([tuple(ln.coords) for ln in lines])
+            )
+        except GEOSException:
+            return None
         c = geom.centroid
         return (c.x, c.y)
 
@@ -126,12 +205,12 @@ class _ElementHandler(osmium.SimpleHandler):
         tags = dict(r.tags)  # type: ignore[attr-defined]
         if not tags:
             return
-        member_way_ids = tuple(
-            m.ref  # type: ignore[attr-defined]
+        members = tuple(
+            OsmRelationMember(way_id=m.ref, role=m.role)  # type: ignore[attr-defined]
             for m in r.members  # type: ignore[attr-defined]
             if m.type == "w"  # type: ignore[attr-defined]
         )
-        self._relations.append(OsmRelation(osm_id=r.id, tags=tags, member_way_ids=member_way_ids))  # type: ignore[attr-defined]
+        self._relations.append(OsmRelation(osm_id=r.id, tags=tags, members=members))  # type: ignore[attr-defined]
 
 
 def read_elements(path: str) -> OsmElements:
@@ -144,4 +223,11 @@ def read_elements(path: str) -> OsmElements:
     )
 
 
-__all__ = ["OsmElements", "OsmNode", "OsmRelation", "OsmWay", "read_elements"]
+__all__ = [
+    "OsmElements",
+    "OsmNode",
+    "OsmRelation",
+    "OsmRelationMember",
+    "OsmWay",
+    "read_elements",
+]

@@ -60,21 +60,21 @@ _DOMAIN_ENTRIES: list[Any] = [
     (
         "geography.artifact_id",
         "string",
-        "",
+        "arizona-v1",
         {
             "owning_spec": "03-geography-and-scheduling.md",
             "description": "Identity of the packaged geography artifact (03 §1.2, §13); "
-            "pinned by CSR-003g, empty until then.",
+            "pinned by CSR-003g.",
         },
     ),
     (
         "geography.artifact_sha256",
         "string",
-        "",
+        "5e526973b9a2b58641102bba760daa0b8b8b06701bc9264106e5c156cc0b92ec",
         {
             "owning_spec": "03-geography-and-scheduling.md",
             "description": "SHA-256 of the packaged geography artifact, verified at run "
-            "initialization (03 §1.2, §13); pinned by CSR-003g, empty until then.",
+            "initialization (03 §1.2, §13); pinned by CSR-003g.",
         },
     ),
     (

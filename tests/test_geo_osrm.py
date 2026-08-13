@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -10,6 +9,7 @@ pytest.importorskip("shapely")
 
 from _geo_fixture import FIXTURE, scenario_json  # noqa: E402
 from csr_bench.geo_artifact import canonical_artifact_sha256  # noqa: E402
+from geo_build.manifest import missing_required_fields  # noqa: E402
 from geo_build.matrix import build_anchor_matrix, symmetrize  # noqa: E402
 from geo_build.osrm import (  # noqa: E402
     OSRM_IMAGE,
@@ -116,17 +116,17 @@ def test_end_to_end_fixture_build_against_real_osrm(osrm_backend, tmp_path):
     assert result.funnel.accepted >= 1
     assert result.funnel.is_balanced()
 
-    assert manifest["routing_backend"]["image_digest"] == OSRM_IMAGE_DIGEST
-    assert any(t["name"] == "osrm" for t in manifest["tools"])
-    assert manifest["packageable"] is False
+    assert missing_required_fields(manifest) == []
     assert manifest["artifact_sha256"] == canonical_artifact_sha256(out)
 
     anchors_csv = (out / "routing" / "anchors.csv").read_text(encoding="utf-8")
     n = len(anchors_csv.strip().splitlines()) - 1
     assert (out / "routing" / "anchor_distance.bin").stat().st_size == 4 * n * n
 
-    funnel = json.loads((out / "reports" / "funnel_counts.json").read_text(encoding="utf-8"))
-    assert funnel["accepted"] == result.funnel.accepted
+    assert manifest["counts"]["catalog_rows"] == len(result.catalog_rows)
+    assert not (out / "addresses" / "rejected.csv").exists()
+    assert not (out / "reports").exists()
+    assert not (tmp_path / "geography-osrm-reports").exists()
 
 
 def test_a_second_real_build_reproduces_the_same_canonical_hash(osrm_backend, tmp_path):

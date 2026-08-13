@@ -6,7 +6,6 @@ from pathlib import Path
 
 from csr_bench.address import load_default_abbreviation_table
 from csr_bench.config import load_run_config
-from csr_bench.constants import ZONE_NAMES
 from csr_bench.geo_artifact import canonical_artifact_sha256, file_sha256
 
 from . import (
@@ -14,6 +13,7 @@ from . import (
     dedupe,
     eligibility,
     extract,
+    footprints,
     matrix,
     normalize_stage,
     osm_reader,
@@ -38,26 +38,20 @@ from .gates import (
     DEFAULT_ACCURACY_SEED,
     AccuracyGateResult,
     GateAddress,
-    StratificationResult,
     check_stratification,
     run_accuracy_gate,
 )
 from .licensing import write_license_files
-from .manifest import SourceSnapshot, build_manifest, missing_required_fields, tool_records
+from .manifest import SourceSnapshot, build_manifest, missing_required_fields
 from .manifest import write_manifest as _write_manifest
 from .models import Candidate, RejectedCandidate
-from .report import anchor_statistics, render_data_quality, run_sanity_checks
-from .routing import BackendInfo, RoutingBackend
+from .routing import RoutingBackend
 from .serialize import (
-    REJECTED_COLUMNS,
     assign_address_ids,
-    rejected_to_row,
     sort_rejected,
     write_abbreviation_table,
     write_anchors_csv,
     write_csv,
-    write_funnel_csv,
-    write_funnel_json,
     write_zone_geojson,
     write_zone_provenance,
 )
@@ -78,24 +72,15 @@ class BuildParameters:
 @dataclass(frozen=True)
 class RouteSurface:
 
-    grid: AnchorGrid
     anchors: list[Anchor]
     anchor_distance_km: list[list[float]]
-    backend_info: BackendInfo
-    parameters: BuildParameters
-    pruned_anchor_count: int
 
 
 @dataclass(frozen=True)
 class RoutingResult:
 
     surface: RouteSurface
-    stratification: StratificationResult
     accuracy: AccuracyGateResult
-
-    @property
-    def grid(self) -> AnchorGrid:
-        return self.surface.grid
 
     @property
     def anchors(self) -> list[Anchor]:
@@ -104,18 +89,6 @@ class RoutingResult:
     @property
     def anchor_distance_km(self) -> list[list[float]]:
         return self.surface.anchor_distance_km
-
-    @property
-    def backend_info(self) -> BackendInfo:
-        return self.surface.backend_info
-
-    @property
-    def parameters(self) -> BuildParameters:
-        return self.surface.parameters
-
-    @property
-    def pruned_anchor_count(self) -> int:
-        return self.surface.pruned_anchor_count
 
 
 @dataclass(frozen=True)
@@ -126,9 +99,7 @@ class PipelineResult:
     funnel: FunnelCounts
     routing: RoutingResult
     dataset_version: str
-    build_area: object = None
     abbreviation_table: dict = field(default_factory=dict)
-    outlying_buffer_km: Decimal = Decimal("0")
     duplicate_coordinate_meters: Decimal = Decimal("0")
 
 
@@ -180,8 +151,15 @@ def run_pipeline(
     deduped, rejected_dedupe = dedupe.dedupe(normalized, duplicate_coordinate_meters)
     funnel.record_rejections(rejected_dedupe)
 
+    apartment_footprints = footprints.build_apartment_footprints(cropped)
     for candidate in deduped:
-        candidate.segment_eligibility = eligibility.classify_eligibility(candidate.tags)
+        candidate.segment_eligibility = eligibility.classify_eligibility(
+            candidate.tags,
+            unit_tag_present=candidate.unit_tag_present,
+            inside_apartment_footprint=apartment_footprints.covers_point(
+                candidate.longitude, candidate.latitude
+            ),
+        )
 
     for candidate in deduped:
         zone_id, effective_zone_id = zone_assign.assign_zone(
@@ -206,7 +184,7 @@ def run_pipeline(
     funnel.record_final_accepted(sum(1 for c in deduped if c.status == routability.STATUS_USABLE))
 
     zone_ids = sorted(zone.zone_id for zone in zone_result.zones)
-    stratification = check_stratification(catalog_rows, zone_ids, config)
+    check_stratification(catalog_rows, zone_ids, config)
     accuracy = run_accuracy_gate(
         [
             GateAddress(
@@ -225,9 +203,7 @@ def run_pipeline(
         seed=params.accuracy_seed,
         min_evaluated_fraction=params.accuracy_min_evaluated_fraction,
     )
-    routing_result = RoutingResult(
-        surface=surface, stratification=stratification, accuracy=accuracy
-    )
+    routing_result = RoutingResult(surface=surface, accuracy=accuracy)
 
     all_rejected = sort_rejected(rejected_extract + rejected_normalize + rejected_dedupe)
 
@@ -238,9 +214,7 @@ def run_pipeline(
         funnel=funnel,
         routing=routing_result,
         dataset_version=dataset_version,
-        build_area=area,
         abbreviation_table=abbreviation_table,
-        outlying_buffer_km=outlying_buffer_km,
         duplicate_coordinate_meters=duplicate_coordinate_meters,
     )
 
@@ -265,7 +239,6 @@ def _build_route_surface(
 
     raw = matrix.build_anchor_matrix(selected, backend)
     keep = matrix.largest_mutually_routable_set(raw)
-    pruned = len(selected) - len(keep)
     anchor_set = renumber(selected, keep)
     raw_kept = [[raw[i][j] for j in keep] for i in keep]
     anchor_distance_km = matrix.quantized(matrix.symmetrize(raw_kept))
@@ -284,14 +257,7 @@ def _build_route_surface(
             candidate.anchor_id = assignment.anchor_id
             candidate.access_distance_km = assignment.access_distance_km
 
-    return RouteSurface(
-        grid=grid,
-        anchors=anchor_set,
-        anchor_distance_km=anchor_distance_km,
-        backend_info=backend.info,
-        parameters=params,
-        pruned_anchor_count=pruned,
-    )
+    return RouteSurface(anchors=anchor_set, anchor_distance_km=anchor_distance_km)
 
 
 def write_artifact(
@@ -300,7 +266,6 @@ def write_artifact(
     *,
     artifact_id: str | None = None,
     source: SourceSnapshot | None = None,
-    built_at: str | None = None,
 ) -> dict[str, object]:
     _refuse_pending(result)
 
@@ -311,8 +276,7 @@ def write_artifact(
     addresses_dir = output_dir / "addresses"
     routing_dir = output_dir / "routing"
     normalization_dir = output_dir / "normalization"
-    reports_dir = output_dir / "reports"
-    for d in (zones_dir, addresses_dir, routing_dir, normalization_dir, reports_dir):
+    for d in (zones_dir, addresses_dir, routing_dir, normalization_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     zone_definitions = zones_dir / "zone_definitions.geojson"
@@ -320,11 +284,6 @@ def write_artifact(
     write_zone_provenance(zones_dir / "zone_provenance.json", result.zone_result)
 
     write_csv(addresses_dir / "catalog.csv", CATALOG_COLUMNS, result.catalog_rows)
-    write_csv(
-        addresses_dir / "rejected.csv",
-        REJECTED_COLUMNS,
-        [rejected_to_row(r) for r in result.rejected_rows],
-    )
 
     anchor_matrix_path = routing_dir / "anchor_distance.bin"
     write_anchors_csv(routing_dir / "anchors.csv", result.routing.anchors)
@@ -334,38 +293,15 @@ def write_artifact(
         normalization_dir / "usps_abbreviations.json", result.abbreviation_table
     )
 
-    write_funnel_csv(reports_dir / "funnel_counts.csv", result.funnel)
-    write_funnel_json(reports_dir / "funnel_counts.json", result.funnel)
-    (reports_dir / "data_quality.md").write_text(
-        _render_report(result, artifact_id=artifact_id, source=source), encoding="utf-8"
-    )
-
     write_license_files(output_dir)
 
     manifest = build_manifest(
         artifact_id=artifact_id,
         artifact_sha256=canonical_artifact_sha256(output_dir),
         source=source,
-        crop_polygon_sha256=crop.build_area_sha256(result.build_area),
-        crop_buffer_km=float(result.outlying_buffer_km),
-        tools=tool_records(
-            result.routing.backend_info.name,
-            result.routing.backend_info.version,
-            result.routing.backend_info.image_digest,
-        ),
         zone_definitions_sha256=file_sha256(zone_definitions),
-        counts=_manifest_counts(result),
+        catalog_rows=len(result.catalog_rows),
         anchor_count=len(result.routing.anchors),
-        anchor_selection_procedure=_selection_procedure(result.routing),
-        anchor_matrix_sha256=file_sha256(anchor_matrix_path),
-        accuracy_gate=result.routing.accuracy.to_dict(),
-        routing_backend={
-            "name": result.routing.backend_info.name,
-            "version": result.routing.backend_info.version,
-            "image_digest": result.routing.backend_info.image_digest,
-        },
-        packageable=result.routing.backend_info.packageable and not source.is_placeholder,
-        built_at=built_at,
     )
     missing = missing_required_fields(manifest)
     if missing:  # pragma: no cover - a build-time self-check, never expected
@@ -385,52 +321,6 @@ def _refuse_pending(result: PipelineResult) -> None:
             "every packaged address must be usable or explicitly unusable "
             "(03 §14 invariant 3)"
         )
-
-
-def _selection_procedure(routing: RoutingResult) -> dict[str, object]:
-    procedure = dict(routing.grid.describe())
-    procedure["anchor_candidate_k"] = routing.parameters.anchor_candidate_k
-    procedure["pruned_not_mutually_routable"] = routing.pruned_anchor_count
-    return procedure
-
-
-def _manifest_counts(result: PipelineResult) -> dict[str, object]:
-    counts = result.routing.stratification.counts
-    return {
-        "candidates": result.funnel.candidates_total,
-        "accepted": result.funnel.accepted,
-        "rejected_by_reason": dict(sorted(result.funnel.rejected_by_reason.items())),
-        "usable_by_zone": {str(z): c for z, c in sorted(counts.by_zone.items())},
-        "usable_by_zone_segment": {
-            f"{z}:{s}": c for (z, s), c in sorted(counts.by_zone_segment.items())
-        },
-        "outlying": counts.outlying,
-        "catalog_rows": len(result.catalog_rows),
-        "unusable": len(result.catalog_rows) - result.funnel.accepted,
-    }
-
-
-def _render_report(result: PipelineResult, *, artifact_id: str, source: SourceSnapshot) -> str:
-    sanity = run_sanity_checks(
-        result.catalog_rows, result.build_area, float(result.duplicate_coordinate_meters)
-    )
-    stats = anchor_statistics(result.catalog_rows, len(result.routing.anchors))
-    unusable_by_reason: dict[str, int] = {}
-    for row in result.catalog_rows:
-        reason = row.get("unusable_reason")
-        if reason:
-            unusable_by_reason[str(reason)] = unusable_by_reason.get(str(reason), 0) + 1
-    return render_data_quality(
-        artifact_id=artifact_id,
-        source=source,
-        funnel=result.funnel,
-        stratification=result.routing.stratification,
-        sanity=sanity,
-        anchors=stats,
-        accuracy=result.routing.accuracy,
-        zone_names=dict(enumerate(ZONE_NAMES, start=1)),
-        unusable_by_reason=unusable_by_reason,
-    )
 
 
 __all__ = [

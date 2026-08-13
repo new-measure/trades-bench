@@ -1,0 +1,21 @@
+{
+  "anchors": {
+    "count": 2116
+  },
+  "artifact_id": "arizona-v1",
+  "artifact_sha256": "5e526973b9a2b58641102bba760daa0b8b8b06701bc9264106e5c156cc0b92ec",
+  "counts": {
+    "catalog_rows": 1136222
+  },
+  "license": {
+    "attribution": "Map data \u00a9 OpenStreetMap contributors, available under the Open Database License (ODbL 1.0). Extract via Geofabrik GmbH.",
+    "id": "ODbL-1.0"
+  },
+  "source": {
+    "bytes": 300567093,
+    "published_at": "2026-08-11T00:23:47Z",
+    "sha256": "6ae84b0b5401cbfc5039696d8ffc8f7d229c9745ede48639279ef4cc3270ec9a",
+    "url": "https://download.geofabrik.de/north-america/us/arizona-260810.osm.pbf"
+  },
+  "zone_definitions_sha256": "56bc4e86623991202e7b026271477a7acf31a1d6b032d38d157f8435ca11e194"
+}

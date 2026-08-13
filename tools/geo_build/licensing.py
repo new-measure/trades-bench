@@ -32,9 +32,9 @@ def attribution_markdown() -> str:
         "licensed under ODbL 1.0. The full text is in `LICENSE`.\n"
         "\n"
         "No OpenStreetMap contributor metadata (user names, user IDs, changeset\n"
-        "ids) is present: the build strips every tag outside the address column\n"
-        "list of `03-geography-and-scheduling.md` §3.1. No real person is\n"
-        "represented anywhere in this artifact.\n"
+        "ids) is present: the build strips every tag except the address columns\n"
+        "published in `addresses/catalog.csv`. No real person is represented\n"
+        "anywhere in this artifact.\n"
     )
 
 

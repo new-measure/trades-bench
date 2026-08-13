@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .anchors import ANCHOR_COLUMNS, ANCHOR_DECIMAL_PLACES, Anchor
-from .funnel import FunnelCounts
 from .models import RejectedCandidate
 from .strip import COORDINATE_DECIMAL_PLACES
 from .zones import PHOENIX_SPLIT_LATITUDE, PHOENIX_SPLIT_PROVENANCE_NOTE, ZoneExtractionResult
@@ -128,30 +127,6 @@ def write_zone_provenance(path: Path, zone_result: ZoneExtractionResult) -> None
         f.write("\n")
 
 
-def write_funnel_csv(path: Path, funnel: FunnelCounts) -> None:
-    rows: list[tuple[str, str, int]] = [
-        ("summary", "candidates_total", funnel.candidates_total),
-        ("summary", "accepted", funnel.accepted),
-    ]
-    for k, v in sorted(funnel.rejected_by_reason.items()):
-        rows.append(("rejected_by_reason", k, v))
-    for k, v in sorted(funnel.city_source_counts.items()):
-        rows.append(("city_source", k, v))
-    for k, v in sorted(funnel.state_source_counts.items()):
-        rows.append(("state_source", k, v))
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, lineterminator="\n")
-        writer.writerow(["category", "key", "count"])
-        for category, key, count in rows:
-            writer.writerow([category, key, count])
-
-
-def write_funnel_json(path: Path, funnel: FunnelCounts) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(funnel.to_dict(), f, sort_keys=True, separators=(",", ":"))
-        f.write("\n")
-
-
 def write_anchors_csv(path: Path, anchors: Sequence[Anchor]) -> None:
     rows = [
         {
@@ -181,8 +156,6 @@ __all__ = [
     "write_abbreviation_table",
     "write_anchors_csv",
     "write_csv",
-    "write_funnel_csv",
-    "write_funnel_json",
     "write_zone_geojson",
     "write_zone_provenance",
 ]
