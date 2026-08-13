@@ -5,11 +5,12 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from . import SPEC_VERSION, clock, constants, db, geo_reader, migrations, views, warm_start
+from . import SPEC_VERSION, clock, constants, db, geo_reader, migrations, views, warm_start, weather
 from .config import RunConfig
 from .enums import RunStatus
 from .errors import EngineError, ErrorCode
 from .ledger import Ledger
+from .rng import Rng
 
 
 def _stored_config_keys(conn: sqlite3.Connection) -> dict | None:
@@ -254,6 +255,9 @@ def initialize_run(
         )
         warm_start.run(
             conn, run_id, master_seed, config, resolved_dataset_version, artifact=artifact
+        )
+        weather.precompute(
+            conn, config, Rng(int(master_seed), SPEC_VERSION, conn=conn), created_at=start_at_ms
         )
         boundary_check(conn, config)
         db.set_run_status(conn, run_id, RunStatus.ACTIVE)

@@ -135,8 +135,15 @@ def test_ws05_rebuilds_are_byte_identical_and_seed_independent(tmp_path):
     assert _dump.dump_hash(conn1, rid1) == _dump.dump_hash(conn3, rid3)
     tables1 = _dump.dump(conn1, rid1)["tables"]
     tables2 = _dump.dump(conn2, rid2)["tables"]
-    tables1.pop("_run")
-    tables2.pop("_run")
+    seed_varied_by_design = (
+        "_run",
+        "_rng_state",
+        "_weather_process_state",
+        "_zone_weather_daily",
+    )
+    for table in seed_varied_by_design:
+        tables1.pop(table)
+        tables2.pop(table)
     assert tables1 == tables2
 
 
