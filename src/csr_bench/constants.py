@@ -63,10 +63,7 @@ UNANSWERED_ATTEMPTS: int = 3
 
 WARM_START_START: str = "2026-04-01"
 WARM_START_END: str = "2026-09-30"
-RUN_START: str = "2026-10-01"
-RUN_END: str = "2027-09-30"
 WARM_START_RANGE: tuple[str, str] = (WARM_START_START, WARM_START_END)
-RUN_CALENDAR: tuple[str, str] = (RUN_START, RUN_END)
 
 
 CONSTANT_ENTRIES: list[ConstantEntry] = [
@@ -104,8 +101,6 @@ CONSTANT_ENTRIES: list[ConstantEntry] = [
     ("constants.unanswered_attempts", "int", UNANSWERED_ATTEMPTS, {"min": 1}),
     ("constants.warm_start_start", "date_string", WARM_START_START, {}),
     ("constants.warm_start_end", "date_string", WARM_START_END, {}),
-    ("constants.run_start", "date_string", RUN_START, {}),
-    ("constants.run_end", "date_string", RUN_END, {}),
 ]
 
 CONSTANT_VALUES: dict[str, Any] = {
@@ -131,9 +126,6 @@ __all__ = [
     "OPENING_TIME",
     "PHOENIX_TIMEZONE",
     "RECENT_HIRE_TECHNICIAN_ID",
-    "RUN_CALENDAR",
-    "RUN_END",
-    "RUN_START",
     "SICKNESS_DAYS",
     "SICKNESS_DAYS_MAX",
     "SICKNESS_DAYS_MIN",

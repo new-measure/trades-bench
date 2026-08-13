@@ -41,8 +41,8 @@ def test_install_and_workforce_constants():
 
 def test_calendars():
     assert const_mod.WARM_START_RANGE == ("2026-04-01", "2026-09-30")
-    assert const_mod.RUN_CALENDAR == ("2026-10-01", "2027-09-30")
     assert const_mod.PHOENIX_TIMEZONE == "America/Phoenix"
+    assert not hasattr(const_mod, "RUN_CALENDAR")
 
 
 def test_constant_entries_all_marked_constant_in_config():

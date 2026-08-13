@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
+from _helpers import GEO_ARTIFACT_DIR, geo_run_config, geo_scenario_json, register_conn
 from csr_bench import _dump, clock, db, warm_start
 from csr_bench.config import load_run_config
 from csr_bench.db import get_run, in_memory
@@ -220,9 +220,9 @@ def test_acc12_single_opening_adjustment_pins_cash(tmp_path):
 
 
 def test_shift_counts_across_run_calendar(tmp_path):
-    conn, _, _, _ = _build(tmp_path)
-    d0 = date.fromisoformat("2026-10-01")
-    d1 = date.fromisoformat("2027-09-30")
+    conn, _, cfg, _ = _build(tmp_path)
+    d0 = date.fromisoformat(cfg.get_string("run.start_date"))
+    d1 = date.fromisoformat(cfg.get_string("run.end_date"))
     weekdays = 0
     weekends = 0
     d = d0
@@ -270,10 +270,41 @@ def test_run_record_and_clock_seeded_at_opening_instant(tmp_path):
     run = get_run(conn, run_id)
     assert run["start_at_ms"] == opening
     assert run["first_service_date"] == "2026-10-01"
-    assert run["last_service_date"] == "2027-09-30"
+    assert run["last_service_date"] == "2026-10-14"
     assert run["timezone"] == "America/Phoenix"
     assert run["master_seed"] == 42
     assert RunStatus(run["status"]) is RunStatus.ACTIVE
+
+
+def test_scenario_set_run_window_builds_the_whole_run_around_it(tmp_path):
+    scenario = json.loads(geo_scenario_json())
+    scenario["keys"]["run.start_date"] = "2026-11-02"
+    scenario["keys"]["run.end_date"] = "2026-11-15"
+    cfg = load_run_config(scenario_json=json.dumps(scenario))
+    conn, run_id, _, _ = _build(tmp_path, config=cfg)
+
+    run = get_run(conn, run_id)
+    assert run["first_service_date"] == "2026-11-02"
+    assert run["last_service_date"] == "2026-11-15"
+    assert run["start_at_ms"] == clock.phoenix_instant(2026, 11, 2, 6, 45)
+    assert RunStatus(run["status"]) is RunStatus.ACTIVE
+    boundary_check(conn, cfg)
+
+    bounds = conn.execute(
+        "SELECT MIN(service_date) lo, MAX(service_date) hi FROM _technician_shifts"
+    ).fetchone()
+    assert (bounds["lo"], bounds["hi"]) == ("2026-11-02", "2026-11-15")
+    weekdays = 0
+    weekends = 0
+    d = date.fromisoformat("2026-11-02")
+    while d <= date.fromisoformat("2026-11-15"):
+        if d.weekday() < 5:
+            weekdays += 1
+        else:
+            weekends += 1
+        d += timedelta(days=1)
+    total = conn.execute("SELECT COUNT(*) c FROM _technician_shifts").fetchone()["c"]
+    assert total == 4 * weekdays + 3 * weekdays + 3 * weekends
 
 
 def test_warm_start_refuses_non_initializing_status(tmp_path):

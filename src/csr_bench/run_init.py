@@ -61,8 +61,8 @@ def open_run_db(
     return conn
 
 
-def _opening_instant() -> int:
-    d = date.fromisoformat(constants.RUN_START)
+def _opening_instant(config: RunConfig) -> int:
+    d = date.fromisoformat(config.get_string("run.start_date"))
     return clock.phoenix_instant(d.year, d.month, d.day, constants.OPENING_HOUR, constants.OPENING_MINUTE)
 
 
@@ -225,7 +225,7 @@ def initialize_run(
                 "record: a partially built or completed database is never reused "
                 "(spec 02 §12) — use a fresh file",
             )
-        start_at_ms = _opening_instant()
+        start_at_ms = _opening_instant(config)
         db.begin(conn)
         try:
             db.insert_run(
@@ -236,8 +236,8 @@ def initialize_run(
                 config_hash=config.config_hash,
                 master_seed=int(master_seed),
                 start_at_ms=start_at_ms,
-                first_service_date=constants.RUN_START,
-                last_service_date=constants.RUN_END,
+                first_service_date=config.get_string("run.start_date"),
+                last_service_date=config.get_string("run.end_date"),
                 timezone=constants.PHOENIX_TIMEZONE,
                 status=RunStatus.INITIALIZING,
             )

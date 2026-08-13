@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 from collections.abc import Mapping
@@ -35,6 +36,27 @@ class KeySpec:
 
 
 _DOMAIN_ENTRIES: list[Any] = [
+    (
+        "run.start_date",
+        "date_string",
+        "2026-10-01",
+        {
+            "owning_spec": "01-run-contracts.md",
+            "description": "First service date of the run calendar; must fall strictly "
+            "after constants.warm_start_end so the warm-start boundary stays clean "
+            "(spec 02 §8.5).",
+        },
+    ),
+    (
+        "run.end_date",
+        "date_string",
+        "2026-10-14",
+        {
+            "owning_spec": "01-run-contracts.md",
+            "description": "Last service date of the run calendar; must not precede "
+            "run.start_date. Default is a two-week run.",
+        },
+    ),
     (
         "finance.starting_cash",
         "cost",
@@ -636,12 +658,12 @@ def _v_bool(spec: KeySpec, value: Any) -> bool:
 
 def _v_date_string(spec: KeySpec, value: Any) -> str:
     s = _v_string(spec, value)
-    import datetime as _dt
-
     try:
-        _dt.date.fromisoformat(s)
+        d = datetime.date.fromisoformat(s)
     except ValueError:
         raise _bad(f"{spec.path}: {s!r} is not a valid YYYY-MM-DD date") from None
+    if d.isoformat() != s:
+        raise _bad(f"{spec.path}: {s!r} is not in canonical YYYY-MM-DD form")
     return s
 
 
@@ -692,6 +714,19 @@ def _validate_speed_table_bands(base: dict[str, Any]) -> None:
             )
 
 
+def _validate_run_window(base: dict[str, Any]) -> None:
+    start = datetime.date.fromisoformat(base["run.start_date"])
+    end = datetime.date.fromisoformat(base["run.end_date"])
+    warm_start_end = datetime.date.fromisoformat(base["constants.warm_start_end"])
+    if end < start:
+        raise _bad(f"run.end_date {end} precedes run.start_date {start}")
+    if start <= warm_start_end:
+        raise _bad(
+            f"run.start_date {start} must fall strictly after "
+            f"constants.warm_start_end {warm_start_end}"
+        )
+
+
 _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
     (
         frozenset({"travel.noise.min_multiplier", "travel.noise.max_multiplier"}),
@@ -700,6 +735,10 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
     (
         frozenset({"travel.time_of_day_bands", "travel.speed_by_time_band"}),
         _validate_speed_table_bands,
+    ),
+    (
+        frozenset({"run.start_date", "run.end_date", "constants.warm_start_end"}),
+        _validate_run_window,
     ),
 )
 

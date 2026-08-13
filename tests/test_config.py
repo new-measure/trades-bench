@@ -222,6 +222,52 @@ def test_reject_bad_date_string():
     assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
 
 
+def test_reject_non_canonical_date_string():
+    from csr_bench.config import KeySpec, validate_value
+
+    with pytest.raises(EngineError) as ei:
+        validate_value(KeySpec("x", "date_string", "", "t"), "20261001")
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+def test_run_window_defaults_to_two_weeks():
+    rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
+    assert rc.get_string("run.start_date") == "2026-10-01"
+    assert rc.get_string("run.end_date") == "2026-10-14"
+    reg = assemble_registry()
+    assert reg["run.start_date"].constant is False
+    assert reg["run.end_date"].constant is False
+
+
+def test_run_window_is_scenario_settable():
+    rc = _load('{"keys": {"run.start_date": "2026-11-02", "run.end_date": "2026-11-08"}}')
+    assert rc.get_string("run.start_date") == "2026-11-02"
+    assert rc.get_string("run.end_date") == "2026-11-08"
+
+
+def test_run_window_allows_single_day_run():
+    rc = _load('{"keys": {"run.start_date": "2026-10-01", "run.end_date": "2026-10-01"}}')
+    assert rc.get_string("run.end_date") == "2026-10-01"
+
+
+def test_reject_run_window_end_before_start():
+    _bad(
+        '{"keys": {"run.start_date": "2026-10-14", "run.end_date": "2026-10-01"}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_run_start_not_after_warm_start_end():
+    _bad(
+        '{"keys": {"run.start_date": "2026-09-30", "run.end_date": "2026-10-14"}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+    _bad(
+        '{"keys": {"run.start_date": "2026-06-15", "run.end_date": "2026-10-14"}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
 _VALID_BANDS = [
     ["night", 0, 360],
     ["morning_peak", 360, 540],

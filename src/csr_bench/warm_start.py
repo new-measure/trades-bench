@@ -4,7 +4,7 @@ import json
 import sqlite3
 from datetime import date, timedelta
 
-from . import clock, constants, db, geo_reader
+from . import clock, db, geo_reader
 from .config import RunConfig
 from .enums import LedgerCategory, RunStatus
 from .errors import EngineError, ErrorCode
@@ -65,11 +65,11 @@ def _calendar_dates(start: str, end: str) -> list[date]:
     return out
 
 
-def _insert_shifts(conn: sqlite3.Connection) -> None:
+def _insert_shifts(conn: sqlite3.Connection, config: RunConfig) -> None:
     holder_rows = sorted(_ROTATIONS.items(), key=lambda item: item[1])
     holders: dict[int, int] = {tech_id: rotation_id for rotation_id, tech_id in holder_rows}
     rows: list[tuple] = []
-    for d in _calendar_dates(constants.RUN_START, constants.RUN_END):
+    for d in _calendar_dates(config.get_string("run.start_date"), config.get_string("run.end_date")):
         iso = d.isoformat()
         if d.weekday() < 5:
             for tech_id in (1, 2, 3, 4):
@@ -235,7 +235,7 @@ def _build_fixture(conn: sqlite3.Connection, config: RunConfig) -> None:
         rotation_rows,
     )
 
-    _insert_shifts(conn)
+    _insert_shifts(conn, config)
 
     conn.executemany(
         """INSERT INTO _technician_locations
