@@ -135,6 +135,17 @@ WHOLLY_PRIVATE_TABLES = frozenset(
         "_config",
         "_visibility_registry",
         "_schema_migrations",
+        "_weather_process_state",
+        "_zone_weather_daily",
+        "_weather_forecast_cache",
+        "_pending_calls",
+        "_call_hidden",
+        "_customer_repeat_state",
+        "_prospect_state",
+        "_word_of_mouth_state",
+        "_competitor_state",
+        "_acceptance_parameters",
+        "_cancellation_schedule",
     }
 )
 

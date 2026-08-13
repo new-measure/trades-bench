@@ -65,6 +65,13 @@ WARM_START_START: str = "2026-04-01"
 WARM_START_END: str = "2026-09-30"
 WARM_START_RANGE: tuple[str, str] = (WARM_START_START, WARM_START_END)
 
+SUPPORTED_CATEGORIES: tuple[str, ...] = (
+    "HVAC service",
+    "HVAC installation",
+    "Plumbing",
+    "Electrical",
+)
+
 
 CONSTANT_ENTRIES: list[ConstantEntry] = [
     ("constants.timezone", "string", PHOENIX_TIMEZONE, {}),
@@ -130,6 +137,7 @@ __all__ = [
     "SICKNESS_DAYS_MAX",
     "SICKNESS_DAYS_MIN",
     "STARTING_TECHNICIANS",
+    "SUPPORTED_CATEGORIES",
     "TIMING_VARIATION",
     "TIMING_VARIATION_HIGH",
     "TIMING_VARIATION_LOW",

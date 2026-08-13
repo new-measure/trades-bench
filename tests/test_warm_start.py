@@ -280,6 +280,7 @@ def test_scenario_set_run_window_builds_the_whole_run_around_it(tmp_path):
     scenario = json.loads(geo_scenario_json())
     scenario["keys"]["run.start_date"] = "2026-11-02"
     scenario["keys"]["run.end_date"] = "2026-11-15"
+    scenario["keys"]["weather.precompute_end_date"] = "2026-11-22"
     cfg = load_run_config(scenario_json=json.dumps(scenario))
     conn, run_id, _, _ = _build(tmp_path, config=cfg)
 

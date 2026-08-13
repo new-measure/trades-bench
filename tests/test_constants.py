@@ -49,8 +49,12 @@ def test_constant_entries_all_marked_constant_in_config():
     from csr_bench.config import assemble_registry
 
     reg = assemble_registry()
+    expected_constant_keys = {p for p in reg if p.startswith("constants.")} | {
+        "weather.seasonal_period_days",
+        "weather.forecast_max_horizon_days",
+    }
     for path, spec in reg.items():
-        if path.startswith("constants."):
+        if path in expected_constant_keys:
             assert spec.constant is True, f"{path} should be a constant"
         else:
             assert spec.constant is False, f"{path} should not be a constant"

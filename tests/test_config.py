@@ -9,6 +9,7 @@ import pytest
 from csr_bench import config as cfg
 from csr_bench.config import (
     DEFAULT_CONFIG_VERSION,
+    KeySpec,
     RunConfig,
     assemble_registry,
     build_deferred_manifest,
@@ -16,6 +17,7 @@ from csr_bench.config import (
     load_run_config,
     probability_threshold,
     resolve_deferred_manifest,
+    validate_value,
 )
 from csr_bench.errors import EngineError, ErrorCode
 
@@ -62,7 +64,7 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
     assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    assert len(rc.resolved) == 51
+    assert len(rc.resolved) == 138
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     with pytest.raises(TypeError):
         rc.resolved["constants.opening_hour"] = 9  # type: ignore[index]
@@ -240,7 +242,10 @@ def test_run_window_defaults_to_two_weeks():
 
 
 def test_run_window_is_scenario_settable():
-    rc = _load('{"keys": {"run.start_date": "2026-11-02", "run.end_date": "2026-11-08"}}')
+    rc = _load(
+        '{"keys": {"run.start_date": "2026-11-02", "run.end_date": "2026-11-08", '
+        '"weather.precompute_end_date": "2026-11-15"}}'
+    )
     assert rc.get_string("run.start_date") == "2026-11-02"
     assert rc.get_string("run.end_date") == "2026-11-08"
 
@@ -611,3 +616,173 @@ def test_resolve_manifest_strict_passes_when_calibrated_and_registered():
 def test_config_hash_helper_matches_runconfig():
     rc = _load()
     assert rc.config_hash == config_hash(rc.config_version, rc.resolved)
+
+
+def test_decimal_list_validator_accepts_and_rejects():
+    spec = KeySpec("x", "decimal_list", [], "t", min=0, length=3)
+    assert validate_value(spec, [1, 2, 3]) == [Decimal("1"), Decimal("2"), Decimal("3")]
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, [1, 2])
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, [1, -1, 2])
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+def test_probability_list_validator_accepts_and_rejects():
+    spec = KeySpec("x", "probability_list", [], "t", length=2)
+    assert validate_value(spec, [0, Decimal("0.5")]) == [Decimal("0"), Decimal("0.5")]
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, [0, Decimal("1.5")])
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, [0])
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+def test_decimal_map_validator_accepts_and_rejects():
+    spec = KeySpec("x", "decimal_map", {}, "t", min=0)
+    assert validate_value(spec, {"a": 1, "b": 2}) == {"a": Decimal("1"), "b": Decimal("2")}
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, {"a": -1})
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, {})
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+def test_probability_map_validator_accepts_and_rejects():
+    spec = KeySpec("x", "probability_map", {}, "t")
+    assert validate_value(spec, {"a": Decimal("0.5")}) == {"a": Decimal("0.5")}
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, {"a": Decimal("1.5")})
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+def test_decimal_map_map_validator_accepts_and_rejects():
+    spec = KeySpec("x", "decimal_map_map", {}, "t")
+    assert validate_value(spec, {"a": {"x": 1}}) == {"a": {"x": Decimal("1")}}
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, {"a": {}})
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, {"a": 1})
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+def test_month_day_string_validator_accepts_and_rejects():
+    spec = KeySpec("x", "month_day_string", "", "t")
+    assert validate_value(spec, "06-15") == "06-15"
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, "13-01")
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, "6-15")
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+def test_decimal_range_validator_accepts_and_rejects():
+    spec = KeySpec("x", "decimal_range", {}, "t")
+    assert validate_value(spec, {"min": Decimal("0.2"), "max": Decimal("1.0")}) == (
+        Decimal("0.2"),
+        Decimal("1.0"),
+    )
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, {"min": Decimal("1.0"), "max": Decimal("0.2")})
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+def test_severity_bands_validator_accepts_and_rejects():
+    spec = KeySpec("x", "severity_bands", [], "t")
+    good = [["light", Decimal("0.2"), Decimal("0.5")], ["severe", Decimal("0.5"), Decimal("1.0")]]
+    assert validate_value(spec, good) == [
+        ("light", Decimal("0.2"), Decimal("0.5")),
+        ("severe", Decimal("0.5"), Decimal("1.0")),
+    ]
+    gapped = [["light", Decimal("0.2"), Decimal("0.4")], ["severe", Decimal("0.5"), Decimal("1.0")]]
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, gapped)
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+    with pytest.raises(EngineError) as ei:
+        validate_value(spec, [["bad", Decimal("0.5"), Decimal("0.2")]])
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+def test_reject_after_hours_urgent_below_office_hours():
+    _bad(
+        '{"keys": {"demand.after_hours_urgent_probability": 0.05}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_repeat_propensity_floor_not_positive():
+    _bad(
+        '{"keys": {"customers.repeat_propensity_floor": 0}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_word_of_mouth_negative_weight_below_positive():
+    _bad(
+        '{"keys": {"demand.word_of_mouth_negative_weight": 0.5}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_outlying_address_share_at_boundary():
+    _bad(
+        '{"keys": {"demand.outlying_address_share": 0}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_forecast_error_scale_not_nondecreasing():
+    _bad(
+        '{"keys": {"weather.forecast_error_scale_by_horizon": [0, 5, 3, 4, 5, 6, 7, 8]}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_storm_severity_bands_not_partitioning_range():
+    _bad(
+        '{"keys": {"weather.storm_severity_bands": '
+        '[["light", 0.2, 0.5], ["moderate", 0.5, 0.8], ["severe", 0.8, 0.9]]}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_acceptance_floor_above_base():
+    _bad(
+        '{"keys": {"acceptance.floor_probability_by_urgency": '
+        '{"standard": 0.99, "urgent": 0.05}}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_served_well_repeat_multiplier_at_boundary():
+    _bad(
+        '{"keys": {"competitors.served_well_repeat_multiplier": 1}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_segment_weights_missing_a_segment():
+    _bad(
+        '{"keys": {"demand.segment_weights": {"residential": 0.5, "commercial": 0.5}}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_scenario_override_of_weather_seasonal_period_days():
+    _bad('{"keys": {"weather.seasonal_period_days": 365}}', ErrorCode.CONSTANT_OVERRIDE)
+
+
+def test_all_05_owned_keys_resolve_from_shipped_defaults():
+    reg = assemble_registry()
+    rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
+    owned = [
+        path for path, spec in reg.items() if spec.owning_spec == "05-customers-calls-and-demand.md"
+    ]
+    assert owned
+    for path in owned:
+        assert path in rc.resolved

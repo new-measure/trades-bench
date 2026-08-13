@@ -21,7 +21,9 @@ def _cfg():
 def test_open_run_db_twice_is_idempotent(tmp_path):
     path = tmp_path / "idem.db"
     conn1 = open_run_db(path)
-    assert applied_versions(conn1) == [(1, "baseline"), (2, "routing_anchors")]
+    assert applied_versions(conn1) == [
+        (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
+    ]
     conn1.close()
     conn2 = open_run_db(path)
     register_conn(conn2)

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_FLOOR, Decimal, localcontext
 from typing import Any
 
-from .constants import CONSTANT_ENTRIES
+from .constants import CONSTANT_ENTRIES, SUPPORTED_CATEGORIES
 from .enums import ConditionCode
 from .errors import EngineError, ErrorCode
 
@@ -32,6 +32,7 @@ class KeySpec:
     deferred: str | None = None
     min: int | None = None
     max: int | None = None
+    length: int | None = None
     description: str = ""
 
 
@@ -366,6 +367,1091 @@ _DOMAIN_ENTRIES: list[Any] = [
             "description": "Floor on the 06-owned duration multiplier (03 §10.4, §13).",
         },
     ),
+    (
+        "weather.precompute_start_date",
+        "date_string",
+        "2026-04-01",
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Start of the once-at-init realized-weather precompute span; "
+            "must equal constants.warm_start_start (05 §2.1, §16.1).",
+        },
+    ),
+    (
+        "weather.precompute_end_date",
+        "date_string",
+        "2026-10-21",
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "End of the once-at-init realized-weather precompute span; "
+            "must reach run.end_date + weather.forecast_max_horizon_days (05 §2.1, §16.1).",
+        },
+    ),
+    (
+        "weather.seasonal_mean_high_f",
+        "decimal",
+        87,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Metro seasonal-term mean daily high, °F (05 §2.2, §16.1).",
+        },
+    ),
+    (
+        "weather.seasonal_amplitude_f_range",
+        "int_range",
+        {"min": 18, "max": 22},
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-run draw range for the seasonal amplitude `A` (05 §2.2, "
+            "§11, §16.1).",
+        },
+    ),
+    (
+        "weather.seasonal_phase_shift_days_range",
+        "int_range",
+        {"min": 88, "max": 102},
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-run draw range for the seasonal phase shift `φ`, in days "
+            "(05 §2.2, §11, §16.1).",
+        },
+    ),
+    (
+        "weather.daily_noise_sd_f",
+        "decimal",
+        Decimal("3.5"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Standard deviation of the daily mean-reverting noise term "
+            "ε(d), °F (05 §2.2, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.mean_reversion_rate",
+        "probability",
+        Decimal("0.7"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Day-over-day mean-reversion coefficient of the noise process "
+            "x(d) (05 §2.2, §16.1).",
+        },
+    ),
+    (
+        "weather.zone_offset_f",
+        "decimal_list",
+        [1, -1, 0, 1, 0, 0, 0, 1, 0, 2],
+        {
+            "length": 10,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-zone additive offset to the metro daily high, °F, one "
+            "entry per constants.zone_names ordinal (05 §2.2, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.diurnal_range_f",
+        "decimal",
+        25,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "high_f minus low_f for every zone-day (05 §2.2, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.monsoon_window_start",
+        "month_day_string",
+        "06-15",
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "First MM-DD of the elevated in-window storm-onset probability "
+            "(05 §2.2, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.monsoon_window_end",
+        "month_day_string",
+        "09-30",
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Last MM-DD of the elevated in-window storm-onset probability "
+            "(05 §2.2, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.storm_daily_probability_in_window",
+        "probability",
+        Decimal("0.20"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Daily storm onset probability inside the monsoon window "
+            "(05 §2.2, §16.1).",
+        },
+    ),
+    (
+        "weather.storm_daily_probability_out_of_window",
+        "probability",
+        Decimal("0.03"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Daily storm onset probability outside the monsoon window "
+            "(05 §2.2, §16.1).",
+        },
+    ),
+    (
+        "weather.storm_zone_correlation",
+        "probability",
+        Decimal("0.6"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Weight of the shared metro storm driver in each zone's storm "
+            "process (05 §2.2, §16.1).",
+        },
+    ),
+    (
+        "weather.storm_persistence",
+        "probability",
+        Decimal("0.3"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Day-to-day persistence of a zone's storm state (05 §2.2, "
+            "§16.1).",
+        },
+    ),
+    (
+        "weather.storm_severity_range",
+        "decimal_range",
+        {"min": Decimal("0.2"), "max": Decimal("1.0")},
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Numeric range storm_severity is drawn from on a storm day "
+            "(05 §2.2, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.storm_severity_bands",
+        "severity_bands",
+        [
+            ["light", Decimal("0.2"), Decimal("0.5")],
+            ["moderate", Decimal("0.5"), Decimal("0.8")],
+            ["severe", Decimal("0.8"), Decimal("1.0")],
+        ],
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Named bands partitioning weather.storm_severity_range exactly; "
+            "names the public severity_band field (05 §2.2, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.precipitation_by_severity",
+        "decimal_map",
+        {"none": 0, "light": 2, "moderate": 8, "severe": 20},
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Realized precipitation_mm keyed by storm severity band, plus "
+            "'none' (05 §2.2, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.wind_by_severity",
+        "decimal_map",
+        {"none": 8, "light": 15, "moderate": 25, "severe": 40},
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Realized wind_mph keyed by storm severity band, plus 'none' "
+            "(05 §2.2, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.condition_code_thresholds",
+        "decimal_map",
+        {
+            "extreme_heat_high_f": 110,
+            "hot_high_f": 100,
+            "cool_high_f": 70,
+            "windy_wind_mph": 25,
+            "rain_precipitation_mm": Decimal("0.1"),
+        },
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Thresholds the engine uses to derive the closed condition_code "
+            "enum from the stored numeric fields (05 §2.2, §16.1).",
+        },
+    ),
+    (
+        "weather.precipitation_probability_by_condition",
+        "probability_map",
+        {
+            "clear": Decimal("0.02"),
+            "cool": Decimal("0.05"),
+            "hot": Decimal("0.02"),
+            "windy": Decimal("0.10"),
+            "extreme_heat": Decimal("0.02"),
+            "rain": Decimal("0.8"),
+            "storm": Decimal("0.95"),
+        },
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Public precipitation_probability keyed by condition_code; "
+            "Must cover the ConditionCode enum exactly (05 §2.2, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.seasonal_period_days",
+        "int",
+        365,
+        {
+            "constant": True,
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Calendar year length of the seasonal term; a normative "
+            "constant, not scenario-tunable (05 §2.2, §16.5).",
+        },
+    ),
+    (
+        "weather.forecast_max_horizon_days",
+        "int",
+        7,
+        {
+            "constant": True,
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Furthest date weather.get accepts beyond today; a normative "
+            "constant, not scenario-tunable (05 §2.3, §16.5).",
+        },
+    ),
+    (
+        "weather.forecast_error_scale_by_horizon",
+        "decimal_list",
+        [0, 2, 3, 4, 5, 6, 7, 8],
+        {
+            "length": 8,
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Forecast temperature-noise scale by horizon day 0..7; must be "
+            "nondecreasing with [0] == 0 (05 §2.4, §16.1, §16.6).",
+        },
+    ),
+    (
+        "weather.forecast_storm_flip_probability_by_horizon",
+        "probability_list",
+        [
+            0,
+            Decimal("0.05"),
+            Decimal("0.08"),
+            Decimal("0.12"),
+            Decimal("0.15"),
+            Decimal("0.18"),
+            Decimal("0.20"),
+            Decimal("0.22"),
+        ],
+        {
+            "length": 8,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Forecast storm-flip Bernoulli probability by horizon day 0..7; "
+            "must be nondecreasing with [0] == 0 (05 §2.4, §16.1, §16.6).",
+        },
+    ),
+    (
+        "demand.base_new_caller_rate_per_day",
+        "decimal",
+        10,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Metro-wide base new-caller Poisson rate before multipliers "
+            "(05 §3.2, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.zone_weights",
+        "decimal_list",
+        [
+            Decimal("0.20"),
+            Decimal("0.20"),
+            Decimal("0.075"),
+            Decimal("0.015"),
+            Decimal("0.095"),
+            Decimal("0.085"),
+            Decimal("0.095"),
+            Decimal("0.075"),
+            Decimal("0.075"),
+            Decimal("0.085"),
+        ],
+        {
+            "length": 10,
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-zone share of new-caller volume, one entry per "
+            "constants.zone_names ordinal (05 §3.2, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.segment_weights",
+        "decimal_map",
+        {"residential": Decimal("0.62"), "commercial": Decimal("0.23"), "apartment": Decimal("0.15")},
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "New-caller segment mix at generation (05 §4.1, §5.2, §16.2, "
+            "§16.6).",
+        },
+    ),
+    (
+        "demand.category_weights",
+        "decimal_map_map",
+        {
+            "residential": {
+                "HVAC service": Decimal("0.44"),
+                "Plumbing": Decimal("0.33"),
+                "Electrical": Decimal("0.16"),
+                "HVAC installation": Decimal("0.07"),
+                "Appliance repair": Decimal("0.35"),
+                "Garage-door repair": Decimal("0.15"),
+                "Roofing": Decimal("0.10"),
+                "Pool service": Decimal("0.15"),
+                "Pest control": Decimal("0.15"),
+                "Landscaping": Decimal("0.10"),
+            },
+            "commercial": {
+                "HVAC service": Decimal("0.52"),
+                "Plumbing": Decimal("0.27"),
+                "Electrical": Decimal("0.17"),
+                "HVAC installation": Decimal("0.04"),
+                "Appliance repair": Decimal("0.35"),
+                "Garage-door repair": Decimal("0.15"),
+                "Roofing": Decimal("0.10"),
+                "Pool service": Decimal("0.15"),
+                "Pest control": Decimal("0.15"),
+                "Landscaping": Decimal("0.10"),
+            },
+            "apartment": {
+                "HVAC service": Decimal("0.40"),
+                "Plumbing": Decimal("0.38"),
+                "Electrical": Decimal("0.15"),
+                "HVAC installation": Decimal("0.07"),
+                "Appliance repair": Decimal("0.35"),
+                "Garage-door repair": Decimal("0.15"),
+                "Roofing": Decimal("0.10"),
+                "Pool service": Decimal("0.15"),
+                "Pest control": Decimal("0.15"),
+                "Landscaping": Decimal("0.10"),
+            },
+        },
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Relative requested-category weight per segment, over the full "
+            "catalog; unsupported and supported are separate relative-weight groups split "
+            "by demand.unsupported_category_share (05 §4.2, §5.2, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.unsupported_category_share",
+        "probability",
+        Decimal("0.12"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Share of new-caller requests drawn from the unsupported "
+            "category group (05 §4.2, §5.2, §16.2).",
+        },
+    ),
+    (
+        "demand.day_of_week_multipliers",
+        "decimal_list",
+        [
+            Decimal("1.45"),
+            Decimal("1.34"),
+            Decimal("1.28"),
+            Decimal("1.33"),
+            Decimal("1.20"),
+            Decimal("0.29"),
+            Decimal("0.11"),
+        ],
+        {
+            "length": 7,
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Day-of-week multiplier on new-caller and repeat-call volume, "
+            "Monday..Sunday (05 §3.2, §3.4, §16.2).",
+        },
+    ),
+    (
+        "demand.service_catalog_version",
+        "string",
+        "catalog-v1",
+        {
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Version tag of the fixed requested-category catalog (05 §4.2, "
+            "§16.2).",
+        },
+    ),
+    (
+        "demand.unsupported_categories",
+        "string_list",
+        [
+            "Appliance repair",
+            "Garage-door repair",
+            "Roofing",
+            "Pool service",
+            "Pest control",
+            "Landscaping",
+        ],
+        {
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Named unsupported catalog categories (05 §4.2, §16.2).",
+        },
+    ),
+    (
+        "demand.outlying_address_share",
+        "probability",
+        Decimal("0.03"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Probability a new-caller address draw comes from the outlying "
+            "pool rather than the in-zone pool (05 §5.2, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.heat_threshold_f",
+        "decimal",
+        85,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "high_f above which the heat demand term activates (05 §3.3, "
+            "§16.2).",
+        },
+    ),
+    (
+        "demand.cold_threshold_f",
+        "decimal",
+        45,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "low_f below which the cold demand term activates (05 §3.3, "
+            "§16.2).",
+        },
+    ),
+    (
+        "demand.temperature_normalization_f",
+        "decimal",
+        20,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "°F per unit of heat/cold sensitivity; not a normative constant "
+            "(05 §3.3, §16.2, §16.5, §16.6).",
+        },
+    ),
+    (
+        "demand.heat_sensitivity_by_category",
+        "decimal_map",
+        {
+            "HVAC service": 1,
+            "HVAC installation": Decimal("0.8"),
+            "Plumbing": Decimal("0.1"),
+            "Electrical": Decimal("0.3"),
+        },
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-category heat_term coefficient, over the four supported "
+            "categories (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.cold_sensitivity_by_category",
+        "decimal_map",
+        {
+            "HVAC service": Decimal("0.3"),
+            "HVAC installation": 0,
+            "Plumbing": 0,
+            "Electrical": 0,
+        },
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-category cold_term coefficient, over the four supported "
+            "categories (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.storm_multiplier_by_category",
+        "decimal_map",
+        {
+            "HVAC service": Decimal("0.2"),
+            "HVAC installation": Decimal("0.1"),
+            "Plumbing": Decimal("0.8"),
+            "Electrical": 1,
+        },
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-category storm_term coefficient, over the four supported "
+            "categories (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.weather_multiplier_min",
+        "decimal",
+        Decimal("0.5"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Clamp floor of M_weather(z,d,c) (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.weather_multiplier_max",
+        "decimal",
+        3,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Clamp ceiling of M_weather(z,d,c) (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.reputation_neutral_stars",
+        "decimal",
+        Decimal("4.2"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Star average at which M_reputation is 1 (05 §3.3, §16.2).",
+        },
+    ),
+    (
+        "demand.reputation_sensitivity",
+        "decimal",
+        Decimal("0.25"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Coefficient of (public_star_average - neutral_stars) in "
+            "M_reputation (05 §3.3, §16.2).",
+        },
+    ),
+    (
+        "demand.reputation_window_days",
+        "int",
+        90,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Trailing window over published reviews for "
+            "public_star_average (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.reputation_multiplier_min",
+        "decimal",
+        Decimal("0.6"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Clamp floor of M_reputation (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.reputation_multiplier_max",
+        "decimal",
+        Decimal("1.15"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Clamp ceiling of M_reputation (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.word_of_mouth_sensitivity",
+        "decimal",
+        Decimal("0.5"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Coefficient of the segment-weighted wom sum in "
+            "M_word_of_mouth (05 §3.3, §16.2).",
+        },
+    ),
+    (
+        "demand.word_of_mouth_decay",
+        "probability",
+        Decimal("0.1"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Sole smoothing/mean-reversion rate of the per-segment wom "
+            "state update (05 §3.3, §16.2).",
+        },
+    ),
+    (
+        "demand.word_of_mouth_positive_weight",
+        "decimal",
+        1,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Weight `w` applied when a terminal appointment's satisfaction "
+            "delta δ ≥ 0 (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.word_of_mouth_negative_weight",
+        "decimal",
+        2,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Weight `w` applied when a terminal appointment's satisfaction "
+            "delta δ < 0; Must be ≥ the positive weight (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.word_of_mouth_segment_weights",
+        "decimal_map",
+        {
+            "apartment": Decimal("0.5"),
+            "commercial": Decimal("0.25"),
+            "residential": Decimal("0.25"),
+        },
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-segment weight in the M_word_of_mouth sum; apartment Must "
+            "carry the largest weight (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.word_of_mouth_multiplier_min",
+        "decimal",
+        Decimal("0.7"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Clamp floor of M_word_of_mouth (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.word_of_mouth_multiplier_max",
+        "decimal",
+        Decimal("1.3"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Clamp ceiling of M_word_of_mouth (05 §3.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.arrival_time_of_day_weights",
+        "decimal_list",
+        [30, 91, 120, 127, 123, 104, 107, 100, 91, 64, 29, 14],
+        {
+            "length": 12,
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Categorical weight per call hour 07..18; Must have a positive "
+            "sum (05 §5.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.office_hours_urgent_probability",
+        "probability",
+        Decimal("0.10"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Base urgency probability for calls arriving before 17:00 "
+            "(05 §5.4, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.after_hours_urgent_probability",
+        "probability",
+        Decimal("0.30"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Base urgency probability for calls arriving at or after "
+            "17:00; Must be ≥ the office-hours base (05 §5.4, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.urgency_weather_bonus",
+        "decimal",
+        Decimal("0.15"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Coefficient of max(0, M_weather - 1) added to p_urgent "
+            "(05 §5.4, §16.2).",
+        },
+    ),
+    (
+        "demand.repeat_call_daily_base_probability",
+        "probability",
+        Decimal("0.004"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-customer daily Bernoulli base rate before propensity and "
+            "multipliers (05 §3.4, §16.2).",
+        },
+    ),
+    (
+        "demand.repeat_propensity_initial_by_segment",
+        "decimal_map",
+        {
+            "residential": Decimal("0.8"),
+            "apartment": Decimal("1.2"),
+            "commercial": Decimal("1.5"),
+        },
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Initial repeat-call propensity at customer creation, by "
+            "segment (05 §6, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.rejection_repeat_propensity_multiplier",
+        "decimal",
+        Decimal("0.7"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Multiplier applied to repeat propensity on every ordinary "
+            "rejection; Must lie strictly inside (0, 1) (05 §6, §8.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.satisfaction_repeat_propensity_coefficient",
+        "decimal",
+        Decimal("0.15"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Coefficient of the hidden satisfaction delta δ in the "
+            "outcome-driven propensity update (05 §6, §16.2).",
+        },
+    ),
+    (
+        "demand.existing_customer_new_location_probability",
+        "probability",
+        Decimal("0.05"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Probability an existing-customer call requests a fresh "
+            "catalog address rather than a stored location (05 §5.2, §16.2).",
+        },
+    ),
+    (
+        "demand.multi_location_probability_by_segment",
+        "probability_map",
+        {
+            "residential": Decimal("0.03"),
+            "apartment": Decimal("0.45"),
+            "commercial": Decimal("0.30"),
+        },
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-segment probability a customer gets more than one "
+            "location at generation (05 §4.3, §16.2, §16.6).",
+        },
+    ),
+    (
+        "demand.returning_prospect_probability",
+        "probability",
+        Decimal("0.10"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Probability a new-caller slot is flagged a returning "
+            "prospect, subject to a matching prospect existing (05 §5.2, §16.2).",
+        },
+    ),
+    (
+        "acceptance.base_probability_by_urgency",
+        "probability_map",
+        {"standard": Decimal("0.90"), "urgent": Decimal("0.95")},
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "`base` of p_accept by urgency class (05 §7.3, §16.3, §16.6).",
+        },
+    ),
+    (
+        "acceptance.lead_time_decay_by_urgency",
+        "decimal_map",
+        {"standard": Decimal("0.15"), "urgent": Decimal("0.50")},
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Exponential lead-time decay rate of p_accept by urgency class "
+            "(05 §7.3, §16.3, §16.6).",
+        },
+    ),
+    (
+        "acceptance.floor_probability_by_urgency",
+        "probability_map",
+        {"standard": Decimal("0.25"), "urgent": Decimal("0.05")},
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Floor of p_accept by urgency class; Must be ≤ base "
+            "(05 §7.3, §16.3, §16.6).",
+        },
+    ),
+    (
+        "cancellations.base_probability_by_segment",
+        "probability_map",
+        {"residential": Decimal("0.08"), "commercial": Decimal("0.05"), "apartment": Decimal("0.06")},
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Base p_cancel by customer segment (05 §9.1, §16.3, §16.6).",
+        },
+    ),
+    (
+        "cancellations.urgent_multiplier",
+        "decimal",
+        Decimal("0.5"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "p_cancel multiplier applied when the booking is urgent "
+            "(05 §9.1, §16.3).",
+        },
+    ),
+    (
+        "cancellations.lead_days_coefficient",
+        "decimal",
+        Decimal("0.10"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Coefficient of lead_days in the p_cancel linear term "
+            "(05 §9.1, §16.3).",
+        },
+    ),
+    (
+        "cancellations.storm_multiplier",
+        "decimal",
+        Decimal("1.4"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "p_cancel multiplier applied when the service date is a storm "
+            "day at the location's effective zone (05 §9.1, §16.3).",
+        },
+    ),
+    (
+        "cancellations.cancellation_cutoff_minutes",
+        "int",
+        60,
+        {
+            "min": 15,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Minutes before scheduled_start after which no cancellation "
+            "arrival may be timestamped; Must be ≥ 15 (05 §9.2, §16.3).",
+        },
+    ),
+    (
+        "competitors.attempt_probability",
+        "probability",
+        Decimal("0.5"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Per-rejection Bernoulli probability of a competitor attempt "
+            "(05 §8.5, §16.3).",
+        },
+    ),
+    (
+        "competitors.served_well_probability",
+        "probability",
+        Decimal("0.65"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Given a competitor attempt, probability the customer is "
+            "served well (05 §8.5, §16.3).",
+        },
+    ),
+    (
+        "competitors.served_well_repeat_multiplier",
+        "decimal",
+        Decimal("0.5"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Repeat-propensity multiplier when served well by a "
+            "competitor; Must lie strictly inside (0, 1) (05 §6, §8.5, §16.3, §16.6).",
+        },
+    ),
+    (
+        "competitors.share_gain_per_capture",
+        "decimal",
+        Decimal("0.002"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Additive competitor_share gain per successful capture "
+            "(05 §8.5, §16.3).",
+        },
+    ),
+    (
+        "competitors.share_decay_per_day",
+        "decimal",
+        Decimal("0.005"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Daily decay of competitor_share toward baseline when share "
+            "recovery is enabled (05 §8.5, §16.3).",
+        },
+    ),
+    (
+        "competitors.share_recovery_enabled",
+        "bool",
+        False,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Whether competitor_share decays toward baseline; default off, "
+            "erode-only (05 §8.5, §16.3).",
+        },
+    ),
+    (
+        "competitors.demand_erosion_coefficient",
+        "decimal",
+        Decimal("0.5"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Coefficient of competitor_share in the M_competitor demand "
+            "erosion term (05 §3.3, §16.3).",
+        },
+    ),
+    (
+        "competitors.demand_multiplier_min",
+        "decimal",
+        Decimal("0.7"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Clamp floor of M_competitor; Must lie in (0, 1] (05 §3.3, "
+            "§16.3, §16.6).",
+        },
+    ),
+    (
+        "competitors.background_drift_sd",
+        "decimal",
+        Decimal("0.01"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Standard deviation of the per-date competitor_background "
+            "drift step (05 §8.5, §11, §16.3).",
+        },
+    ),
+    (
+        "customers.repeat_propensity_floor",
+        "decimal",
+        Decimal("0.05"),
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Clamp floor of repeat-call propensity; Must be > 0 so no "
+            "customer is ever permanently lost (05 §6, §16.4, §16.6).",
+        },
+    ),
+    (
+        "customers.repeat_propensity_max",
+        "decimal",
+        3,
+        {
+            "deferred": "provisional",
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Clamp ceiling of repeat-call propensity (05 §6, §16.4, §16.6).",
+        },
+    ),
+    (
+        "customers.person_name_pool_version",
+        "string",
+        "person-names-v1",
+        {
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Version tag of the fixed person-name identity pool "
+            "(05 §4.4, §16.4).",
+        },
+    ),
+    (
+        "customers.business_name_pool_version",
+        "string",
+        "business-names-v1",
+        {
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Version tag of the fixed business-name identity pool "
+            "(05 §4.4, §16.4).",
+        },
+    ),
+    (
+        "customers.phone_prefix_pool",
+        "string_list",
+        ["480555", "602555", "623555"],
+        {
+            "owning_spec": "05-customers-calls-and-demand.md",
+            "description": "Reserved fictional phone-number prefixes callers are drawn "
+            "from (05 §4.4, §16.4).",
+        },
+    ),
 ]
 
 
@@ -394,6 +1480,7 @@ def assemble_registry(
                 deferred=meta.get("deferred") if isinstance(meta, dict) else None,
                 min=meta.get("min") if isinstance(meta, dict) else None,
                 max=meta.get("max") if isinstance(meta, dict) else None,
+                length=meta.get("length") if isinstance(meta, dict) else None,
                 description=meta.get("description", "") if isinstance(meta, dict) else "",
             )
         if spec.path in registry:
@@ -667,6 +1754,152 @@ def _v_date_string(spec: KeySpec, value: Any) -> str:
     return s
 
 
+def _v_month_day_string(spec: KeySpec, value: Any) -> str:
+    s = _v_string(spec, value)
+    parts = s.split("-")
+    if len(parts) != 2 or len(parts[0]) != 2 or len(parts[1]) != 2:
+        raise _bad(f"{spec.path}: {s!r} is not a valid MM-DD string")
+    month_s, day_s = parts
+    if not (month_s.isdigit() and day_s.isdigit()):
+        raise _bad(f"{spec.path}: {s!r} is not a valid MM-DD string")
+    try:
+        d = datetime.date(2001, int(month_s), int(day_s))
+    except ValueError:
+        raise _bad(f"{spec.path}: {s!r} is not a valid MM-DD date") from None
+    canonical = f"{d.month:02d}-{d.day:02d}"
+    if canonical != s:
+        raise _bad(f"{spec.path}: {s!r} is not in canonical MM-DD form")
+    return s
+
+
+def _v_decimal_list(spec: KeySpec, value: Any) -> list[Decimal]:
+    if not isinstance(value, list) or not value:
+        raise _bad(f"{spec.path}: expected a non-empty list, got {value!r}")
+    if spec.length is not None and len(value) != spec.length:
+        raise _bad(f"{spec.path}: expected length {spec.length}, got {len(value)}")
+    out: list[Decimal] = []
+    for i, x in enumerate(value):
+        d = _as_decimal(x)
+        if not d.is_finite():
+            raise _bad(f"{spec.path}[{i}]: {d} must be finite")
+        if spec.min is not None and d < spec.min:
+            raise _bad(f"{spec.path}[{i}]: {d} below min {spec.min}")
+        out.append(d)
+    return out
+
+
+def _v_probability_list(spec: KeySpec, value: Any) -> list[Decimal]:
+    if not isinstance(value, list) or not value:
+        raise _bad(f"{spec.path}: expected a non-empty list, got {value!r}")
+    if spec.length is not None and len(value) != spec.length:
+        raise _bad(f"{spec.path}: expected length {spec.length}, got {len(value)}")
+    out: list[Decimal] = []
+    for i, x in enumerate(value):
+        p = _as_decimal(x)
+        if not p.is_finite():
+            raise _bad(f"{spec.path}[{i}]: {p} must be finite")
+        if not (0 <= p <= 1):
+            raise _bad(f"{spec.path}[{i}]: probability {p} out of [0, 1]")
+        out.append(p)
+    return out
+
+
+def _v_decimal_map(spec: KeySpec, value: Any) -> dict[str, Decimal]:
+    if not isinstance(value, dict) or not value:
+        raise _bad(f"{spec.path}: expected a non-empty map, got {type(value).__name__}")
+    out: dict[str, Decimal] = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or not k:
+            raise _bad(f"{spec.path}: map keys must be non-empty strings")
+        d = _as_decimal(v)
+        if not d.is_finite():
+            raise _bad(f"{spec.path}: value for {k!r} ({d}) must be finite")
+        if spec.min is not None and d < spec.min:
+            raise _bad(f"{spec.path}: value for {k!r} ({d}) below min {spec.min}")
+        out[k] = d
+    return out
+
+
+def _v_probability_map(spec: KeySpec, value: Any) -> dict[str, Decimal]:
+    if not isinstance(value, dict) or not value:
+        raise _bad(f"{spec.path}: expected a non-empty map, got {type(value).__name__}")
+    out: dict[str, Decimal] = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or not k:
+            raise _bad(f"{spec.path}: map keys must be non-empty strings")
+        p = _as_decimal(v)
+        if not p.is_finite():
+            raise _bad(f"{spec.path}: value for {k!r} ({p}) must be finite")
+        if not (0 <= p <= 1):
+            raise _bad(f"{spec.path}: probability for {k!r} ({p}) out of [0, 1]")
+        out[k] = p
+    return out
+
+
+def _v_decimal_map_map(spec: KeySpec, value: Any) -> dict[str, dict[str, Decimal]]:
+    if not isinstance(value, dict) or not value:
+        raise _bad(f"{spec.path}: expected a non-empty map, got {type(value).__name__}")
+    out: dict[str, dict[str, Decimal]] = {}
+    for outer_k, inner in value.items():
+        if not isinstance(outer_k, str) or not outer_k:
+            raise _bad(f"{spec.path}: outer map keys must be non-empty strings")
+        if not isinstance(inner, dict) or not inner:
+            raise _bad(f"{spec.path}[{outer_k!r}]: expected a non-empty map")
+        inner_out: dict[str, Decimal] = {}
+        for k, v in inner.items():
+            if not isinstance(k, str) or not k:
+                raise _bad(f"{spec.path}[{outer_k!r}]: inner map keys must be non-empty strings")
+            d = _as_decimal(v)
+            if not d.is_finite():
+                raise _bad(f"{spec.path}[{outer_k!r}][{k!r}]: {d} must be finite")
+            inner_out[k] = d
+        out[outer_k] = inner_out
+    return out
+
+
+def _v_decimal_range(spec: KeySpec, value: Any) -> tuple[Decimal, Decimal]:
+    if not isinstance(value, dict) or set(value.keys()) != {"min", "max"}:
+        raise _bad(f"{spec.path}: range needs {{'min','max'}}, got {value!r}")
+    lo = _as_decimal(value["min"])
+    hi = _as_decimal(value["max"])
+    if not lo.is_finite():
+        raise _bad(f"{spec.path}: min {lo} must be finite")
+    if not hi.is_finite():
+        raise _bad(f"{spec.path}: max {hi} must be finite")
+    if lo > hi:
+        raise _bad(f"{spec.path}: min {lo} > max {hi}")
+    return (lo, hi)
+
+
+def _v_severity_bands(spec: KeySpec, value: Any) -> list[tuple[str, Decimal, Decimal]]:
+    if not isinstance(value, list) or not value:
+        raise _bad(f"{spec.path}: severity_bands must be a non-empty list")
+    seen: set[str] = set()
+    prev_hi: Decimal | None = None
+    out: list[tuple[str, Decimal, Decimal]] = []
+    for i, b in enumerate(value):
+        if not isinstance(b, (list, tuple)) or len(b) != 3:
+            raise _bad(f"{spec.path}: band {i} must be a [name, lo, hi] triple")
+        name, lo_raw, hi_raw = b
+        if not isinstance(name, str) or not name:
+            raise _bad(f"{spec.path}: band {i} name must be a non-empty string")
+        if name in seen:
+            raise _bad(f"{spec.path}: duplicate band name {name!r}")
+        lo = _as_decimal(lo_raw)
+        hi = _as_decimal(hi_raw)
+        if not (lo.is_finite() and hi.is_finite()) or lo >= hi:
+            raise _bad(f"{spec.path}: band {name!r} requires lo < hi, got [{lo}, {hi}]")
+        if prev_hi is not None and lo != prev_hi:
+            raise _bad(
+                f"{spec.path}: band {name!r} lo {lo} does not equal previous hi {prev_hi} "
+                "(bands must be contiguous)"
+            )
+        prev_hi = hi
+        seen.add(name)
+        out.append((name, lo, hi))
+    return out
+
+
 _VALIDATORS = {
     "int": _v_int,
     "decimal": _v_decimal,
@@ -683,6 +1916,14 @@ _VALIDATORS = {
     "string_list": _v_string_list,
     "bool": _v_bool,
     "date_string": _v_date_string,
+    "month_day_string": _v_month_day_string,
+    "decimal_list": _v_decimal_list,
+    "probability_list": _v_probability_list,
+    "decimal_map": _v_decimal_map,
+    "probability_map": _v_probability_map,
+    "decimal_map_map": _v_decimal_map_map,
+    "decimal_range": _v_decimal_range,
+    "severity_bands": _v_severity_bands,
 }
 
 
@@ -727,6 +1968,298 @@ def _validate_run_window(base: dict[str, Any]) -> None:
         )
 
 
+_SEGMENTS = frozenset({"residential", "commercial", "apartment"})
+_URGENCY_CLASSES = frozenset({"standard", "urgent"})
+_SUPPORTED_CATEGORY_SET = frozenset(SUPPORTED_CATEGORIES)
+_CONDITION_THRESHOLD_KEYS = frozenset(
+    {"extreme_heat_high_f", "hot_high_f", "cool_high_f", "windy_wind_mph", "rain_precipitation_mm"}
+)
+
+
+def _validate_demand_urgency_ordering(base: dict[str, Any]) -> None:
+    after = base["demand.after_hours_urgent_probability"]
+    office = base["demand.office_hours_urgent_probability"]
+    if after < office:
+        raise _bad(
+            f"demand.after_hours_urgent_probability {after} must be >= "
+            f"demand.office_hours_urgent_probability {office} (05 §5.4, §16.6)"
+        )
+
+
+def _validate_repeat_propensity_bounds(base: dict[str, Any]) -> None:
+    floor = base["customers.repeat_propensity_floor"]
+    ceiling = base["customers.repeat_propensity_max"]
+    if floor <= 0:
+        raise _bad(f"customers.repeat_propensity_floor {floor} must be > 0 (05 §6, §16.6)")
+    for seg, val in base["demand.repeat_propensity_initial_by_segment"].items():
+        if not (floor <= val <= ceiling):
+            raise _bad(
+                f"demand.repeat_propensity_initial_by_segment[{seg}] {val} outside "
+                f"[customers.repeat_propensity_floor {floor}, "
+                f"customers.repeat_propensity_max {ceiling}] (05 §6, §16.6)"
+            )
+
+
+def _validate_word_of_mouth_weight_ordering(base: dict[str, Any]) -> None:
+    pos = base["demand.word_of_mouth_positive_weight"]
+    neg = base["demand.word_of_mouth_negative_weight"]
+    if pos <= 0:
+        raise _bad(f"demand.word_of_mouth_positive_weight {pos} must be > 0 (05 §3.3, §16.6)")
+    if neg < pos:
+        raise _bad(
+            f"demand.word_of_mouth_negative_weight {neg} must be >= "
+            f"demand.word_of_mouth_positive_weight {pos} (05 §3.3, §16.6)"
+        )
+
+
+def _validate_outlying_address_share(base: dict[str, Any]) -> None:
+    share = base["demand.outlying_address_share"]
+    if not (0 < share < 1):
+        raise _bad(
+            f"demand.outlying_address_share {share} must lie strictly inside (0, 1) "
+            "(05 §5.2, §16.6)"
+        )
+
+
+def _validate_temperature_normalization(base: dict[str, Any]) -> None:
+    v = base["demand.temperature_normalization_f"]
+    if v <= 0:
+        raise _bad(f"demand.temperature_normalization_f {v} must be > 0 (05 §3.3, §16.6)")
+
+
+def _validate_forecast_arrays_nondecreasing(base: dict[str, Any]) -> None:
+    for path in (
+        "weather.forecast_error_scale_by_horizon",
+        "weather.forecast_storm_flip_probability_by_horizon",
+    ):
+        arr = base[path]
+        if arr[0] != 0:
+            raise _bad(f"{path}[0] must equal 0, got {arr[0]} (05 §2.4, §16.6)")
+        for i in range(1, len(arr)):
+            if arr[i] < arr[i - 1]:
+                raise _bad(
+                    f"{path} must be nondecreasing in horizon; "
+                    f"[{i}]={arr[i]} < [{i - 1}]={arr[i - 1]} (05 §2.4, §16.6)"
+                )
+
+
+def _validate_storm_severity_partition(base: dict[str, Any]) -> None:
+    lo_range, hi_range = base["weather.storm_severity_range"]
+    bands = base["weather.storm_severity_bands"]
+    first_lo = bands[0][1]
+    last_hi = bands[-1][2]
+    if first_lo != lo_range:
+        raise _bad(
+            f"weather.storm_severity_bands first lo {first_lo} != "
+            f"weather.storm_severity_range min {lo_range} (05 §2.2, §16.6)"
+        )
+    if last_hi != hi_range:
+        raise _bad(
+            f"weather.storm_severity_bands last hi {last_hi} != "
+            f"weather.storm_severity_range max {hi_range} (05 §2.2, §16.6)"
+        )
+
+
+def _validate_precipitation_probability_condition_coverage(base: dict[str, Any]) -> None:
+    expected = {c.value for c in ConditionCode}
+    got = set(base["weather.precipitation_probability_by_condition"].keys())
+    if got != expected:
+        raise _bad(
+            "weather.precipitation_probability_by_condition must cover exactly the "
+            f"ConditionCode enum; missing={sorted(expected - got)} "
+            f"extra={sorted(got - expected)} (05 §2.2, §16.6)"
+        )
+
+
+def _validate_acceptance_maps(base: dict[str, Any]) -> None:
+    maps = {
+        "acceptance.base_probability_by_urgency": base["acceptance.base_probability_by_urgency"],
+        "acceptance.lead_time_decay_by_urgency": base["acceptance.lead_time_decay_by_urgency"],
+        "acceptance.floor_probability_by_urgency": base["acceptance.floor_probability_by_urgency"],
+    }
+    for path, m in maps.items():
+        if set(m.keys()) != _URGENCY_CLASSES:
+            raise _bad(
+                f"{path} keys must be exactly {sorted(_URGENCY_CLASSES)}, got "
+                f"{sorted(m.keys())} (05 §7.3, §16.6)"
+            )
+    base_map = maps["acceptance.base_probability_by_urgency"]
+    floor_map = maps["acceptance.floor_probability_by_urgency"]
+    for cls in _URGENCY_CLASSES:
+        if floor_map[cls] > base_map[cls]:
+            raise _bad(
+                f"acceptance.floor_probability_by_urgency[{cls}] {floor_map[cls]} > "
+                f"base {base_map[cls]} (05 §7.3, §16.6)"
+            )
+
+
+def _validate_unit_interval_strict_params(base: dict[str, Any]) -> None:
+    for path in (
+        "competitors.served_well_repeat_multiplier",
+        "demand.rejection_repeat_propensity_multiplier",
+    ):
+        v = base[path]
+        if not (0 < v < 1):
+            raise _bad(f"{path} {v} must lie strictly inside (0, 1) (05 §6, §8.5, §16.6)")
+
+
+def _validate_zone_weights_length(base: dict[str, Any]) -> None:
+    weights = base["demand.zone_weights"]
+    count = base["constants.zone_count"]
+    if len(weights) != count:
+        raise _bad(
+            f"demand.zone_weights has {len(weights)} entries, expected "
+            f"constants.zone_count {count} (05 §16.6)"
+        )
+
+
+def _validate_category_and_segment_key_sets(base: dict[str, Any]) -> None:
+    category_weights = base["demand.category_weights"]
+    if set(category_weights.keys()) != _SEGMENTS:
+        raise _bad(
+            f"demand.category_weights outer keys must be exactly {sorted(_SEGMENTS)}, got "
+            f"{sorted(category_weights.keys())} (05 §16.6)"
+        )
+    expected_inner = _SUPPORTED_CATEGORY_SET | set(base["demand.unsupported_categories"])
+    for seg, inner in category_weights.items():
+        if set(inner.keys()) != expected_inner:
+            missing = expected_inner - set(inner)
+            extra = set(inner) - expected_inner
+            raise _bad(
+                f"demand.category_weights[{seg}] keys must exactly match the supported "
+                f"categories plus demand.unsupported_categories; missing={sorted(missing)} "
+                f"extra={sorted(extra)} (05 §16.6)"
+            )
+    for path in (
+        "demand.segment_weights",
+        "cancellations.base_probability_by_segment",
+        "demand.multi_location_probability_by_segment",
+        "demand.repeat_propensity_initial_by_segment",
+        "demand.word_of_mouth_segment_weights",
+    ):
+        keys = set(base[path].keys())
+        if keys != _SEGMENTS:
+            raise _bad(
+                f"{path} keys must be exactly {sorted(_SEGMENTS)}, got {sorted(keys)} "
+                "(05 §16.6)"
+            )
+
+
+def _validate_category_sensitivity_key_sets(base: dict[str, Any]) -> None:
+    for path in (
+        "demand.heat_sensitivity_by_category",
+        "demand.cold_sensitivity_by_category",
+        "demand.storm_multiplier_by_category",
+    ):
+        keys = set(base[path].keys())
+        if keys != _SUPPORTED_CATEGORY_SET:
+            raise _bad(
+                f"{path} keys must be exactly {sorted(_SUPPORTED_CATEGORY_SET)}, got "
+                f"{sorted(keys)} (05 §16.6)"
+            )
+
+
+def _validate_severity_keyed_maps(base: dict[str, Any]) -> None:
+    band_names = {name for name, _lo, _hi in base["weather.storm_severity_bands"]}
+    expected = {"none"} | band_names
+    for path in ("weather.wind_by_severity", "weather.precipitation_by_severity"):
+        keys = set(base[path].keys())
+        if keys != expected:
+            raise _bad(
+                f"{path} keys must be exactly {{'none'}} plus weather.storm_severity_bands "
+                f"names; got {sorted(keys)}, expected {sorted(expected)} (05 §16.6)"
+            )
+
+
+def _validate_condition_code_threshold_keys(base: dict[str, Any]) -> None:
+    keys = set(base["weather.condition_code_thresholds"].keys())
+    if keys != _CONDITION_THRESHOLD_KEYS:
+        raise _bad(
+            "weather.condition_code_thresholds keys must be exactly "
+            f"{sorted(_CONDITION_THRESHOLD_KEYS)}, got {sorted(keys)} (05 §16.6)"
+        )
+
+
+def _validate_min_max_pairs(base: dict[str, Any]) -> None:
+    lo, hi = base["demand.weather_multiplier_min"], base["demand.weather_multiplier_max"]
+    if lo <= 0 or lo > hi:
+        raise _bad(
+            f"demand.weather_multiplier_min {lo} must be > 0 and <= "
+            f"demand.weather_multiplier_max {hi} (05 §3.3, §16.6)"
+        )
+    lo, hi = base["demand.reputation_multiplier_min"], base["demand.reputation_multiplier_max"]
+    if lo > hi:
+        raise _bad(
+            f"demand.reputation_multiplier_min {lo} > "
+            f"demand.reputation_multiplier_max {hi} (05 §3.3, §16.6)"
+        )
+    lo = base["demand.word_of_mouth_multiplier_min"]
+    hi = base["demand.word_of_mouth_multiplier_max"]
+    if lo > hi:
+        raise _bad(
+            f"demand.word_of_mouth_multiplier_min {lo} > "
+            f"demand.word_of_mouth_multiplier_max {hi} (05 §3.3, §16.6)"
+        )
+    v = base["competitors.demand_multiplier_min"]
+    if not (0 < v <= 1):
+        raise _bad(f"competitors.demand_multiplier_min {v} must lie in (0, 1] (05 §3.3, §16.6)")
+
+
+def _validate_weather_positive_scalars(base: dict[str, Any]) -> None:
+    for path in (
+        "weather.daily_noise_sd_f",
+        "weather.diurnal_range_f",
+        "demand.base_new_caller_rate_per_day",
+    ):
+        v = base[path]
+        if v <= 0:
+            raise _bad(f"{path} {v} must be strictly positive (05 §2.2, §3.2, §16.6)")
+
+
+def _month_day_tuple(s: str) -> tuple[int, int]:
+    month_s, day_s = s.split("-")
+    return (int(month_s), int(day_s))
+
+
+def _validate_monsoon_window_order(base: dict[str, Any]) -> None:
+    start_s = base["weather.monsoon_window_start"]
+    end_s = base["weather.monsoon_window_end"]
+    if _month_day_tuple(start_s) > _month_day_tuple(end_s):
+        raise _bad(
+            f"weather.monsoon_window_start {start_s} must not fall after "
+            f"weather.monsoon_window_end {end_s} (05 §2.2, §16.6)"
+        )
+
+
+def _validate_weather_precompute_window(base: dict[str, Any]) -> None:
+    precompute_start = base["weather.precompute_start_date"]
+    warm_start_start = base["constants.warm_start_start"]
+    if precompute_start != warm_start_start:
+        raise _bad(
+            f"weather.precompute_start_date {precompute_start} must equal "
+            f"constants.warm_start_start {warm_start_start} (05 §2.1, §16.6)"
+        )
+    precompute_end = datetime.date.fromisoformat(base["weather.precompute_end_date"])
+    run_end = datetime.date.fromisoformat(base["run.end_date"])
+    horizon = base["weather.forecast_max_horizon_days"]
+    required_end = run_end + datetime.timedelta(days=horizon)
+    if precompute_end < required_end:
+        raise _bad(
+            f"weather.precompute_end_date {precompute_end} must reach run.end_date "
+            f"{run_end} + weather.forecast_max_horizon_days {horizon} = {required_end} "
+            "(05 §2.1, §16.6)"
+        )
+
+
+def _validate_arrival_time_weights_positive_sum(base: dict[str, Any]) -> None:
+    total = sum(base["demand.arrival_time_of_day_weights"])
+    if total <= 0:
+        raise _bad(
+            f"demand.arrival_time_of_day_weights must have a positive sum, got {total} "
+            "(05 §5.3, §16.6)"
+        )
+
+
 _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
     (
         frozenset({"travel.noise.min_multiplier", "travel.noise.max_multiplier"}),
@@ -739,6 +2272,158 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
     (
         frozenset({"run.start_date", "run.end_date", "constants.warm_start_end"}),
         _validate_run_window,
+    ),
+    (
+        frozenset(
+            {"demand.after_hours_urgent_probability", "demand.office_hours_urgent_probability"}
+        ),
+        _validate_demand_urgency_ordering,
+    ),
+    (
+        frozenset(
+            {
+                "customers.repeat_propensity_floor",
+                "customers.repeat_propensity_max",
+                "demand.repeat_propensity_initial_by_segment",
+            }
+        ),
+        _validate_repeat_propensity_bounds,
+    ),
+    (
+        frozenset(
+            {"demand.word_of_mouth_positive_weight", "demand.word_of_mouth_negative_weight"}
+        ),
+        _validate_word_of_mouth_weight_ordering,
+    ),
+    (
+        frozenset({"demand.outlying_address_share"}),
+        _validate_outlying_address_share,
+    ),
+    (
+        frozenset({"demand.temperature_normalization_f"}),
+        _validate_temperature_normalization,
+    ),
+    (
+        frozenset(
+            {
+                "weather.forecast_error_scale_by_horizon",
+                "weather.forecast_storm_flip_probability_by_horizon",
+            }
+        ),
+        _validate_forecast_arrays_nondecreasing,
+    ),
+    (
+        frozenset({"weather.storm_severity_range", "weather.storm_severity_bands"}),
+        _validate_storm_severity_partition,
+    ),
+    (
+        frozenset({"weather.precipitation_probability_by_condition"}),
+        _validate_precipitation_probability_condition_coverage,
+    ),
+    (
+        frozenset(
+            {
+                "acceptance.base_probability_by_urgency",
+                "acceptance.lead_time_decay_by_urgency",
+                "acceptance.floor_probability_by_urgency",
+            }
+        ),
+        _validate_acceptance_maps,
+    ),
+    (
+        frozenset(
+            {
+                "competitors.served_well_repeat_multiplier",
+                "demand.rejection_repeat_propensity_multiplier",
+            }
+        ),
+        _validate_unit_interval_strict_params,
+    ),
+    (
+        frozenset({"demand.zone_weights", "constants.zone_count"}),
+        _validate_zone_weights_length,
+    ),
+    (
+        frozenset(
+            {
+                "demand.category_weights",
+                "demand.unsupported_categories",
+                "demand.segment_weights",
+                "cancellations.base_probability_by_segment",
+                "demand.multi_location_probability_by_segment",
+                "demand.repeat_propensity_initial_by_segment",
+                "demand.word_of_mouth_segment_weights",
+            }
+        ),
+        _validate_category_and_segment_key_sets,
+    ),
+    (
+        frozenset(
+            {
+                "demand.heat_sensitivity_by_category",
+                "demand.cold_sensitivity_by_category",
+                "demand.storm_multiplier_by_category",
+            }
+        ),
+        _validate_category_sensitivity_key_sets,
+    ),
+    (
+        frozenset(
+            {
+                "weather.storm_severity_bands",
+                "weather.wind_by_severity",
+                "weather.precipitation_by_severity",
+            }
+        ),
+        _validate_severity_keyed_maps,
+    ),
+    (
+        frozenset({"weather.condition_code_thresholds"}),
+        _validate_condition_code_threshold_keys,
+    ),
+    (
+        frozenset(
+            {
+                "demand.weather_multiplier_min",
+                "demand.weather_multiplier_max",
+                "demand.reputation_multiplier_min",
+                "demand.reputation_multiplier_max",
+                "demand.word_of_mouth_multiplier_min",
+                "demand.word_of_mouth_multiplier_max",
+                "competitors.demand_multiplier_min",
+            }
+        ),
+        _validate_min_max_pairs,
+    ),
+    (
+        frozenset(
+            {
+                "weather.daily_noise_sd_f",
+                "weather.diurnal_range_f",
+                "demand.base_new_caller_rate_per_day",
+            }
+        ),
+        _validate_weather_positive_scalars,
+    ),
+    (
+        frozenset({"weather.monsoon_window_start", "weather.monsoon_window_end"}),
+        _validate_monsoon_window_order,
+    ),
+    (
+        frozenset(
+            {
+                "weather.precompute_start_date",
+                "weather.precompute_end_date",
+                "constants.warm_start_start",
+                "run.end_date",
+                "weather.forecast_max_horizon_days",
+            }
+        ),
+        _validate_weather_precompute_window,
+    ),
+    (
+        frozenset({"demand.arrival_time_of_day_weights"}),
+        _validate_arrival_time_weights_positive_sum,
     ),
 )
 
