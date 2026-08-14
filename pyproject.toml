@@ -42,9 +42,10 @@ testpaths = ["tests"]
 # explicitly with `uv run --group geo pytest -m docker` (a later `-m` on the
 # command line overrides the one here). AGENTS.md records that the marked
 # suite must pass before merging any pipeline change.
-addopts = "-ra -m 'not docker'"
+addopts = "-ra -m 'not docker and not nightly'"
 markers = [
     "docker: needs a running Docker daemon and pulls the digest-pinned OSRM image (CSR-003 decision 8)",
+    "nightly: slow exhaustive sweeps (every resume boundary of the full window); run on the nightly schedule with `uv run pytest -m nightly`",
 ]
 # `tools/` holds CSR-003b's build-time-only `geo_build` package (never a
 # runtime dependency of csr_bench, never packaged in the wheel — see
