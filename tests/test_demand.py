@@ -249,6 +249,60 @@ def test_weather_get_queries_do_not_perturb_generation(tmp_path):
     assert _pending_rows(conn_a) == _pending_rows(conn_b)
 
 
+def test_weather_state_is_unaffected_by_extra_activity_on_one_run(tmp_path):
+    from csr_bench.weather import get_weather
+
+    config = _zone4_scenario(**{"demand.base_new_caller_rate_per_day": 15})
+    conn_a, _rid_a = _init(tmp_path, 9, config, "a.db")
+    conn_b, _rid_b = _init(tmp_path, 9, config, "b.db")
+
+    def weather_daily(conn):
+        return [
+            tuple(row)
+            for row in conn.execute(
+                "SELECT * FROM _zone_weather_daily ORDER BY zone_id, local_date"
+            ).fetchall()
+        ]
+
+    def process_state(conn):
+        return dict(conn.execute("SELECT * FROM _weather_process_state").fetchone())
+
+    baseline_daily = weather_daily(conn_b)
+    baseline_state = process_state(conn_b)
+    counter_a = conn_a.execute(
+        "SELECT counter FROM _rng_state WHERE stream_name = 'weather_process'"
+    ).fetchone()["counter"]
+
+    forecast_target_date = "2026-10-04"
+    cache_count_before = conn_b.execute(
+        "SELECT COUNT(*) c FROM _weather_forecast_cache"
+    ).fetchone()["c"]
+    rng_probe = Rng(9, SPEC_VERSION)
+    rng_probe.enter_txn()
+    for zone_id in range(1, 11):
+        get_weather(
+            conn_b, config, rng_probe, zone_id=zone_id, date=forecast_target_date, today=SERVICE_DATE
+        )
+    rng_probe.exit_txn()
+    cache_count_after = conn_b.execute(
+        "SELECT COUNT(*) c FROM _weather_forecast_cache"
+    ).fetchone()["c"]
+    assert cache_count_after == cache_count_before + 10
+
+    now_b = _now_ms(conn_b)
+    _generate(conn_b, config, 9, SERVICE_DATE, now_ms=now_b)
+    _generate(conn_b, config, 9, SERVICE_DATE_NEXT, now_ms=now_b)
+
+    assert weather_daily(conn_b) == baseline_daily
+    assert process_state(conn_b) == baseline_state
+    assert weather_daily(conn_a) == weather_daily(conn_b)
+    assert process_state(conn_a) == process_state(conn_b)
+    counter_b = conn_b.execute(
+        "SELECT counter FROM _rng_state WHERE stream_name = 'weather_process'"
+    ).fetchone()["counter"]
+    assert counter_b == counter_a
+
+
 def test_ordinal_discipline_matches_hand_recomputation(tmp_path):
     config = _zone4_scenario(**{"demand.base_new_caller_rate_per_day": 15})
     conn, _run_id = _init(tmp_path, 1, config)
@@ -943,72 +997,121 @@ def test_apply_competitor_capture_share_caps_at_one(tmp_path):
     assert share["capture_count"] == 1
 
 
-def test_directional_share_and_propensity_effects(tmp_path):
+def test_directional_reputation_effect_raises_new_callers_via_generate_for_date(tmp_path):
     config = _zone4_scenario()
-    conn, _run_id = _init(tmp_path, 5, config)
+    conn_good, _rid_good = _init(tmp_path, 7, config, "good.db")
+    conn_bad, _rid_bad = _init(tmp_path, 7, config, "bad.db")
 
-    weather_row = conn.execute(
-        "SELECT high_f_tenths, low_f_tenths, storm_flag, storm_severity_milli "
-        "FROM _zone_weather_daily WHERE zone_id = 4 AND local_date = ?",
-        (SERVICE_DATE,),
-    ).fetchone()
-    catalog_rows = list(
+    for conn, stars in ((conn_good, 5), (conn_bad, 1)):
+        now_ms = _now_ms(conn)
         conn.execute(
-            "SELECT id, name, supported_job_type_id FROM _service_catalog WHERE active = 1 ORDER BY id"
-        ).fetchall()
+            "INSERT INTO _customers (id, name, segment, status, created_at, modified_at, origin) "
+            "VALUES (1, 'Reviewer', 'residential', 'active', ?, ?, 'run')",
+            (now_ms, now_ms),
+        )
+        for review_id in range(1, 11):
+            conn.execute(
+                "INSERT INTO _reviews (id, job_id, appointment_id, customer_id, technician_id, "
+                "published_at, service_date, stars, source, created_at) VALUES "
+                "(?, NULL, NULL, 1, NULL, ?, ?, ?, 'google', ?)",
+                (review_id, now_ms, SERVICE_DATE, stars, now_ms),
+            )
+
+    now_good = _now_ms(conn_good)
+    now_bad = _now_ms(conn_bad)
+    m_rep_good = demand._reputation_multiplier_micros(conn_good, config, now_good)
+    m_rep_bad = demand._reputation_multiplier_micros(conn_bad, config, now_bad)
+    assert m_rep_bad < demand._to_micros(1) < m_rep_good
+
+    summary_good = _generate(conn_good, config, 7, SERVICE_DATE, now_ms=now_good)
+    summary_bad = _generate(conn_bad, config, 7, SERVICE_DATE, now_ms=now_bad)
+    assert summary_bad["new_callers"] < summary_good["new_callers"]
+
+
+def test_directional_word_of_mouth_effect_raises_new_callers_via_generate_for_date(tmp_path):
+    config = _zone4_scenario()
+    conn_good, _rid_good = _init(tmp_path, 7, config, "good.db")
+    conn_bad, _rid_bad = _init(tmp_path, 7, config, "bad.db")
+
+    conn_good.execute(
+        "UPDATE _word_of_mouth_state SET wom_micros = ? WHERE segment = 'residential'",
+        (300_000,),
     )
-    m_by_name = demand._weather_multipliers_by_name(config, weather_row)
-    m_vol = demand._volume_weather_multiplier_micros(config, catalog_rows, weather_row, m_by_name)
+    conn_bad.execute(
+        "UPDATE _word_of_mouth_state SET wom_micros = ? WHERE segment = 'residential'",
+        (-300_000,),
+    )
+    m_wom_good = demand._word_of_mouth_multiplier_micros(conn_good, config)
+    m_wom_bad = demand._word_of_mouth_multiplier_micros(conn_bad, config)
+    assert m_wom_bad < m_wom_good
 
-    base_rate = config.get_decimal("demand.base_new_caller_rate_per_day")
-    zone_weight = config.resolved["demand.zone_weights"][3]
-    weekday = date.fromisoformat(SERVICE_DATE).weekday()
-    dow_mult = config.resolved["demand.day_of_week_multipliers"][weekday]
+    now_good = _now_ms(conn_good)
+    now_bad = _now_ms(conn_bad)
+    summary_good = _generate(conn_good, config, 7, SERVICE_DATE, now_ms=now_good)
+    summary_bad = _generate(conn_bad, config, 7, SERVICE_DATE, now_ms=now_bad)
+    assert summary_bad["new_callers"] < summary_good["new_callers"]
 
-    def lam_for_share(share_micros):
-        erosion = config.get_decimal("competitors.demand_erosion_coefficient")
-        lo = config.get_decimal("competitors.demand_multiplier_min")
-        share = demand._from_micros(share_micros)
-        m_competitor = min(max(1 - erosion * share, lo), 1)
-        lam = base_rate * zone_weight * demand._from_micros(m_vol) * dow_mult * m_competitor
-        return demand._to_micros(lam)
 
-    lambda_share0 = lam_for_share(0)
-    lambda_share_raised = lam_for_share(300_000)
-    assert lambda_share_raised < lambda_share0
+def test_directional_competitor_share_lowers_multiplier_and_new_callers(tmp_path):
+    from decimal import Decimal
 
-    rng_probe = Rng(5, SPEC_VERSION)
-    rng_probe.enter_txn()
-    total_share0, total_share_raised = 0, 0
-    for seed_like in range(1, 61):
-        u = rng_probe.draw("demand", "zone", 4, f"{SERVICE_DATE}:{seed_like}", "new_caller_count", 0)
-        total_share0 += demand.poisson(lambda_share0, u)
-        total_share_raised += demand.poisson(lambda_share_raised, u)
-    rng_probe.exit_txn()
-    assert total_share_raised <= total_share0
-    assert total_share_raised < total_share0
+    config = _zone4_scenario()
+    conn_zero, _rid_zero = _init(tmp_path, 1, config, "zero.db")
+    conn_raised, _rid_raised = _init(tmp_path, 1, config, "raised.db")
 
-    base_prob = config.get_decimal("demand.repeat_call_daily_base_probability")
-    propensity_high = demand._from_micros(3_000_000)
-    propensity_low = demand._from_micros(300_000)
-    p_call_high = min(max(propensity_high * base_prob * demand._from_micros(m_vol) * dow_mult, 0), 1)
-    p_call_low = min(max(propensity_low * base_prob * demand._from_micros(m_vol) * dow_mult, 0), 1)
-    threshold_high = probability_threshold(p_call_high)
-    threshold_low = probability_threshold(p_call_low)
-    assert threshold_low < threshold_high
+    m_zero = demand._competitor_multiplier_micros(conn_zero, config)
+    conn_raised.execute(
+        "UPDATE _competitor_state SET share_micros = ? WHERE singleton = 1",
+        (demand._to_micros(Decimal("0.6")),),
+    )
+    m_raised = demand._competitor_multiplier_micros(conn_raised, config)
+    assert m_raised < m_zero
 
-    rng_probe2 = Rng(5, SPEC_VERSION)
-    rng_probe2.enter_txn()
-    hits_high, hits_low = 0, 0
-    for customer_id in range(1, 201):
-        u = rng_probe2.draw("demand", "customer", customer_id, SERVICE_DATE, "repeat_call", 0)
-        hit_high = chance(u, threshold_high)
-        hit_low = chance(u, threshold_low)
-        assert not (hit_low and not hit_high)
-        hits_high += hit_high
-        hits_low += hit_low
-    rng_probe2.exit_txn()
-    assert hits_low < hits_high
+    now_zero = _now_ms(conn_zero)
+    now_raised = _now_ms(conn_raised)
+    summary_zero = _generate(conn_zero, config, 1, SERVICE_DATE, now_ms=now_zero)
+    summary_raised = _generate(conn_raised, config, 1, SERVICE_DATE, now_ms=now_raised)
+    assert summary_raised["new_callers"] < summary_zero["new_callers"]
+
+
+def test_directional_repeat_propensity_raises_hit_rate_via_generate_for_date(tmp_path):
+    config = _zone4_scenario(**{"demand.repeat_call_daily_base_probability": 0.5})
+    conn_high, _rid_high = _init(tmp_path, 5, config, "high.db")
+    conn_low, _rid_low = _init(tmp_path, 5, config, "low.db")
+
+    now_high = _now_ms(conn_high)
+    now_low = _now_ms(conn_low)
+    high_propensity = demand._to_micros(config.get_decimal("customers.repeat_propensity_max"))
+    low_propensity = demand._to_micros(config.get_decimal("customers.repeat_propensity_floor"))
+
+    db.begin(conn_high)
+    for customer_id in range(1, 101):
+        _create_customer(
+            conn_high,
+            customer_id=customer_id,
+            segment="residential",
+            zone_id=4,
+            now_ms=now_high,
+            propensity_micros=high_propensity,
+        )
+    db.commit(conn_high)
+
+    db.begin(conn_low)
+    for customer_id in range(1, 101):
+        _create_customer(
+            conn_low,
+            customer_id=customer_id,
+            segment="residential",
+            zone_id=4,
+            now_ms=now_low,
+            propensity_micros=low_propensity,
+        )
+    db.commit(conn_low)
+
+    summary_high = _generate(conn_high, config, 5, SERVICE_DATE, now_ms=now_high)
+    summary_low = _generate(conn_low, config, 5, SERVICE_DATE, now_ms=now_low)
+
+    assert summary_high["repeat_calls"] > summary_low["repeat_calls"]
 
 
 def test_directional_storm_and_heat_raise_lambda(tmp_path_factory):

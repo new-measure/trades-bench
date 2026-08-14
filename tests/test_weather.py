@@ -304,11 +304,13 @@ def test_forecast_error_is_nondecreasing_in_horizon(tmp_path):
                 forecast = get_weather(
                     conn, cfg, rng, zone_id=zone_id, date=target, today=today_s
                 )
+                assert forecast["kind"] == "forecast"
                 absolute_errors[horizon].append(abs(forecast["high_f"] - real_high))
 
     means = [
         sum(absolute_errors[h]) / len(absolute_errors[h]) for h in range(1, max_horizon + 1)
     ]
+    assert means[0] > 0
     assert all(means[i] <= means[i + 1] for i in range(len(means) - 1))
     rng.exit_txn()
 
@@ -430,3 +432,29 @@ def test_forecast_scope_distinguishes_query_dates_for_same_target(tmp_path):
     assert scopes[0] != scopes[1]
     assert first["horizon_days"] != second["horizon_days"]
     rng.exit_txn()
+
+
+def test_get_weather_zone_results_independent_of_query_order_and_omission(tmp_path):
+    conn_forward, _rid_f, cfg_f = _init(tmp_path, 30, "forward.db")
+    conn_reverse, _rid_r, cfg_r = _init(tmp_path, 30, "reverse.db")
+    conn_partial, _rid_p, cfg_p = _init(tmp_path, 30, "partial.db")
+
+    today = "2026-10-01"
+    targets = {1: "2026-10-01", 2: "2026-10-04", 3: "2026-10-01", 4: "2026-10-06"}
+
+    def query(conn, cfg, zone_order):
+        rng = Rng(30, SPEC_VERSION)
+        rng.enter_txn()
+        results = {
+            zone_id: get_weather(conn, cfg, rng, zone_id=zone_id, date=targets[zone_id], today=today)
+            for zone_id in zone_order
+        }
+        rng.exit_txn()
+        return results
+
+    forward = query(conn_forward, cfg_f, [1, 2, 3, 4])
+    reverse = query(conn_reverse, cfg_r, [4, 3, 2, 1])
+    partial = query(conn_partial, cfg_p, [2])
+
+    assert forward == reverse
+    assert partial[2] == forward[2]

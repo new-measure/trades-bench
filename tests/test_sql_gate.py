@@ -10,6 +10,7 @@ from csr_bench.errors import EngineError, ErrorCode
 from csr_bench.migrations import migrate
 from csr_bench.sql_gate import execute_gated, open_agent_session
 from csr_bench.views import VIEWS, create_views
+from test_visibility import WHOLLY_PRIVATE_TABLES
 
 _UNAUTHORIZED_RESPONSE = EngineError.unauthorized().to_response()
 
@@ -18,19 +19,19 @@ DENIED_SQL: tuple[tuple[str, str], ...] = (
     ("hidden-quoted", 'SELECT * FROM "_customer_repeat_state"'),
     ("hidden-case", "SELECT * FROM _TECHNICIAN_TRUE_SKILL"),
     ("hidden-schema-qualified", "SELECT * FROM main._skills"),
-    ("csr004-weather-process-state", "SELECT * FROM _weather_process_state"),
-    ("csr004-zone-weather-daily", "SELECT * FROM _zone_weather_daily"),
-    ("csr004-weather-forecast-cache", "SELECT * FROM _weather_forecast_cache"),
-    ("csr004-pending-calls", "SELECT * FROM _pending_calls"),
-    ("csr004-call-hidden", "SELECT * FROM _call_hidden"),
-    ("csr004-customer-repeat-state", "SELECT * FROM _customer_repeat_state"),
-    ("csr004-prospect-state", "SELECT * FROM _prospect_state"),
-    ("csr004-word-of-mouth-state", "SELECT * FROM _word_of_mouth_state"),
-    ("csr004-competitor-state", "SELECT * FROM _competitor_state"),
-    ("csr004-acceptance-parameters", "SELECT * FROM _acceptance_parameters"),
-    ("csr004-cancellation-schedule", "SELECT * FROM _cancellation_schedule"),
-    ("csr004-join-hidden", "SELECT * FROM customers c JOIN _pending_calls p ON 1=1"),
-    ("csr004-sqlite-schema-probe", "SELECT name FROM sqlite_schema WHERE name = '_call_hidden'"),
+    ("hidden-weather-process-state", "SELECT * FROM _weather_process_state"),
+    ("hidden-zone-weather-daily", "SELECT * FROM _zone_weather_daily"),
+    ("hidden-weather-forecast-cache", "SELECT * FROM _weather_forecast_cache"),
+    ("hidden-pending-calls", "SELECT * FROM _pending_calls"),
+    ("hidden-call-table", "SELECT * FROM _call_hidden"),
+    ("hidden-customer-repeat-state", "SELECT * FROM _customer_repeat_state"),
+    ("hidden-prospect-state", "SELECT * FROM _prospect_state"),
+    ("hidden-word-of-mouth-state", "SELECT * FROM _word_of_mouth_state"),
+    ("hidden-competitor-state", "SELECT * FROM _competitor_state"),
+    ("hidden-acceptance-parameters", "SELECT * FROM _acceptance_parameters"),
+    ("hidden-cancellation-schedule", "SELECT * FROM _cancellation_schedule"),
+    ("join-hidden-table", "SELECT * FROM customers c JOIN _pending_calls p ON 1=1"),
+    ("hidden-sqlite-schema-probe", "SELECT name FROM sqlite_schema WHERE name = '_call_hidden'"),
     ("smuggle-count", "SELECT COUNT(*) FROM (SELECT * FROM _technician_true_skill)"),
     ("smuggle-union", "SELECT * FROM customers UNION SELECT * FROM _technician_true_skill"),
     ("smuggle-exists", "SELECT * FROM customers WHERE EXISTS (SELECT 1 FROM _skills)"),
@@ -142,6 +143,14 @@ def test_denied_shapes_surface_one_uniform_error(run_pair, sql):
     agent, _ = run_pair
     with pytest.raises(EngineError) as ei:
         execute_gated(agent, sql)
+    assert _assert_uniform_denial(ei) == _UNAUTHORIZED_RESPONSE
+
+
+@pytest.mark.parametrize("table", sorted(WHOLLY_PRIVATE_TABLES))
+def test_every_wholly_private_table_is_unreachable_through_the_gate(run_pair, table):
+    agent, _ = run_pair
+    with pytest.raises(EngineError) as ei:
+        execute_gated(agent, f"SELECT * FROM {table}")
     assert _assert_uniform_denial(ei) == _UNAUTHORIZED_RESPONSE
 
 

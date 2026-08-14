@@ -147,7 +147,7 @@ def assert_no_view_row_past_the_clock(conn: sqlite3.Connection, clock_ms: int, s
                 assert value <= clock_ms, f"{spec.name}: {column} {value} > clock {clock_ms}"
 
 
-def test_sch04_sweep_every_public_view_mid_day(tmp_path):
+def test_sweep_every_public_view_mid_day(tmp_path):
     db_path = tmp_path / "run.db"
     initialize_run(db_path, master_seed=1, config=geo_run_config(), artifact_dir=GEO_ARTIFACT_DIR)
     conn = db.connect(db_path)
@@ -161,7 +161,7 @@ def test_sch04_sweep_every_public_view_mid_day(tmp_path):
         conn.close()
 
 
-def test_sch04_agent_created_future_appointment_stays_visible(tmp_path):
+def test_agent_created_future_appointment_stays_visible(tmp_path):
     db_path = tmp_path / "run.db"
     initialize_run(db_path, master_seed=1, config=geo_run_config(), artifact_dir=GEO_ARTIFACT_DIR)
     conn = db.connect(db_path)

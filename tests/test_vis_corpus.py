@@ -5,10 +5,11 @@ import sqlite3
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
-from csr_bench import clock, db, views
+from csr_bench import SPEC_VERSION, clock, db, demand, views
 from csr_bench.clock import phoenix_instant
 from csr_bench.enums import VisibilityClass
 from csr_bench.errors import EngineError, ErrorCode
+from csr_bench.rng import Rng
 from csr_bench.run_init import initialize_run
 from csr_bench.sql_gate import execute_gated, open_agent_session
 from csr_bench.visibility import FIELD_REGISTRY, classify
@@ -69,6 +70,65 @@ def test_vis07_sweep_every_whitelisted_view_mid_day(warm_run):
     assert_no_view_row_past_the_clock(engine, noon, "2026-10-01")
 
 
+def test_pending_calls_generated_mid_day_leave_no_trace_in_any_whitelisted_view(warm_run):
+    engine, agent, _ = warm_run
+    service_date = "2026-10-01"
+    now_ms = engine.execute("SELECT current_time_ms FROM _clock").fetchone()["current_time_ms"]
+
+    rng = Rng(12_345, SPEC_VERSION, conn=engine)
+    db.begin(engine)
+    rng.enter_txn()
+    demand.generate_for_date(engine, geo_run_config(), rng, service_date=service_date, now_ms=now_ms)
+    rng.exit_txn()
+    db.commit(engine)
+
+    noon = phoenix_instant(2026, 10, 1, 12, 0)
+    pending = engine.execute(
+        "SELECT caller_name, caller_phone, arrival_at FROM _pending_calls WHERE service_date = ?",
+        (service_date,),
+    ).fetchall()
+    assert pending
+    assert any(row["arrival_at"] > noon for row in pending)
+    leaked_names = {row["caller_name"] for row in pending}
+    leaked_phones = {row["caller_phone"] for row in pending}
+    sentinel_name = pending[0]["caller_name"]
+    sentinel_phone = pending[0]["caller_phone"]
+
+    db.begin(engine)
+    clock.advance(engine, noon, service_date)
+    db.commit(engine)
+
+    assert_no_view_row_past_the_clock(engine, noon, service_date)
+
+    sentinel_call_id = 2_000_000_000
+    db.begin(engine)
+    engine.execute(
+        "INSERT INTO _calls (id, arrived_at, service_date, call_kind, status, caller_name, "
+        "caller_phone, requested_service_name, urgent, created_at) VALUES "
+        "(?, ?, ?, 'new_job', 'active', ?, ?, 'HVAC service', 0, ?)",
+        (sentinel_call_id, noon, service_date, sentinel_name, sentinel_phone, noon),
+    )
+    db.commit(engine)
+    assert execute_gated(agent, "SELECT COUNT(*) AS n FROM calls").fetchone()["n"] == 1
+    sentinel_caught = any(
+        isinstance(value, str) and (value in leaked_names or value in leaked_phones)
+        for row in execute_gated(agent, "SELECT * FROM calls").fetchall()
+        for value in row
+    )
+    assert sentinel_caught
+    db.begin(engine)
+    engine.execute("DELETE FROM _calls WHERE id = ?", (sentinel_call_id,))
+    db.commit(engine)
+
+    assert execute_gated(agent, "SELECT COUNT(*) AS n FROM calls").fetchone()["n"] == 0
+    for spec in views.VIEWS:
+        for row in execute_gated(agent, f"SELECT * FROM {spec.name}").fetchall():
+            for value in row:
+                if isinstance(value, str):
+                    assert value not in leaked_names
+                    assert value not in leaked_phones
+
+
 def test_no_weather_view_and_no_address_catalog_view(warm_run):
     _, agent, _ = warm_run
     for sql in ("SELECT * FROM weather", "SELECT * FROM address_catalog"):
@@ -112,7 +172,6 @@ def test_vis08_supportedness_privacy(warm_run):
 
 
 def test_vis09_every_stored_view_column_classifies_public(warm_run):
-    # PRAGMA table_info must equal the registry's declared columns and every
     engine, _, _ = warm_run
     for spec in views.VIEWS:
         stored = [row["name"] for row in engine.execute(f"PRAGMA table_info({spec.name})")]
