@@ -16,6 +16,9 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "_reviews",
     "_random_audit",
     "_appointment_events",
+    "_zone_weather_daily",
+    "_weather_forecast_cache",
+    "_block_locks",
 )
 
 _SOURCE_FILES: tuple[Path, ...] = tuple(
@@ -178,11 +181,30 @@ _ONE_ROW: dict[str, tuple[str, str]] = {
         "VALUES (1, 1, NULL, 'dispatched', 0, '2026-10-01', 'd', 0)",
         "UPDATE _appointment_events SET detail = 'x'",
     ),
+    "_zone_weather_daily": (
+        "INSERT INTO _zone_weather_daily (zone_id, local_date, high_f_tenths, "
+        "low_f_tenths, precipitation_mm_tenths, wind_mph_tenths, storm_flag, "
+        "storm_severity_milli, condition_code, created_at) "
+        "VALUES (1, '2026-10-01', 950, 720, 0, 80, 0, NULL, 'hot', 0)",
+        "UPDATE _zone_weather_daily SET high_f_tenths = 900",
+    ),
+    "_weather_forecast_cache": (
+        "INSERT INTO _weather_forecast_cache (zone_id, query_date, target_date, "
+        "high_hat_f, low_hat_f, storm_hat, condition_code, first_issued_at) "
+        "VALUES (1, '2026-10-01', '2026-10-02', 95, 72, 0, 'hot', 0)",
+        "UPDATE _weather_forecast_cache SET high_hat_f = 90",
+    ),
+    "_block_locks": (
+        "INSERT INTO _block_locks (service_date, block_code, block_start, locked_at) "
+        "VALUES ('2026-10-01', 'B07_09', 0, 0)",
+        "UPDATE _block_locks SET locked_at = 5",
+    ),
 }
 
 
 def test_update_and_delete_trigger_fires_on_every_append_only_table(conn):
     _parents(conn)
+    assert set(_ONE_ROW) == set(APPEND_ONLY_TABLES)
     for table, (insert_sql, update_sql) in _ONE_ROW.items():
         conn.execute(insert_sql)
         for statement in (update_sql, f"DELETE FROM {table}"):
@@ -190,10 +212,21 @@ def test_update_and_delete_trigger_fires_on_every_append_only_table(conn):
                 conn.execute(statement)
 
 
+def test_registry_matches_the_tables_the_schema_actually_protects(conn):
+    protected = {
+        row["tbl_name"]
+        for row in conn.execute(
+            "SELECT DISTINCT tbl_name FROM sqlite_master "
+            "WHERE type = 'trigger' AND sql LIKE '%append_only_table%'"
+        )
+    }
+    assert protected == set(APPEND_ONLY_TABLES)
+
+
 def test_events_carve_out_update_still_works(conn):
     conn.execute(
         "INSERT INTO _events (event_id, kind, scheduled_at_ms, priority, status, "
-        "created_at_ms) VALUES (1, 'contract_test', 0, 0, 'pending', 0)"
+        "created_at_ms) VALUES (1, 'demand_generation', 0, 180, 'pending', 0)"
     )
     conn.execute("UPDATE _events SET status = 'applied', applied_at_ms = 5")
     row = conn.execute("SELECT status, applied_at_ms FROM _events WHERE event_id = 1").fetchone()

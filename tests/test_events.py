@@ -15,7 +15,7 @@ from csr_bench.txn import privileged, privileged_request_id
 def test_schedule_requires_open_txn():
     conn, rid, sv, _, events, _ = make_services()
     with pytest.raises(EngineError) as ei:
-        events.schedule(EventKind.CONTRACT_TEST_EVENT, 100, 0)
+        events.schedule(EventKind.DEMAND_GENERATION, 100)
     assert ei.value.code is ErrorCode.DRAW_OUTSIDE_TXN
 
 
@@ -23,8 +23,8 @@ def test_schedule_inside_txn_inserts_pending_event_with_monotonic_id():
     conn, rid, sv, _, events, rng = make_services()
     begin(conn)
     rng.enter_txn()
-    e1 = events.schedule(EventKind.CONTRACT_TEST_EVENT, 100, 5)
-    e2 = events.schedule(EventKind.CONTRACT_TEST_EVENT, 90, 0)
+    e1 = events.schedule(EventKind.DEMAND_GENERATION, 100)
+    e2 = events.schedule(EventKind.DEMAND_GENERATION, 90)
     rng.exit_txn()
     commit(conn)
     assert e1 == 1 and e2 == 2
@@ -37,9 +37,9 @@ def test_next_pending_orders_by_scheduled_at_priority_event_id():
     conn, rid, sv, _, events, rng = make_services()
     begin(conn)
     rng.enter_txn()
-    a = events.schedule(EventKind.CONTRACT_TEST_EVENT, 100, 5)
-    b = events.schedule(EventKind.CONTRACT_TEST_EVENT, 100, 1)
-    c = events.schedule(EventKind.CONTRACT_TEST_EVENT, 100, 1)
+    a = events.schedule(EventKind.CALL_INVOCATION, 100)
+    b = events.schedule(EventKind.DAY_ROLLOVER, 100)
+    c = events.schedule(EventKind.DAY_ROLLOVER, 100)
     rng.exit_txn()
     commit(conn)
     seq = [r["event_id"] for r in events.pending_in_order()]
@@ -47,12 +47,22 @@ def test_next_pending_orders_by_scheduled_at_priority_event_id():
     assert events.next_pending()["event_id"] == b
 
 
+def test_schedule_stores_the_centrally_declared_priority():
+    conn, rid, sv, _, events, rng = make_services()
+    begin(conn)
+    rng.enter_txn()
+    eid = events.schedule(EventKind.CALL_INVOCATION, 100)
+    rng.exit_txn()
+    commit(conn)
+    assert events.get(eid)["priority"] == 910
+
+
 def test_payload_canonical_sorted_on_storage():
     conn, rid, sv, _, events, rng = make_services()
     begin(conn)
     rng.enter_txn()
     eid = events.schedule(
-        EventKind.CONTRACT_TEST_EVENT, 10, 0, payload={"b": 1, "a": 2, "z": [3, 2, 1]}
+        EventKind.DEMAND_GENERATION, 10, payload={"b": 1, "a": 2, "z": [3, 2, 1]}
     )
     rng.exit_txn()
     commit(conn)
@@ -68,7 +78,7 @@ def test_cancel_pending_event_then_cannot_reapply_as_pending():
     conn, rid, sv, _, events, rng = make_services()
     begin(conn)
     rng.enter_txn()
-    eid = events.schedule(EventKind.CONTRACT_TEST_EVENT, 10, 0)
+    eid = events.schedule(EventKind.APPOINTMENT_DISPATCH, 10)
     rng.exit_txn()
     commit(conn)
     begin(conn)
@@ -89,7 +99,7 @@ def test_apply_atomic_with_draws_ledger_nested_events_and_marks_applied():
     conn, rid, sv, ledger, events, rng = make_services()
     begin(conn)
     rng.enter_txn()
-    eid = events.schedule(EventKind.CONTRACT_TEST_EVENT, 50, 0)
+    eid = events.schedule(EventKind.WORK_COMPLETED, 50)
     rng.exit_txn()
     commit(conn)
 
@@ -99,10 +109,10 @@ def test_apply_atomic_with_draws_ledger_nested_events_and_marks_applied():
         calls["n"] += 1
         ctx.rng.draw(
             "acceptance",
-            "contract_test_entity",
+            "appointment",
             event["entity_id"] or 1,
             "2026-10-01",
-            "contract_test_event",
+            "work_completed",
             0,
             outcome_id="ev",
         )
@@ -115,7 +125,7 @@ def test_apply_atomic_with_draws_ledger_nested_events_and_marks_applied():
                 )
             ]
         )
-        ctx.services.events.schedule(EventKind.CONTRACT_TEST_EVENT, 200, 0)
+        ctx.services.events.schedule(EventKind.REVIEW_PUBLISHED, 200)
 
     r = events.apply(eid, handler, services=sv)
     assert json.loads(r)["ok"] is True
@@ -149,14 +159,14 @@ def test_re_apply_is_idempotent_never_reapplies():
 
 
 def make_schedule(events):
-    events.schedule(EventKind.CONTRACT_TEST_EVENT, 50, 0)
+    events.schedule(EventKind.DEMAND_GENERATION, 50)
 
 
 def test_apply_rejects_when_invocation_active_and_leaves_no_trace():
     conn, rid, sv, ledger, events, rng = make_services(active_invocation=True)
     begin(conn)
     rng.enter_txn()
-    eid = events.schedule(EventKind.CONTRACT_TEST_EVENT, 50, 0)
+    eid = events.schedule(EventKind.BLOCK_LOCK, 50)
     rng.exit_txn()
     commit(conn)
     drew = {"n": 0}
@@ -209,7 +219,7 @@ def test_apply_event_bankruptcy_via_unavoidable_settle_event():
     commit(conn)
     begin(conn)
     rng.enter_txn()
-    eid = events.schedule(EventKind.CONTRACT_TEST_SETTLE_DEBIT, 5, 0)
+    eid = events.schedule(EventKind.DAILY_SETTLEMENT, 5)
     rng.exit_txn()
     commit(conn)
 

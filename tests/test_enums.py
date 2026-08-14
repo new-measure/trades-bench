@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
+
+import pytest
 
 from csr_bench import enums
 from csr_bench.enums import (
+    EVENT_PRIORITY,
     ConditionCode,
+    DayType,
     EntityType,
     EventKind,
     EventStatus,
@@ -12,6 +17,7 @@ from csr_bench.enums import (
     InvocationType,
     KeyedStreamName,
     LedgerCategory,
+    PromptKind,
     RunStatus,
     SequentialStreamName,
     VisibilityClass,
@@ -40,6 +46,13 @@ def test_event_status_closed():
 def test_invocation_kinds():
     assert set(InvocationType) == {"opening", "call", "closing"}
     assert set(InvocationStatus) == {"active", "completed"}
+
+
+def test_prompt_kinds_are_the_invocation_kinds_plus_reminder():
+    assert set(PromptKind) == {"opening", "call", "reminder", "closing"}
+    assert {t.value for t in InvocationType} == set(PromptKind) - {
+        PromptKind.REMINDER
+    }
 
 
 def test_visibility_classes():
@@ -118,15 +131,106 @@ def test_stream_enums_travel_through_json():
     assert json.dumps({"s": KeyedStreamName.ACCEPTANCE}) == '{"s": "acceptance"}'
 
 
-def test_event_kinds_closed_set_plus_demand():
-    kinds = set(EventKind)
-    assert kinds, " registry must be non-empty"
-    non_contract = {k for k in EventKind if not k.value.startswith("contract_test_")}
-    assert non_contract == {EventKind.DEMAND_GENERATION, EventKind.CALL_INVOCATION}
+def test_event_kind_closed_set_and_central_priority_declaration():
+    expected = {
+        "day_rollover": 100,
+        "employment_transition": 110,
+        "weather_realized": 120,
+        "labor_economy_update": 130,
+        "sickness_draw": 140,
+        "attrition_draw": 150,
+        "training_rates_drawn": 160,
+        "shift_materialization": 170,
+        "demand_generation": 180,
+        "block_lock": 200,
+        "appointment_dispatch": 300,
+        "appointment_arrival": 310,
+        "work_started": 320,
+        "work_completed": 330,
+        "work_failed": 332,
+        "company_no_show": 335,
+        "off_hours_accrual_mark": 340,
+        "technician_return_home": 350,
+        "technician_home_arrival": 360,
+        "review_published": 410,
+        "competitor_effect": 420,
+        "opening_invocation": 900,
+        "first_block_lock": 905,
+        "first_trip_dispatch": 906,
+        "call_invocation": 910,
+        "closing_invocation": 920,
+        "daily_settlement": 950,
+        "checkpoint": 960,
+        "run_finalize": 970,
+    }
+    assert {k.value: EVENT_PRIORITY[k] for k in EventKind} == expected
+    assert set(EVENT_PRIORITY) == set(EventKind)
+    assert len(EventKind) == 29
 
 
-def test_entity_type_is_contract_test_only_now():
-    assert all(t.value.startswith("contract_test_") for t in EntityType)
+def test_world_events_sort_before_invocations_except_the_opening_pair():
+    harness_kinds = {
+        EventKind.OPENING_INVOCATION,
+        EventKind.FIRST_BLOCK_LOCK,
+        EventKind.FIRST_TRIP_DISPATCH,
+        EventKind.CALL_INVOCATION,
+        EventKind.CLOSING_INVOCATION,
+        EventKind.DAILY_SETTLEMENT,
+        EventKind.CHECKPOINT,
+        EventKind.RUN_FINALIZE,
+    }
+    world_kinds = set(EventKind) - harness_kinds
+    invocation_priorities = {
+        EVENT_PRIORITY[k]
+        for k in (
+            EventKind.OPENING_INVOCATION,
+            EventKind.CALL_INVOCATION,
+            EventKind.CLOSING_INVOCATION,
+        )
+    }
+    assert max(EVENT_PRIORITY[k] for k in world_kinds) < min(invocation_priorities)
+    assert EVENT_PRIORITY[EventKind.FIRST_BLOCK_LOCK] > EVENT_PRIORITY[EventKind.OPENING_INVOCATION]
+    assert EVENT_PRIORITY[EventKind.FIRST_TRIP_DISPATCH] > EVENT_PRIORITY[EventKind.FIRST_BLOCK_LOCK]
+    assert (
+        EVENT_PRIORITY[EventKind.OPENING_INVOCATION]
+        < EVENT_PRIORITY[EventKind.CALL_INVOCATION]
+        < EVENT_PRIORITY[EventKind.CLOSING_INVOCATION]
+        < EVENT_PRIORITY[EventKind.DAILY_SETTLEMENT]
+        < EVENT_PRIORITY[EventKind.CHECKPOINT]
+        < EVENT_PRIORITY[EventKind.RUN_FINALIZE]
+    )
+
+
+def test_entity_type_closed_set():
+    assert {t.value for t in EntityType} == {
+        "run",
+        "zone",
+        "customer",
+        "appointment",
+        "technician",
+        "pending_call",
+    }
+
+
+def test_day_type_from_iso_weekday():
+    assert set(DayType) == {"weekday", "weekend"}
+    assert [DayType.from_iso_weekday(n) for n in range(1, 8)] == [
+        DayType.WEEKDAY,
+        DayType.WEEKDAY,
+        DayType.WEEKDAY,
+        DayType.WEEKDAY,
+        DayType.WEEKDAY,
+        DayType.WEEKEND,
+        DayType.WEEKEND,
+    ]
+    first = date(2026, 10, 1)
+    for offset in range(14):
+        d = first + timedelta(days=offset)
+        expected = DayType.WEEKDAY if d.isoweekday() <= 5 else DayType.WEEKEND
+        assert DayType.from_iso_weekday(d.isoweekday()) is expected
+    for bad in (0, 8, -1, True, "1", 1.0):
+        with pytest.raises(ValueError):
+            DayType.from_iso_weekday(bad)
 
 
 def test_condition_code_closed_7_member_set():

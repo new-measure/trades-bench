@@ -86,6 +86,19 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_clock", "current_time_ms"): V.PUBLIC_SQL,
     Field("_clock", "service_date"): V.PUBLIC_SQL,
 
+    Field("_day_state", "service_date"): V.PRIVATE_ENGINE,
+    Field("_day_state", "day_type"): V.PRIVATE_ENGINE,
+    Field("_day_state", "opening_at"): V.PRIVATE_ENGINE,
+    Field("_day_state", "closing_at"): V.PRIVATE_ENGINE,
+    Field("_day_state", "settlement_status"): V.PRIVATE_ENGINE,
+    Field("_day_state", "unresolved_execution_count"): V.PRIVATE_ENGINE,
+    Field("_day_state", "last_execution_completed_at"): V.PRIVATE_ENGINE,
+
+    Field("_block_locks", "service_date"): V.PRIVATE_ENGINE,
+    Field("_block_locks", "block_code"): V.PRIVATE_ENGINE,
+    Field("_block_locks", "block_start"): V.PRIVATE_ENGINE,
+    Field("_block_locks", "locked_at"): V.PRIVATE_ENGINE,
+
     Field("_visibility_registry", "table"): V.PRIVATE_ENGINE,
     Field("_visibility_registry", "column"): V.PRIVATE_ENGINE,
     Field("_visibility_registry", "visibility_class"): V.PRIVATE_ENGINE,

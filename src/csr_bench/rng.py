@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import Callable, Iterator
 from decimal import Decimal, localcontext
 
+from . import clock
 from .constants import TIMING_VARIATION_HIGH, TIMING_VARIATION_LOW
 from .enums import KeyedStreamName, SequentialStreamName
 from .errors import EngineError, ErrorCode
@@ -14,6 +15,28 @@ U64_MOD = 1 << 64
 _UNIFORM01_PREC = 64
 
 AuditRecorder = Callable[..., None]
+
+
+def sqlite_audit_recorder(conn: sqlite3.Connection) -> AuditRecorder:
+
+    def record(**kw: object) -> None:
+        conn.execute(
+            "INSERT INTO _random_audit(stream_name, entity_type, entity_id, "
+            "scope, event_kind, draw_index, outcome_id, simulated_ts_ms) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (
+                kw["stream_name"],
+                kw["entity_type"],
+                kw["entity_id"],
+                kw["scope"],
+                kw["event_kind"],
+                kw["draw_index"],
+                kw.get("outcome_id"),
+                clock.now(conn),
+            ),
+        )
+
+    return record
 
 
 def _require_pos_entity_id(entity_id: object) -> None:
@@ -470,6 +493,7 @@ __all__ = [
     "keyed_draw",
     "randint",
     "sequential_draw",
+    "sqlite_audit_recorder",
     "stream_seed",
     "triangular",
     "uniform01",

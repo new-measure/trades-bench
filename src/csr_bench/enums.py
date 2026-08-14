@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
+from types import MappingProxyType
 
 
 class RunStatus(StrEnum):
@@ -25,6 +27,13 @@ class EventStatus(StrEnum):
 class InvocationType(StrEnum):
     OPENING = "opening"
     CALL = "call"
+    CLOSING = "closing"
+
+
+class PromptKind(StrEnum):
+    OPENING = "opening"
+    CALL = "call"
+    REMINDER = "reminder"
     CLOSING = "closing"
 
 
@@ -77,19 +86,98 @@ class ConditionCode(StrEnum):
     COOL = "cool"
 
 
+class DayType(StrEnum):
+
+    WEEKDAY = "weekday"
+    WEEKEND = "weekend"
+
+    @classmethod
+    def from_iso_weekday(cls, iso_weekday: int) -> DayType:
+        if (
+            isinstance(iso_weekday, bool)
+            or not isinstance(iso_weekday, int)
+            or not 1 <= iso_weekday <= 7
+        ):
+            raise ValueError(f"iso_weekday must be an int in 1..7, got {iso_weekday!r}")
+        return cls.WEEKDAY if iso_weekday <= 5 else cls.WEEKEND
+
+
 class EntityType(StrEnum):
 
-    CONTRACT_TEST_ENTITY = "contract_test_entity"
-    CONTRACT_TEST_ENTITY_ALT = "contract_test_entity_alt"
+    RUN = "run"
+    ZONE = "zone"
+    CUSTOMER = "customer"
+    APPOINTMENT = "appointment"
+    TECHNICIAN = "technician"
+    PENDING_CALL = "pending_call"
 
 
 class EventKind(StrEnum):
 
-    CONTRACT_TEST_EVENT = "contract_test_event"
-    CONTRACT_TEST_SETTLE_DEBIT = "contract_test_settle_debit"
-    CONTRACT_TEST_SETTLE_CREDIT = "contract_test_settle_credit"
+    DAY_ROLLOVER = "day_rollover"
+    EMPLOYMENT_TRANSITION = "employment_transition"
+    WEATHER_REALIZED = "weather_realized"
+    LABOR_ECONOMY_UPDATE = "labor_economy_update"
+    SICKNESS_DRAW = "sickness_draw"
+    ATTRITION_DRAW = "attrition_draw"
+    TRAINING_RATES_DRAWN = "training_rates_drawn"
+    SHIFT_MATERIALIZATION = "shift_materialization"
     DEMAND_GENERATION = "demand_generation"
+    BLOCK_LOCK = "block_lock"
+    APPOINTMENT_DISPATCH = "appointment_dispatch"
+    APPOINTMENT_ARRIVAL = "appointment_arrival"
+    WORK_STARTED = "work_started"
+    WORK_COMPLETED = "work_completed"
+    WORK_FAILED = "work_failed"
+    COMPANY_NO_SHOW = "company_no_show"
+    OFF_HOURS_ACCRUAL_MARK = "off_hours_accrual_mark"
+    TECHNICIAN_RETURN_HOME = "technician_return_home"
+    TECHNICIAN_HOME_ARRIVAL = "technician_home_arrival"
+    REVIEW_PUBLISHED = "review_published"
+    COMPETITOR_EFFECT = "competitor_effect"
+    OPENING_INVOCATION = "opening_invocation"
+    FIRST_BLOCK_LOCK = "first_block_lock"
+    FIRST_TRIP_DISPATCH = "first_trip_dispatch"
     CALL_INVOCATION = "call_invocation"
+    CLOSING_INVOCATION = "closing_invocation"
+    DAILY_SETTLEMENT = "daily_settlement"
+    CHECKPOINT = "checkpoint"
+    RUN_FINALIZE = "run_finalize"
+
+
+EVENT_PRIORITY: Mapping[EventKind, int] = MappingProxyType(
+    {
+        EventKind.DAY_ROLLOVER: 100,
+        EventKind.EMPLOYMENT_TRANSITION: 110,
+        EventKind.WEATHER_REALIZED: 120,
+        EventKind.LABOR_ECONOMY_UPDATE: 130,
+        EventKind.SICKNESS_DRAW: 140,
+        EventKind.ATTRITION_DRAW: 150,
+        EventKind.TRAINING_RATES_DRAWN: 160,
+        EventKind.SHIFT_MATERIALIZATION: 170,
+        EventKind.DEMAND_GENERATION: 180,
+        EventKind.BLOCK_LOCK: 200,
+        EventKind.APPOINTMENT_DISPATCH: 300,
+        EventKind.APPOINTMENT_ARRIVAL: 310,
+        EventKind.WORK_STARTED: 320,
+        EventKind.WORK_COMPLETED: 330,
+        EventKind.WORK_FAILED: 332,
+        EventKind.COMPANY_NO_SHOW: 335,
+        EventKind.OFF_HOURS_ACCRUAL_MARK: 340,
+        EventKind.TECHNICIAN_RETURN_HOME: 350,
+        EventKind.TECHNICIAN_HOME_ARRIVAL: 360,
+        EventKind.REVIEW_PUBLISHED: 410,
+        EventKind.COMPETITOR_EFFECT: 420,
+        EventKind.OPENING_INVOCATION: 900,
+        EventKind.FIRST_BLOCK_LOCK: 905,
+        EventKind.FIRST_TRIP_DISPATCH: 906,
+        EventKind.CALL_INVOCATION: 910,
+        EventKind.CLOSING_INVOCATION: 920,
+        EventKind.DAILY_SETTLEMENT: 950,
+        EventKind.CHECKPOINT: 960,
+        EventKind.RUN_FINALIZE: 970,
+    }
+)
 
 
 class SequentialStreamName(StrEnum):

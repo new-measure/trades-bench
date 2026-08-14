@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from . import clock
-from .enums import EventKind, EventStatus
+from .enums import EVENT_PRIORITY, EventKind, EventStatus
 from .errors import EngineError, ErrorCode
 from .txn import TxnContext, privileged, privileged_request_id
 
@@ -32,7 +32,6 @@ class Events:
         self,
         kind: EventKind,
         scheduled_at: int,
-        priority: int,
         *,
         entity_type: str | None = None,
         entity_id: int | None = None,
@@ -44,8 +43,7 @@ class Events:
             raise EngineError(ErrorCode.STATE_ILLEGAL, f"unknown event kind {kind!r}")
         if not isinstance(scheduled_at, int) or scheduled_at < 0:
             raise EngineError(ErrorCode.STATE_ILLEGAL, "scheduled_at_ms must be a non-negative int")
-        if isinstance(priority, bool) or not isinstance(priority, int):
-            raise EngineError(ErrorCode.STATE_ILLEGAL, "priority must be an int")
+        priority = EVENT_PRIORITY[kind]
         payload_json = (
             json.dumps(payload, sort_keys=True, separators=(",", ":"))
             if payload is not None

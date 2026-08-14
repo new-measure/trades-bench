@@ -861,7 +861,7 @@ def test_demand_generation_handler_validates_and_delegates(tmp_path):
     db.begin(conn)
     rng.enter_txn()
     event_id = events.schedule(
-        EventKind.DEMAND_GENERATION, now_ms, 180, payload={"service_date": SERVICE_DATE}
+        EventKind.DEMAND_GENERATION, now_ms, payload={"service_date": SERVICE_DATE}
     )
     rng.exit_txn()
     db.commit(conn)
@@ -886,7 +886,7 @@ def test_demand_generation_handler_rejects_non_canonical_service_date(tmp_path):
     db.begin(conn)
     rng.enter_txn()
     event_id = events.schedule(
-        EventKind.DEMAND_GENERATION, now_ms, 180, payload={"service_date": "2026-1-1"}
+        EventKind.DEMAND_GENERATION, now_ms, payload={"service_date": "2026-1-1"}
     )
     rng.exit_txn()
     db.commit(conn)

@@ -34,7 +34,7 @@ from csr_bench.events import Events
 from csr_bench.invocations import Invocations
 from csr_bench.ledger import Ledger, LedgerEntry
 from csr_bench.migrations import migrate
-from csr_bench.rng import Rng, chance
+from csr_bench.rng import Rng, chance, sqlite_audit_recorder
 from csr_bench.txn import Services, TxnContext, command, privileged, privileged_request_id
 
 MASTER_SEED = 20261001
@@ -46,8 +46,8 @@ LAST_SERVICE_DATE = "2027-09-30"
 DAY = (2026, 10, 1)
 SCOPE = FIRST_SERVICE_DATE
 
-ENTITY = EntityType.CONTRACT_TEST_ENTITY.value
-ENTITY_ALT = EntityType.CONTRACT_TEST_ENTITY_ALT.value
+ENTITY = EntityType.APPOINTMENT.value
+ENTITY_ALT = EntityType.TECHNICIAN.value
 
 OPENING_CASH_CENTS = 5_000_000
 BOOK_PRICE_CENTS = 24_500
@@ -79,12 +79,12 @@ T_CALL = _ts(12, 0)
 T_RESCHEDULED = _ts(15, 30)
 T_SETTLE = _ts(19, 0)
 
-SEED_EVENTS: tuple[tuple[EventKind, int, int, int, int], ...] = (
-    (EventKind.CONTRACT_TEST_EVENT, 11, 0, 10, 3),
-    (EventKind.CONTRACT_TEST_EVENT, 8, 0, 20, 1),
-    (EventKind.CONTRACT_TEST_SETTLE_DEBIT, 8, 0, 10, 2),
-    (EventKind.CONTRACT_TEST_EVENT, 8, 0, 20, 4),
-    (EventKind.CONTRACT_TEST_SETTLE_CREDIT, 9, 30, 5, 5),
+SEED_EVENTS: tuple[tuple[EventKind, int, int, int], ...] = (
+    (EventKind.DEMAND_GENERATION, 11, 0, 3),
+    (EventKind.DEMAND_GENERATION, 8, 0, 1),
+    (EventKind.DAILY_SETTLEMENT, 8, 0, 2),
+    (EventKind.DEMAND_GENERATION, 8, 0, 4),
+    (EventKind.WORK_COMPLETED, 9, 30, 5),
 )
 
 
@@ -124,28 +124,6 @@ def _observe(run: RunContext, label: str, value: object) -> None:
     run.observations.append((label, str(value)))
 
 
-def _audit_recorder(conn: sqlite3.Connection) -> Callable[..., None]:
-
-    def rec(**kw: object) -> None:
-        conn.execute(
-            "INSERT INTO _random_audit(stream_name, entity_type, entity_id, "
-            "scope, event_kind, draw_index, outcome_id, simulated_ts_ms) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (
-                kw["stream_name"],
-                kw["entity_type"],
-                kw["entity_id"],
-                kw["scope"],
-                kw["event_kind"],
-                kw["draw_index"],
-                kw.get("outcome_id"),
-                clock.now(conn),
-            ),
-        )
-
-    return rec
-
-
 def create_run(path: str | Path, *, master_seed: int = MASTER_SEED) -> None:
     conn = connect(path)
     try:
@@ -178,7 +156,7 @@ def open_run(path: str | Path, *, master_seed: int = MASTER_SEED, variant: str =
     rng = Rng(
         master_seed,
         SPEC_VERSION,
-        audit_recorder=_audit_recorder(conn),
+        audit_recorder=sqlite_audit_recorder(conn),
         conn=conn,
     )
     ledger = Ledger(conn)
@@ -251,9 +229,8 @@ def _handle_tick(run: RunContext, ctx: TxnContext, event: sqlite3.Row) -> dict:
     cascaded = None
     if depth < 1 and chance(f, CASCADE_THRESHOLD):
         cascaded = ctx.services.events.schedule(
-            EventKind.CONTRACT_TEST_EVENT,
+            EventKind(kind),
             int(event["scheduled_at_ms"]) + 30 * MINUTE_MS,
-            15,
             entity_type=ENTITY,
             entity_id=entity_id,
             payload={"depth": depth + 1, "source": "cascade"},
@@ -282,11 +259,12 @@ def _handle_settlement(
 
 
 HANDLERS: dict[EventKind, Callable[[RunContext, TxnContext, sqlite3.Row], dict]] = {
-    EventKind.CONTRACT_TEST_EVENT: _handle_tick,
-    EventKind.CONTRACT_TEST_SETTLE_DEBIT: _handle_settlement(
+    EventKind.DEMAND_GENERATION: _handle_tick,
+    EventKind.CALL_INVOCATION: _handle_tick,
+    EventKind.DAILY_SETTLEMENT: _handle_settlement(
         -SETTLE_DEBIT_CENTS, LedgerCategory.OPERATING_OVERHEAD
     ),
-    EventKind.CONTRACT_TEST_SETTLE_CREDIT: _handle_settlement(
+    EventKind.WORK_COMPLETED: _handle_settlement(
         SETTLE_CREDIT_CENTS, LedgerCategory.REVENUE
     ),
 }
@@ -299,7 +277,7 @@ def _cmd_book(run: RunContext, ctx: TxnContext) -> dict:
         ENTITY,
         BOOK_ENTITY_ID,
         SCOPE,
-        EventKind.CONTRACT_TEST_EVENT.value,
+        EventKind.CALL_INVOCATION.value,
         0,
         outcome_id="book",
     )
@@ -315,9 +293,8 @@ def _cmd_book(run: RunContext, ctx: TxnContext) -> dict:
         ]
     )
     ctx.services.events.schedule(
-        EventKind.CONTRACT_TEST_EVENT,
+        EventKind.APPOINTMENT_DISPATCH,
         T_BOOKED_JOB,
-        15,
         entity_type=ENTITY,
         entity_id=BOOK_ENTITY_ID,
         payload={"depth": 0, "source": "book"},
@@ -331,7 +308,7 @@ def _cmd_travel(run: RunContext, ctx: TxnContext) -> dict:
         ENTITY,
         TRAVEL_ENTITY_ID,
         SCOPE,
-        EventKind.CONTRACT_TEST_EVENT.value,
+        EventKind.APPOINTMENT_DISPATCH.value,
     )
     _observe(run, f"travel_noise/{TRAVEL_ENTITY_ID}", minutes)
     ctx.services.ledger.post(
@@ -353,7 +330,7 @@ def _cmd_reschedule(run: RunContext, ctx: TxnContext) -> dict:
         ENTITY_ALT,
         RESCHEDULE_ENTITY_ID,
         SCOPE,
-        EventKind.CONTRACT_TEST_EVENT.value,
+        EventKind.CALL_INVOCATION.value,
         5,
         draw_index=2,
     )
@@ -368,9 +345,8 @@ def _cmd_reschedule(run: RunContext, ctx: TxnContext) -> dict:
         ]
     )
     ctx.services.events.schedule(
-        EventKind.CONTRACT_TEST_EVENT,
+        EventKind.APPOINTMENT_DISPATCH,
         T_RESCHEDULED + slot * 15 * MINUTE_MS,
-        15,
         entity_type=ENTITY_ALT,
         entity_id=RESCHEDULE_ENTITY_ID,
         payload={"depth": 1, "source": "reschedule"},
@@ -487,11 +463,10 @@ def _seed_world(run: RunContext) -> None:
                 )
             ]
         )
-        for kind, hour, minute, priority, entity_id in SEED_EVENTS:
+        for kind, hour, minute, entity_id in SEED_EVENTS:
             ctx.services.events.schedule(
                 kind,
                 _ts(hour, minute),
-                priority,
                 entity_type=ENTITY,
                 entity_id=entity_id,
                 payload={"depth": 0, "source": "seed"},

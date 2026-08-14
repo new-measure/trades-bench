@@ -50,8 +50,8 @@ def test_stream_seed_changes_with_each_input():
 def test_keyed_draw_formula_pinned_exactly():
     name = "weather_forecast"
     seed = stream_seed(MASTER, SPEC, name)
-    et, eid, scp, kind, di = "contract_test_entity", 7, "2026-10-01", "contract_test_event", 0
-    body = seed + _lp(et) + _u8(eid) + _lp(scp) + _lp("contract_test_event") + _u8(di)
+    et, eid, scp, kind, di = "appointment", 7, "2026-10-01", "work_completed", 0
+    body = seed + _lp(et) + _u8(eid) + _lp(scp) + _lp("work_completed") + _u8(di)
     expected = int.from_bytes(hashlib.sha256(body).digest()[:8], "big")
     assert keyed_draw(seed, et, eid, scp, kind, di) == expected
     assert 0 <= expected < (1 << 64)
@@ -66,11 +66,11 @@ def test_sequential_draw_formula_pinned():
 
 def test_keyed_draw_is_pure_and_order_independent():
     seed = stream_seed(MASTER, SPEC, "acceptance")
-    a = keyed_draw(seed, "contract_test_entity", 7, "2026-10-01", "contract_test_event", 0)
+    a = keyed_draw(seed, "appointment", 7, "2026-10-01", "work_completed", 0)
     for _ in range(5):
-        keyed_draw(seed, "contract_test_entity", 999, "2026-10-02", "contract_test_event", 3)
-        keyed_draw(seed, "contract_test_entity_alt", 7, "2026-10-01", "contract_test_event", 0)
-    assert keyed_draw(seed, "contract_test_entity", 7, "2026-10-01", "contract_test_event", 0) == a
+        keyed_draw(seed, "appointment", 999, "2026-10-02", "work_completed", 3)
+        keyed_draw(seed, "technician", 7, "2026-10-01", "work_completed", 0)
+    assert keyed_draw(seed, "appointment", 7, "2026-10-01", "work_completed", 0) == a
 
 
 def test_each_key_component_changes_the_outcome():
@@ -135,20 +135,20 @@ def test_uniform01_is_decimal_in_unit_half_open():
 def test_draw_requires_open_txn():
     r = Rng(MASTER, SPEC)
     with pytest.raises(EngineError) as ei:
-        r.draw("acceptance", "contract_test_entity", 1, "2026-10-01", "k", 0)
+        r.draw("acceptance", "appointment", 1, "2026-10-01", "k", 0)
     assert ei.value.code is ErrorCode.DRAW_OUTSIDE_TXN
 
 
 def test_draw_works_inside_txn_and_is_deterministic():
     r = Rng(MASTER, SPEC)
     r.enter_txn()
-    u1 = r.draw("acceptance", "contract_test_entity", 1, "2026-10-01", "k", 0)
-    u2 = r.draw("acceptance", "contract_test_entity", 1, "2026-10-01", "k", 0)
+    u1 = r.draw("acceptance", "appointment", 1, "2026-10-01", "k", 0)
+    u2 = r.draw("acceptance", "appointment", 1, "2026-10-01", "k", 0)
     assert (
         u1
         == u2
         == keyed_draw(
-            stream_seed(MASTER, SPEC, "acceptance"), "contract_test_entity", 1, "2026-10-01", "k", 0
+            stream_seed(MASTER, SPEC, "acceptance"), "appointment", 1, "2026-10-01", "k", 0
         )
     )
     r.exit_txn()
@@ -170,7 +170,7 @@ def test_audit_records_key_not_secret():
     recs: list[dict] = []
     r = Rng(MASTER, SPEC, audit_recorder=lambda **kw: recs.append(kw))
     r.enter_txn()
-    r.draw("acceptance", "contract_test_entity", 7, "2026-10-01", "k", 0, outcome_id="call_42")
+    r.draw("acceptance", "appointment", 7, "2026-10-01", "k", 0, outcome_id="call_42")
     rec = recs[-1]
     assert rec["stream_name"] == "acceptance"
     assert rec["entity_id"] == 7

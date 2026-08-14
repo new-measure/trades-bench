@@ -780,7 +780,6 @@ def generate_for_date(
         event_id = events.schedule(
             EventKind.CALL_INVOCATION,
             spec["arrival_at"],
-            910,
             entity_type="pending_call",
             entity_id=pending_id,
         )

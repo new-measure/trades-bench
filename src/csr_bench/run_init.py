@@ -21,7 +21,7 @@ from .config import RunConfig
 from .enums import RunStatus
 from .errors import EngineError, ErrorCode
 from .ledger import Ledger
-from .rng import Rng
+from .rng import Rng, sqlite_audit_recorder
 
 
 def _stored_config_keys(conn: sqlite3.Connection) -> dict | None:
@@ -267,7 +267,15 @@ def initialize_run(
             conn, run_id, master_seed, config, resolved_dataset_version, artifact=artifact
         )
         weather.precompute(
-            conn, config, Rng(int(master_seed), SPEC_VERSION, conn=conn), created_at=start_at_ms
+            conn,
+            config,
+            Rng(
+                int(master_seed),
+                SPEC_VERSION,
+                audit_recorder=sqlite_audit_recorder(conn),
+                conn=conn,
+            ),
+            created_at=start_at_ms,
         )
         demand.initialize_state(conn, config, created_at=start_at_ms)
         boundary_check(conn, config)

@@ -28,6 +28,8 @@ CORE_TABLES: tuple[_Table, ...] = (
     _Table("_rng_state", "stream_name"),
     _Table("_random_audit", "seq"),
     _Table("_clock", "singleton"),
+    _Table("_day_state", "service_date"),
+    _Table("_block_locks", "service_date, block_code"),
     _Table("_visibility_registry", '"table", "column"'),
     _Table("_schema_migrations", "version"),
     _Table("_business_units", "id"),

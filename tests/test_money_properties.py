@@ -13,9 +13,9 @@ from csr_bench.txn import command, privileged, privileged_request_id
 
 OPENING_CASH_CENTS = 15_000
 
-ENTITY = EntityType.CONTRACT_TEST_ENTITY.value
+ENTITY = EntityType.CUSTOMER.value
 SCOPE = "2026-10-01"
-EVENT_KIND = EventKind.CONTRACT_TEST_EVENT.value
+EVENT_KIND = EventKind.DEMAND_GENERATION.value
 
 _actions = st.one_of(
     st.tuples(st.just("revenue"), st.integers(min_value=1, max_value=10_000)),

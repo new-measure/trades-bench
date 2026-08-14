@@ -23,6 +23,7 @@ def test_open_run_db_twice_is_idempotent(tmp_path):
     conn1 = open_run_db(path)
     assert applied_versions(conn1) == [
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
+        (4, "day_state"),
     ]
     conn1.close()
     conn2 = open_run_db(path)
@@ -50,6 +51,34 @@ def test_initialize_run_end_to_end(tmp_path):
     assert canonical == cfg.canonical_bytes.decode()
     count = conn.execute("SELECT COUNT(*) c FROM _visibility_registry").fetchone()["c"]
     assert count == len(FIELD_REGISTRY)
+
+
+def test_initialize_run_audits_every_consumed_draw(tmp_path):
+    cfg = _cfg()
+    initialize_run(
+        tmp_path / "audited.db", master_seed=11, config=cfg, artifact_dir=GEO_ARTIFACT_DIR
+    )
+    conn = open_run_db(tmp_path / "audited.db", artifact_dir=GEO_ARTIFACT_DIR)
+    register_conn(conn)
+    audited = conn.execute(
+        "SELECT stream_name, entity_type, entity_id, event_kind, draw_index "
+        "FROM _random_audit WHERE event_kind='sequential' ORDER BY seq"
+    ).fetchall()
+    assert audited
+    per_stream: dict[str, list[int]] = {}
+    for row in audited:
+        assert row["entity_type"] == "run"
+        assert row["entity_id"] == 1
+        per_stream.setdefault(row["stream_name"], []).append(row["draw_index"])
+    counters = {
+        row["stream_name"]: row["counter"]
+        for row in conn.execute("SELECT stream_name, counter FROM _rng_state")
+        if row["counter"] > 0
+    }
+    assert per_stream == {
+        name: list(range(counter)) for name, counter in counters.items()
+    }
+    assert "weather_process" in per_stream
 
 
 def test_initialize_run_uses_explicit_run_id(tmp_path):

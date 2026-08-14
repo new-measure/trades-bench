@@ -10,7 +10,7 @@ from csr_bench.enums import LedgerCategory, RunStatus
 from csr_bench.errors import EngineError, ErrorCode
 from csr_bench.ledger import Ledger, LedgerEntry
 from csr_bench.migrations import migrate
-from csr_bench.rng import Rng
+from csr_bench.rng import Rng, sqlite_audit_recorder
 from csr_bench.txn import (
     PRIVILEGED_NAMESPACE,
     PUBLIC_NAMESPACE,
@@ -20,26 +20,6 @@ from csr_bench.txn import (
     privileged,
     privileged_request_id,
 )
-
-
-def _audit_recorder(conn):
-    def rec(**kw):
-        conn.execute(
-            "INSERT INTO _random_audit(stream_name, entity_type, entity_id, "
-            "scope, event_kind, draw_index, outcome_id, simulated_ts_ms) "
-            "VALUES (?,?,?,?,?,?,?,0)",
-            (
-                kw["stream_name"],
-                kw["entity_type"],
-                kw["entity_id"],
-                kw["scope"],
-                kw["event_kind"],
-                kw["draw_index"],
-                kw.get("outcome_id"),
-            ),
-        )
-
-    return rec
 
 
 class FakeInvocations:
@@ -74,7 +54,7 @@ def _services(*, active_invocation=False, status=RunStatus.ACTIVE, with_ledger=T
         status=status,
     )
     conn.execute("COMMIT")
-    rng = Rng(42, "1.0.0", audit_recorder=_audit_recorder(conn), conn=conn)
+    rng = Rng(42, "1.0.0", audit_recorder=sqlite_audit_recorder(conn), conn=conn)
     ledger = Ledger(conn) if with_ledger else None
     inv = FakeInvocations(conn)
     if active_invocation:
@@ -139,7 +119,7 @@ def test_command_fails_without_active_invocation():
 
     def fn(ctx):
         drew["n"] += 1
-        ctx.rng.draw("acceptance", "contract_test_entity", 1, "2026-10-01", "k", 0)
+        ctx.rng.draw("acceptance", "customer", 1, "2026-10-01", "k", 0)
         return {}
 
     r = command(sv, "req.2", fn)
@@ -154,7 +134,7 @@ def test_successful_command_idempotent_byte_for_byte_no_duplicates():
     def fn(ctx):
         ledger_calls["n"] += 1
         ctx.rng.draw(
-            "acceptance", "contract_test_entity", 7, "2026-10-01", "k", 0, outcome_id="call_42"
+            "acceptance", "customer", 7, "2026-10-01", "k", 0, outcome_id="call_42"
         )
         ctx.services.ledger.post(
             [
@@ -182,7 +162,7 @@ def test_failed_command_is_idempotent_and_rolls_back_draws_and_writes():
 
     def fn(ctx):
         runs["n"] += 1
-        ctx.rng.draw("acceptance", "contract_test_entity", 7, "2026-10-01", "k", 0)
+        ctx.rng.draw("acceptance", "customer", 7, "2026-10-01", "k", 0)
         ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1, 0)])
         raise EngineError(ErrorCode.INSUFFICIENT_CASH, "not enough")
 
@@ -234,7 +214,7 @@ def test_unexpected_exception_returns_structured_error_and_rolls_back():
 
     def fn(ctx):
         calls["n"] += 1
-        ctx.rng.draw("acceptance", "contract_test_entity", 9, "2026-10-01", "k", 0)
+        ctx.rng.draw("acceptance", "customer", 9, "2026-10-01", "k", 0)
         ctx.services.ledger.post([LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1, 0)])
         raise RuntimeError("adapter bug")
 

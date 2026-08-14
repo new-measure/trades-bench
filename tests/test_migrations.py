@@ -38,10 +38,12 @@ def _table_names(conn) -> set[str]:
 def test_applies_baseline_from_package_and_reapply_is_noop(conn):
     assert migrate(conn) == [
         "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
+        "0004_day_state",
     ]
     assert migrate(conn) == []
     assert applied_versions(conn) == [
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
+        (4, "day_state"),
     ]
     assert {
         "_run", "_customers", "_ledger_entries", "_clock", "_routing_anchors",
@@ -62,6 +64,7 @@ def test_tampered_checksum_aborts(conn, tmp_path):
     assert ei.value.code is ErrorCode.MIGRATION_CHECKSUM_MISMATCH
     assert applied_versions(conn) == [
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
+        (4, "day_state"),
     ]
 
 
@@ -78,13 +81,14 @@ def test_custom_path_applies(conn, tmp_path):
     dst = _copy_schema_dir(tmp_path)
     assert migrate(conn, migrations_path=dst) == [
         "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
+        "0004_day_state",
     ]
     assert "_customers" in _table_names(conn)
 
 
 def test_apply_is_atomic_on_failure(conn, tmp_path):
     dst = _copy_schema_dir(tmp_path)
-    (dst / "0004_break.sql").write_text(
+    (dst / "0005_break.sql").write_text(
         "CREATE TABLE _break_table (id INTEGER PRIMARY KEY);\n"
         "THIS IS NOT VALID SQL;\n"
     )
@@ -93,6 +97,7 @@ def test_apply_is_atomic_on_failure(conn, tmp_path):
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
     assert applied_versions(conn) == [
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
+        (4, "day_state"),
     ]
     assert "_break_table" not in _table_names(conn)
 
@@ -112,12 +117,13 @@ def test_migrations_path_missing_raises(conn, tmp_path):
 
 def test_non_utf8_migration_file_raises_structured_error(conn, tmp_path):
     dst = _copy_schema_dir(tmp_path)
-    (dst / "0004_bad.sql").write_bytes(b"CREATE TABLE _t (x);\n-- \xff\xfe latin\n")
+    (dst / "0005_bad.sql").write_bytes(b"CREATE TABLE _t (x);\n-- \xff\xfe latin\n")
     with pytest.raises(EngineError) as ei:
         migrate(conn, migrations_path=dst)
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
     assert applied_versions(conn) == [
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
+        (4, "day_state"),
     ]
     assert "_t" not in _table_names(conn)
 
@@ -131,6 +137,7 @@ def test_migrate_refuses_with_open_transaction(conn):
     conn.execute("ROLLBACK")
     assert migrate(conn) == [
         "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
+        "0004_day_state",
     ]
 
 

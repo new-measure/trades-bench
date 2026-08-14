@@ -64,7 +64,7 @@ def test_world_event_cannot_commit_while_invocation_active():
     conn, rid, sv, ledger, events, rng = make_services()
     conn.execute("BEGIN")
     rng.enter_txn()
-    eid = events.schedule(EventKind.CONTRACT_TEST_EVENT, 50, 0)
+    eid = events.schedule(EventKind.BLOCK_LOCK, 50)
     rng.exit_txn()
     conn.execute("COMMIT")
     sv.invocations.open(InvocationType.OPENING, 60, services=sv)

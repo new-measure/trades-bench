@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import functools
 import json
-import sqlite3
 from pathlib import Path
 
 from csr_bench.config import RunConfig, load_run_config
@@ -13,7 +12,7 @@ from csr_bench.geo_artifact import canonical_artifact_sha256
 from csr_bench.invocations import Invocations
 from csr_bench.ledger import Ledger
 from csr_bench.migrations import migrate
-from csr_bench.rng import Rng
+from csr_bench.rng import Rng, sqlite_audit_recorder
 from csr_bench.txn import Services
 
 _OPEN_CONNS: list = []
@@ -50,27 +49,6 @@ def register_conn(conn) -> None:
     _OPEN_CONNS.append(conn)
 
 
-def audit_recorder(conn: sqlite3.Connection):
-
-    def rec(**kw):
-        conn.execute(
-            "INSERT INTO _random_audit(stream_name, entity_type, entity_id, scope, "
-            "event_kind, draw_index, outcome_id, simulated_ts_ms) "
-            "VALUES (?,?,?,?,?,?,?,0)",
-            (
-                kw["stream_name"],
-                kw["entity_type"],
-                kw["entity_id"],
-                kw["scope"],
-                kw["event_kind"],
-                kw["draw_index"],
-                kw.get("outcome_id"),
-            ),
-        )
-
-    return rec
-
-
 def make_services(
     *,
     active_invocation: bool = False,
@@ -96,7 +74,7 @@ def make_services(
         status=status,
     )
     conn.execute("COMMIT")
-    rng = Rng(master_seed, "1.0.0", audit_recorder=audit_recorder(conn), conn=conn)
+    rng = Rng(master_seed, "1.0.0", audit_recorder=sqlite_audit_recorder(conn), conn=conn)
     ledger = Ledger(conn)
     events = Events(conn, rng)
     inv = Invocations(conn)
