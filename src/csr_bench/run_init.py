@@ -18,8 +18,9 @@ from . import (
     weather,
 )
 from .config import RunConfig
-from .enums import RunStatus
+from .enums import EventKind, RunStatus
 from .errors import EngineError, ErrorCode
+from .events import Events
 from .ledger import Ledger
 from .rng import Rng, sqlite_audit_recorder
 
@@ -91,6 +92,29 @@ def _abort_failed(conn: sqlite3.Connection | None, run_id: str) -> None:
         conn.close()
     except Exception:
         pass
+
+
+def _schedule_first_rollover(
+    conn: sqlite3.Connection, master_seed: int, start_at_ms: int
+) -> None:
+    rng = Rng(
+        int(master_seed),
+        SPEC_VERSION,
+        audit_recorder=sqlite_audit_recorder(conn),
+        conn=conn,
+    )
+    db.begin(conn)
+    rng.enter_txn()
+    try:
+        Events(conn, rng).schedule(EventKind.DAY_ROLLOVER, start_at_ms)
+    except Exception:
+        rng.exit_txn()
+        if conn.in_transaction:
+            db.rollback(conn)
+        raise
+    else:
+        rng.exit_txn()
+        db.commit(conn)
 
 
 def boundary_check(conn: sqlite3.Connection, config: RunConfig) -> None:
@@ -278,6 +302,7 @@ def initialize_run(
             created_at=start_at_ms,
         )
         demand.initialize_state(conn, config, created_at=start_at_ms)
+        _schedule_first_rollover(conn, master_seed, start_at_ms)
         boundary_check(conn, config)
         db.set_run_status(conn, run_id, RunStatus.ACTIVE)
         conn.close()

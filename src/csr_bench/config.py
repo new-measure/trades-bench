@@ -65,6 +65,16 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
     ),
     (
+        "finance.daily_operating_overhead",
+        "cost",
+        30_000,
+        {
+            "deferred": "provisional",
+            "description": "Aggregate daily operating overhead (integer cents) posted by every "
+            "daily settlement, with no internal vendor breakdown.",
+        },
+    ),
+    (
         "hiring.base_hourly_wage_by_trade",
         "cost_map",
         {"hvac_service": 3500, "hvac_install": 4000, "plumbing": 3200, "electrical": 3400},
