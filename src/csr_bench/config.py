@@ -27,7 +27,6 @@ class KeySpec:
     path: str
     type: str
     default: Any
-    owning_spec: str
     constant: bool = False
     deferred: str | None = None
     min: int | None = None
@@ -42,10 +41,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         "date_string",
         "2026-10-01",
         {
-            "owning_spec": "01-run-contracts.md",
-            "description": "First service date of the run calendar; must fall strictly "
-            "after constants.warm_start_end so the warm-start boundary stays clean "
-            "(spec 02 §8.5).",
+            "description": "First service date of the run calendar; must fall strictly after "
+            "constants.warm_start_end so the warm-start boundary stays clean.",
         },
     ),
     (
@@ -53,7 +50,6 @@ _DOMAIN_ENTRIES: list[Any] = [
         "date_string",
         "2026-10-14",
         {
-            "owning_spec": "01-run-contracts.md",
             "description": "Last service date of the run calendar; must not precede "
             "run.start_date. Default is a two-week run.",
         },
@@ -64,9 +60,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         20_000_000,
         {
             "deferred": "provisional",
-            "owning_spec": "02-data-and-initial-state.md",
-            "description": "Starting cash (integer cents) the warm-start opening "
-            "adjustment pins the ledger to (spec 02 §8).",
+            "description": "Starting cash (integer cents) the warm-start opening adjustment pins "
+            "the ledger to.",
         },
     ),
     (
@@ -75,9 +70,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {"hvac_service": 3500, "hvac_install": 4000, "plumbing": 3200, "electrical": 3400},
         {
             "deferred": "provisional",
-            "owning_spec": "04-workforce-and-labor.md",
-            "description": "Base hourly wage in cents/hour per qualification code "
-            "(spec 04 §14, hiring section).",
+            "description": "Base hourly wage in cents/hour per qualification code.",
         },
     ),
     (
@@ -85,9 +78,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         "string",
         "arizona-v1",
         {
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Identity of the packaged geography artifact (03 §1.2, §13); "
-            "pinned by CSR-003g.",
+            "description": "Identity of the packaged geography artifact.",
         },
     ),
     (
@@ -95,9 +86,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         "string",
         "5e526973b9a2b58641102bba760daa0b8b8b06701bc9264106e5c156cc0b92ec",
         {
-            "owning_spec": "03-geography-and-scheduling.md",
             "description": "SHA-256 of the packaged geography artifact, verified at run "
-            "initialization (03 §1.2, §13); pinned by CSR-003g.",
+            "initialization.",
         },
     ),
     (
@@ -107,8 +97,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Floor on usable catalog rows, PERF-05 (03 §3.2, §13).",
+            "description": "Floor on usable catalog rows.",
         },
     ),
     (
@@ -117,9 +106,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("3.0"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Multiplier over projected annual distinct new-caller "
-            "addresses (03 §3.2, §13).",
+            "description": "Multiplier over projected annual distinct new-caller addresses.",
         },
     ),
     (
@@ -129,8 +116,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Per-zone usable-address floor (03 §3.2, §13).",
+            "description": "Per-zone usable-address floor.",
         },
     ),
     (
@@ -140,8 +126,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Per-zone, per-segment usable-address floor (03 §3.2, §13).",
+            "description": "Per-zone, per-segment usable-address floor.",
         },
     ),
     (
@@ -151,8 +136,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Outlying-ring usable-address floor (03 §3.2, §13).",
+            "description": "Outlying-ring usable-address floor.",
         },
     ),
     (
@@ -161,8 +145,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("15.0"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Crop buffer beyond the service core (03 §1.1, §13).",
+            "description": "Crop buffer beyond the service core.",
         },
     ),
     (
@@ -172,9 +155,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Address to road-network snap tolerance (research/osm-data.md "
-            "§4.8, 03 §13).",
+            "description": "Address to road-network snap tolerance.",
         },
     ),
     (
@@ -183,9 +164,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("10.0"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Coordinate-proximity dedupe radius (research/osm-data.md §4.4, "
-            "03 §13).",
+            "description": "Coordinate-proximity dedupe radius.",
         },
     ),
     (
@@ -194,8 +173,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.5"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Floor on any route distance (03 §4.2, §13).",
+            "description": "Floor on any route distance.",
         },
     ),
     (
@@ -204,8 +182,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("1.3"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Same-anchor distance factor (03 §4.2, §13).",
+            "description": "Same-anchor distance factor.",
         },
     ),
     (
@@ -214,9 +191,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("10.0"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Packaging accuracy gate versus exact routed distances, median "
-            "(03 §4.2, §13; research/osm-data.md §5.3).",
+            "description": "Packaging accuracy gate versus exact routed distances, median.",
         },
     ),
     (
@@ -225,9 +200,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("25.0"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Packaging accuracy gate versus exact routed distances, p95 "
-            "(03 §4.2, §13; research/osm-data.md §5.3).",
+            "description": "Packaging accuracy gate versus exact routed distances, p95.",
         },
     ),
     (
@@ -237,9 +210,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 1,
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Quantization of the public live-location row (03 §9.2, §13). "
-            "min=1: this is a divisor in the §9.2 quantization, so 0 would divide by zero.",
+            "description": "Quantization of the public live-location row. min=1: this is a divisor "
+            "in the quantization, so 0 would divide by zero.",
         },
     ),
     (
@@ -255,8 +227,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         ],
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Ordered contiguous partition of [00:00, 24:00) (03 §5.1, §13).",
+            "description": "Ordered contiguous partition of [00:00, 24:00).",
         },
     ),
     (
@@ -282,8 +253,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "km/h by day_type x band (03 §5.1, §13).",
+            "description": "km/h by day_type x band.",
         },
     ),
     (
@@ -300,9 +270,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Multiplier by 05's closed condition_code enum; total over every "
-            "member (03 §5.1, §13; decision 9).",
+            "description": "Multiplier by the closed condition_code enum; total over every member.",
         },
     ),
     (
@@ -311,8 +279,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.15"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Log-normal shape, median 1 (03 §5.1, §13).",
+            "description": "Log-normal shape, median 1.",
         },
     ),
     (
@@ -321,8 +288,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.75"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Noise clamp floor, strictly positive (03 §5.1, §13, §631).",
+            "description": "Noise clamp floor, strictly positive.",
         },
     ),
     (
@@ -331,8 +297,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("1.50"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Noise clamp ceiling (03 §5.1, §13, §631).",
+            "description": "Noise clamp ceiling.",
         },
     ),
     (
@@ -342,8 +307,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Floor on any realized trip (03 §5.1, §13).",
+            "description": "Floor on any realized trip.",
         },
     ),
     (
@@ -353,8 +317,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Floor on realized service duration (03 §10.4, §13).",
+            "description": "Floor on realized service duration.",
         },
     ),
     (
@@ -363,8 +326,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.25"),
         {
             "deferred": "provisional",
-            "owning_spec": "03-geography-and-scheduling.md",
-            "description": "Floor on the 06-owned duration multiplier (03 §10.4, §13).",
+            "description": "Floor on the duration multiplier.",
         },
     ),
     (
@@ -373,9 +335,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         "2026-04-01",
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Start of the once-at-init realized-weather precompute span; "
-            "must equal constants.warm_start_start (05 §2.1, §16.1).",
+            "description": "Start of the once-at-init realized-weather precompute span; must equal "
+            "constants.warm_start_start.",
         },
     ),
     (
@@ -384,9 +345,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         "2026-10-21",
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "End of the once-at-init realized-weather precompute span; "
-            "must reach run.end_date + weather.forecast_max_horizon_days (05 §2.1, §16.1).",
+            "description": "End of the once-at-init realized-weather precompute span; must reach "
+            "run.end_date + weather.forecast_max_horizon_days.",
         },
     ),
     (
@@ -395,8 +355,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         87,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Metro seasonal-term mean daily high, °F (05 §2.2, §16.1).",
+            "description": "Metro seasonal-term mean daily high, °F.",
         },
     ),
     (
@@ -405,9 +364,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {"min": 18, "max": 22},
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Per-run draw range for the seasonal amplitude `A` (05 §2.2, "
-            "§11, §16.1).",
+            "description": "Per-run draw range for the seasonal amplitude `A`.",
         },
     ),
     (
@@ -416,9 +373,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {"min": 88, "max": 102},
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Per-run draw range for the seasonal phase shift `φ`, in days "
-            "(05 §2.2, §11, §16.1).",
+            "description": "Per-run draw range for the seasonal phase shift `φ`, in days.",
         },
     ),
     (
@@ -427,9 +382,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("3.5"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Standard deviation of the daily mean-reverting noise term "
-            "ε(d), °F (05 §2.2, §16.1, §16.6).",
+            "description": "Standard deviation of the daily mean-reverting noise term ε(d), °F.",
         },
     ),
     (
@@ -438,9 +391,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.7"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Day-over-day mean-reversion coefficient of the noise process "
-            "x(d) (05 §2.2, §16.1).",
+            "description": "Day-over-day mean-reversion coefficient of the noise process x(d).",
         },
     ),
     (
@@ -450,9 +401,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "length": 10,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Per-zone additive offset to the metro daily high, °F, one "
-            "entry per constants.zone_names ordinal (05 §2.2, §16.1, §16.6).",
+            "description": "Per-zone additive offset to the metro daily high, °F, one entry per "
+            "constants.zone_names ordinal.",
         },
     ),
     (
@@ -461,8 +411,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         25,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "high_f minus low_f for every zone-day (05 §2.2, §16.1, §16.6).",
+            "description": "high_f minus low_f for every zone-day.",
         },
     ),
     (
@@ -471,9 +420,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         "06-15",
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "First MM-DD of the elevated in-window storm-onset probability "
-            "(05 §2.2, §16.1, §16.6).",
+            "description": "First MM-DD of the elevated in-window storm-onset probability.",
         },
     ),
     (
@@ -482,9 +429,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         "09-30",
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Last MM-DD of the elevated in-window storm-onset probability "
-            "(05 §2.2, §16.1, §16.6).",
+            "description": "Last MM-DD of the elevated in-window storm-onset probability.",
         },
     ),
     (
@@ -493,9 +438,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.20"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Daily storm onset probability inside the monsoon window "
-            "(05 §2.2, §16.1).",
+            "description": "Daily storm onset probability inside the monsoon window.",
         },
     ),
     (
@@ -504,9 +447,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.03"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Daily storm onset probability outside the monsoon window "
-            "(05 §2.2, §16.1).",
+            "description": "Daily storm onset probability outside the monsoon window.",
         },
     ),
     (
@@ -515,9 +456,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.6"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Weight of the shared metro storm driver in each zone's storm "
-            "process (05 §2.2, §16.1).",
+            "description": "Weight of the shared metro storm driver in each zone's storm process.",
         },
     ),
     (
@@ -526,9 +465,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.3"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Day-to-day persistence of a zone's storm state (05 §2.2, "
-            "§16.1).",
+            "description": "Day-to-day persistence of a zone's storm state.",
         },
     ),
     (
@@ -537,9 +474,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {"min": Decimal("0.2"), "max": Decimal("1.0")},
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Numeric range storm_severity is drawn from on a storm day "
-            "(05 §2.2, §16.1, §16.6).",
+            "description": "Numeric range storm_severity is drawn from on a storm day.",
         },
     ),
     (
@@ -552,9 +487,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         ],
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Named bands partitioning weather.storm_severity_range exactly; "
-            "names the public severity_band field (05 §2.2, §16.1, §16.6).",
+            "description": "Named bands partitioning weather.storm_severity_range exactly; names "
+            "the public severity_band field.",
         },
     ),
     (
@@ -564,9 +498,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Realized precipitation_mm keyed by storm severity band, plus "
-            "'none' (05 §2.2, §16.1, §16.6).",
+            "description": "Realized precipitation_mm keyed by storm severity band, plus 'none'.",
         },
     ),
     (
@@ -576,9 +508,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Realized wind_mph keyed by storm severity band, plus 'none' "
-            "(05 §2.2, §16.1, §16.6).",
+            "description": "Realized wind_mph keyed by storm severity band, plus 'none'.",
         },
     ),
     (
@@ -593,9 +523,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Thresholds the engine uses to derive the closed condition_code "
-            "enum from the stored numeric fields (05 §2.2, §16.1).",
+            "description": "Thresholds the engine uses to derive the closed condition_code enum "
+            "from the stored numeric fields.",
         },
     ),
     (
@@ -612,9 +541,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Public precipitation_probability keyed by condition_code; "
-            "Must cover the ConditionCode enum exactly (05 §2.2, §16.1, §16.6).",
+            "description": "Public precipitation_probability keyed by condition_code; Must cover "
+            "the ConditionCode enum exactly.",
         },
     ),
     (
@@ -623,9 +551,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         365,
         {
             "constant": True,
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Calendar year length of the seasonal term; a normative "
-            "constant, not scenario-tunable (05 §2.2, §16.5).",
+            "description": "Calendar year length of the seasonal term; a normative constant, not "
+            "scenario-tunable.",
         },
     ),
     (
@@ -634,9 +561,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         7,
         {
             "constant": True,
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Furthest date weather.get accepts beyond today; a normative "
-            "constant, not scenario-tunable (05 §2.3, §16.5).",
+            "description": "Furthest date weather.get accepts beyond today; a normative constant, "
+            "not scenario-tunable.",
         },
     ),
     (
@@ -647,9 +573,8 @@ _DOMAIN_ENTRIES: list[Any] = [
             "length": 8,
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
             "description": "Forecast temperature-noise scale by horizon day 0..7; must be "
-            "nondecreasing with [0] == 0 (05 §2.4, §16.1, §16.6).",
+            "nondecreasing with [0] == 0.",
         },
     ),
     (
@@ -668,9 +593,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "length": 8,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Forecast storm-flip Bernoulli probability by horizon day 0..7; "
-            "must be nondecreasing with [0] == 0 (05 §2.4, §16.1, §16.6).",
+            "description": "Forecast storm-flip Bernoulli probability by horizon day 0..7; must be "
+            "nondecreasing with [0] == 0.",
         },
     ),
     (
@@ -679,9 +603,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         10,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Metro-wide base new-caller Poisson rate before multipliers "
-            "(05 §3.2, §16.2, §16.6).",
+            "description": "Metro-wide base new-caller Poisson rate before multipliers.",
         },
     ),
     (
@@ -703,9 +625,8 @@ _DOMAIN_ENTRIES: list[Any] = [
             "length": 10,
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
             "description": "Per-zone share of new-caller volume, one entry per "
-            "constants.zone_names ordinal (05 §3.2, §16.2, §16.6).",
+            "constants.zone_names ordinal.",
         },
     ),
     (
@@ -715,9 +636,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "New-caller segment mix at generation (05 §4.1, §5.2, §16.2, "
-            "§16.6).",
+            "description": "New-caller segment mix at generation.",
         },
     ),
     (
@@ -763,10 +682,9 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Relative requested-category weight per segment, over the full "
-            "catalog; unsupported and supported are separate relative-weight groups split "
-            "by demand.unsupported_category_share (05 §4.2, §5.2, §16.2, §16.6).",
+            "description": "Relative requested-category weight per segment, over the full catalog; "
+            "unsupported and supported are separate relative-weight groups split by "
+            "demand.unsupported_category_share.",
         },
     ),
     (
@@ -775,9 +693,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.12"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Share of new-caller requests drawn from the unsupported "
-            "category group (05 §4.2, §5.2, §16.2).",
+            "description": "Share of new-caller requests drawn from the unsupported category "
+            "group.",
         },
     ),
     (
@@ -796,19 +713,16 @@ _DOMAIN_ENTRIES: list[Any] = [
             "length": 7,
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
             "description": "Day-of-week multiplier on new-caller and repeat-call volume, "
-            "Monday..Sunday (05 §3.2, §3.4, §16.2).",
+            "Monday..Sunday.",
         },
     ),
     (
         "demand.service_catalog_version",
         "string",
-        "catalog-v1",
+        "1.0.0",
         {
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Version tag of the fixed requested-category catalog (05 §4.2, "
-            "§16.2).",
+            "description": "Version tag of the fixed requested-category catalog.",
         },
     ),
     (
@@ -823,8 +737,7 @@ _DOMAIN_ENTRIES: list[Any] = [
             "Landscaping",
         ],
         {
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Named unsupported catalog categories (05 §4.2, §16.2).",
+            "description": "Named unsupported catalog categories.",
         },
     ),
     (
@@ -833,9 +746,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.03"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Probability a new-caller address draw comes from the outlying "
-            "pool rather than the in-zone pool (05 §5.2, §16.2, §16.6).",
+            "description": "Probability a new-caller address draw comes from the outlying pool "
+            "rather than the in-zone pool.",
         },
     ),
     (
@@ -844,9 +756,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         85,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "high_f above which the heat demand term activates (05 §3.3, "
-            "§16.2).",
+            "description": "high_f above which the heat demand term activates.",
         },
     ),
     (
@@ -855,9 +765,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         45,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "low_f below which the cold demand term activates (05 §3.3, "
-            "§16.2).",
+            "description": "low_f below which the cold demand term activates.",
         },
     ),
     (
@@ -866,9 +774,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         20,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "°F per unit of heat/cold sensitivity; not a normative constant "
-            "(05 §3.3, §16.2, §16.5, §16.6).",
+            "description": "°F per unit of heat/cold sensitivity; not a normative constant.",
         },
     ),
     (
@@ -883,9 +789,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
             "description": "Per-category heat_term coefficient, over the four supported "
-            "categories (05 §3.3, §16.2, §16.6).",
+            "categories.",
         },
     ),
     (
@@ -900,9 +805,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
             "description": "Per-category cold_term coefficient, over the four supported "
-            "categories (05 §3.3, §16.2, §16.6).",
+            "categories.",
         },
     ),
     (
@@ -917,9 +821,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
             "description": "Per-category storm_term coefficient, over the four supported "
-            "categories (05 §3.3, §16.2, §16.6).",
+            "categories.",
         },
     ),
     (
@@ -928,8 +831,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.5"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Clamp floor of M_weather(z,d,c) (05 §3.3, §16.2, §16.6).",
+            "description": "Clamp floor of M_weather(z,d,c).",
         },
     ),
     (
@@ -938,8 +840,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         3,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Clamp ceiling of M_weather(z,d,c) (05 §3.3, §16.2, §16.6).",
+            "description": "Clamp ceiling of M_weather(z,d,c).",
         },
     ),
     (
@@ -948,8 +849,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("4.2"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Star average at which M_reputation is 1 (05 §3.3, §16.2).",
+            "description": "Star average at which M_reputation is 1.",
         },
     ),
     (
@@ -958,9 +858,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.25"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Coefficient of (public_star_average - neutral_stars) in "
-            "M_reputation (05 §3.3, §16.2).",
+            "description": "Coefficient of (public_star_average - neutral_stars) in M_reputation.",
         },
     ),
     (
@@ -970,9 +868,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 1,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Trailing window over published reviews for "
-            "public_star_average (05 §3.3, §16.2, §16.6).",
+            "description": "Trailing window over published reviews for public_star_average.",
         },
     ),
     (
@@ -981,8 +877,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.6"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Clamp floor of M_reputation (05 §3.3, §16.2, §16.6).",
+            "description": "Clamp floor of M_reputation.",
         },
     ),
     (
@@ -991,8 +886,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("1.15"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Clamp ceiling of M_reputation (05 §3.3, §16.2, §16.6).",
+            "description": "Clamp ceiling of M_reputation.",
         },
     ),
     (
@@ -1001,9 +895,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.5"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Coefficient of the segment-weighted wom sum in "
-            "M_word_of_mouth (05 §3.3, §16.2).",
+            "description": "Coefficient of the segment-weighted wom sum in M_word_of_mouth.",
         },
     ),
     (
@@ -1012,9 +904,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.1"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Sole smoothing/mean-reversion rate of the per-segment wom "
-            "state update (05 §3.3, §16.2).",
+            "description": "Sole smoothing/mean-reversion rate of the per-segment wom state "
+            "update.",
         },
     ),
     (
@@ -1023,9 +914,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         1,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Weight `w` applied when a terminal appointment's satisfaction "
-            "delta δ ≥ 0 (05 §3.3, §16.2, §16.6).",
+            "description": "Weight `w` applied when a terminal appointment's satisfaction delta δ "
+            "≥ 0.",
         },
     ),
     (
@@ -1034,9 +924,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         2,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Weight `w` applied when a terminal appointment's satisfaction "
-            "delta δ < 0; Must be ≥ the positive weight (05 §3.3, §16.2, §16.6).",
+            "description": "Weight `w` applied when a terminal appointment's satisfaction delta δ "
+            "< 0; Must be ≥ the positive weight.",
         },
     ),
     (
@@ -1050,9 +939,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Per-segment weight in the M_word_of_mouth sum; apartment Must "
-            "carry the largest weight (05 §3.3, §16.2, §16.6).",
+            "description": "Per-segment weight in the M_word_of_mouth sum; apartment Must carry "
+            "the largest weight.",
         },
     ),
     (
@@ -1061,8 +949,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.7"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Clamp floor of M_word_of_mouth (05 §3.3, §16.2, §16.6).",
+            "description": "Clamp floor of M_word_of_mouth.",
         },
     ),
     (
@@ -1071,8 +958,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("1.3"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Clamp ceiling of M_word_of_mouth (05 §3.3, §16.2, §16.6).",
+            "description": "Clamp ceiling of M_word_of_mouth.",
         },
     ),
     (
@@ -1083,9 +969,7 @@ _DOMAIN_ENTRIES: list[Any] = [
             "length": 12,
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Categorical weight per call hour 07..18; Must have a positive "
-            "sum (05 §5.3, §16.2, §16.6).",
+            "description": "Categorical weight per call hour 07..18; Must have a positive sum.",
         },
     ),
     (
@@ -1094,9 +978,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.10"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Base urgency probability for calls arriving before 17:00 "
-            "(05 §5.4, §16.2, §16.6).",
+            "description": "Base urgency probability for calls arriving before 17:00.",
         },
     ),
     (
@@ -1105,9 +987,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.30"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Base urgency probability for calls arriving at or after "
-            "17:00; Must be ≥ the office-hours base (05 §5.4, §16.2, §16.6).",
+            "description": "Base urgency probability for calls arriving at or after 17:00; Must be "
+            "≥ the office-hours base.",
         },
     ),
     (
@@ -1116,9 +997,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.15"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Coefficient of max(0, M_weather - 1) added to p_urgent "
-            "(05 §5.4, §16.2).",
+            "description": "Coefficient of max(0, M_weather - 1) added to p_urgent.",
         },
     ),
     (
@@ -1127,9 +1006,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.004"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
             "description": "Per-customer daily Bernoulli base rate before propensity and "
-            "multipliers (05 §3.4, §16.2).",
+            "multipliers.",
         },
     ),
     (
@@ -1143,9 +1021,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Initial repeat-call propensity at customer creation, by "
-            "segment (05 §6, §16.2, §16.6).",
+            "description": "Initial repeat-call propensity at customer creation, by segment.",
         },
     ),
     (
@@ -1154,9 +1030,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.7"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Multiplier applied to repeat propensity on every ordinary "
-            "rejection; Must lie strictly inside (0, 1) (05 §6, §8.3, §16.2, §16.6).",
+            "description": "Multiplier applied to repeat propensity on every ordinary rejection; "
+            "Must lie strictly inside (0, 1).",
         },
     ),
     (
@@ -1165,9 +1040,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.15"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Coefficient of the hidden satisfaction delta δ in the "
-            "outcome-driven propensity update (05 §6, §16.2).",
+            "description": "Coefficient of the hidden satisfaction delta δ in the outcome-driven "
+            "propensity update.",
         },
     ),
     (
@@ -1176,9 +1050,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.05"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Probability an existing-customer call requests a fresh "
-            "catalog address rather than a stored location (05 §5.2, §16.2).",
+            "description": "Probability an existing-customer call requests a fresh catalog address "
+            "rather than a stored location.",
         },
     ),
     (
@@ -1191,9 +1064,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Per-segment probability a customer gets more than one "
-            "location at generation (05 §4.3, §16.2, §16.6).",
+            "description": "Per-segment probability a customer gets more than one location at "
+            "generation.",
         },
     ),
     (
@@ -1202,9 +1074,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.10"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Probability a new-caller slot is flagged a returning "
-            "prospect, subject to a matching prospect existing (05 §5.2, §16.2).",
+            "description": "Probability a new-caller slot is flagged a returning prospect, subject "
+            "to a matching prospect existing.",
         },
     ),
     (
@@ -1213,8 +1084,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {"standard": Decimal("0.90"), "urgent": Decimal("0.95")},
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "`base` of p_accept by urgency class (05 §7.3, §16.3, §16.6).",
+            "description": "`base` of p_accept by urgency class.",
         },
     ),
     (
@@ -1224,9 +1094,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Exponential lead-time decay rate of p_accept by urgency class "
-            "(05 §7.3, §16.3, §16.6).",
+            "description": "Exponential lead-time decay rate of p_accept by urgency class.",
         },
     ),
     (
@@ -1235,9 +1103,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {"standard": Decimal("0.25"), "urgent": Decimal("0.05")},
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Floor of p_accept by urgency class; Must be ≤ base "
-            "(05 §7.3, §16.3, §16.6).",
+            "description": "Floor of p_accept by urgency class; Must be ≤ base.",
         },
     ),
     (
@@ -1246,8 +1112,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {"residential": Decimal("0.08"), "commercial": Decimal("0.05"), "apartment": Decimal("0.06")},
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Base p_cancel by customer segment (05 §9.1, §16.3, §16.6).",
+            "description": "Base p_cancel by customer segment.",
         },
     ),
     (
@@ -1257,9 +1122,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "p_cancel multiplier applied when the booking is urgent "
-            "(05 §9.1, §16.3).",
+            "description": "p_cancel multiplier applied when the booking is urgent.",
         },
     ),
     (
@@ -1269,9 +1132,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Coefficient of lead_days in the p_cancel linear term "
-            "(05 §9.1, §16.3).",
+            "description": "Coefficient of lead_days in the p_cancel linear term.",
         },
     ),
     (
@@ -1281,9 +1142,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "p_cancel multiplier applied when the service date is a storm "
-            "day at the location's effective zone (05 §9.1, §16.3).",
+            "description": "p_cancel multiplier applied when the service date is a storm day at "
+            "the location's effective zone.",
         },
     ),
     (
@@ -1293,9 +1153,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 15,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Minutes before scheduled_start after which no cancellation "
-            "arrival may be timestamped; Must be ≥ 15 (05 §9.2, §16.3).",
+            "description": "Minutes before scheduled_start after which no cancellation arrival may "
+            "be timestamped; Must be ≥ 15.",
         },
     ),
     (
@@ -1304,9 +1163,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.5"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Per-rejection Bernoulli probability of a competitor attempt "
-            "(05 §8.5, §16.3).",
+            "description": "Per-rejection Bernoulli probability of a competitor attempt.",
         },
     ),
     (
@@ -1315,9 +1172,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.65"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Given a competitor attempt, probability the customer is "
-            "served well (05 §8.5, §16.3).",
+            "description": "Given a competitor attempt, probability the customer is served well.",
         },
     ),
     (
@@ -1326,9 +1181,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.5"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Repeat-propensity multiplier when served well by a "
-            "competitor; Must lie strictly inside (0, 1) (05 §6, §8.5, §16.3, §16.6).",
+            "description": "Repeat-propensity multiplier when served well by a competitor; Must "
+            "lie strictly inside (0, 1).",
         },
     ),
     (
@@ -1338,9 +1192,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Additive competitor_share gain per successful capture "
-            "(05 §8.5, §16.3).",
+            "description": "Additive competitor_share gain per successful capture.",
         },
     ),
     (
@@ -1350,9 +1202,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Daily decay of competitor_share toward baseline when share "
-            "recovery is enabled (05 §8.5, §16.3).",
+            "description": "Daily decay of competitor_share toward baseline when share recovery is "
+            "enabled.",
         },
     ),
     (
@@ -1361,9 +1212,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         False,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
             "description": "Whether competitor_share decays toward baseline; default off, "
-            "erode-only (05 §8.5, §16.3).",
+            "erode-only.",
         },
     ),
     (
@@ -1373,9 +1223,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Coefficient of competitor_share in the M_competitor demand "
-            "erosion term (05 §3.3, §16.3).",
+            "description": "Coefficient of competitor_share in the M_competitor demand erosion "
+            "term.",
         },
     ),
     (
@@ -1384,9 +1233,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.7"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Clamp floor of M_competitor; Must lie in (0, 1] (05 §3.3, "
-            "§16.3, §16.6).",
+            "description": "Clamp floor of M_competitor; Must lie in (0, 1].",
         },
     ),
     (
@@ -1396,9 +1243,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "min": 0,
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Standard deviation of the per-date competitor_background "
-            "drift step (05 §8.5, §11, §16.3).",
+            "description": "Standard deviation of the per-date competitor_background drift step.",
         },
     ),
     (
@@ -1407,9 +1252,8 @@ _DOMAIN_ENTRIES: list[Any] = [
         Decimal("0.05"),
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Clamp floor of repeat-call propensity; Must be > 0 so no "
-            "customer is ever permanently lost (05 §6, §16.4, §16.6).",
+            "description": "Clamp floor of repeat-call propensity; Must be > 0 so no customer is "
+            "ever permanently lost.",
         },
     ),
     (
@@ -1418,8 +1262,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         3,
         {
             "deferred": "provisional",
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Clamp ceiling of repeat-call propensity (05 §6, §16.4, §16.6).",
+            "description": "Clamp ceiling of repeat-call propensity.",
         },
     ),
     (
@@ -1427,9 +1270,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         "string",
         "person-names-v1",
         {
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Version tag of the fixed person-name identity pool "
-            "(05 §4.4, §16.4).",
+            "description": "Version tag of the fixed person-name identity pool.",
         },
     ),
     (
@@ -1437,9 +1278,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         "string",
         "business-names-v1",
         {
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Version tag of the fixed business-name identity pool "
-            "(05 §4.4, §16.4).",
+            "description": "Version tag of the fixed business-name identity pool.",
         },
     ),
     (
@@ -1447,9 +1286,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         "string_list",
         ["480555", "602555", "623555"],
         {
-            "owning_spec": "05-customers-calls-and-demand.md",
-            "description": "Reserved fictional phone-number prefixes callers are drawn "
-            "from (05 §4.4, §16.4).",
+            "description": "Reserved fictional phone-number prefixes callers are drawn from.",
         },
     ),
 ]
@@ -1458,7 +1295,6 @@ _DOMAIN_ENTRIES: list[Any] = [
 def assemble_registry(
     *,
     extra_entries: list[Any] | None = None,
-    extra_owning_spec: str = "test",
 ) -> dict[str, KeySpec]:
     registry: dict[str, KeySpec] = {}
 
@@ -1471,11 +1307,6 @@ def assemble_registry(
                 path=path,
                 type=type_,
                 default=default,
-                owning_spec=(
-                    meta.get("owning_spec", extra_owning_spec)
-                    if isinstance(meta, dict)
-                    else extra_owning_spec
-                ),
                 constant=bool(meta.get("constant", False)) if isinstance(meta, dict) else False,
                 deferred=meta.get("deferred") if isinstance(meta, dict) else None,
                 min=meta.get("min") if isinstance(meta, dict) else None,
@@ -1484,26 +1315,12 @@ def assemble_registry(
                 description=meta.get("description", "") if isinstance(meta, dict) else "",
             )
         if spec.path in registry:
-            raise ValueError(
-                f"duplicate config key {spec.path!r} declared by "
-                f"{registry[spec.path].owning_spec} and {spec.owning_spec}"
-            )
+            raise ValueError(f"duplicate config key {spec.path!r}")
         registry[spec.path] = spec
 
     for entry in CONSTANT_ENTRIES:
         path, type_, default, meta = entry  # type: ignore[misc]
-        _add(
-            (
-                path,
-                type_,
-                default,
-                {
-                    **meta,
-                    "constant": True,
-                    "owning_spec": meta.get("owning_spec", "01-run-contracts.md"),
-                },
-            )
-        )
+        _add((path, type_, default, {**meta, "constant": True}))
 
     for entry in _DOMAIN_ENTRIES:
         _add(entry)
@@ -1938,9 +1755,9 @@ def _validate_noise_clamp(base: dict[str, Any]) -> None:
     lo = base["travel.noise.min_multiplier"]
     hi = base["travel.noise.max_multiplier"]
     if lo <= 0:
-        raise _bad(f"travel.noise.min_multiplier: {lo} must be strictly positive (03:631)")
+        raise _bad(f"travel.noise.min_multiplier: {lo} must be strictly positive")
     if lo > hi:
-        raise _bad(f"travel.noise.min_multiplier {lo} > travel.noise.max_multiplier {hi} (03:631)")
+        raise _bad(f"travel.noise.min_multiplier {lo} > travel.noise.max_multiplier {hi}")
 
 
 def _validate_speed_table_bands(base: dict[str, Any]) -> None:
@@ -1982,7 +1799,7 @@ def _validate_demand_urgency_ordering(base: dict[str, Any]) -> None:
     if after < office:
         raise _bad(
             f"demand.after_hours_urgent_probability {after} must be >= "
-            f"demand.office_hours_urgent_probability {office} (05 §5.4, §16.6)"
+            f"demand.office_hours_urgent_probability {office}"
         )
 
 
@@ -1990,13 +1807,13 @@ def _validate_repeat_propensity_bounds(base: dict[str, Any]) -> None:
     floor = base["customers.repeat_propensity_floor"]
     ceiling = base["customers.repeat_propensity_max"]
     if floor <= 0:
-        raise _bad(f"customers.repeat_propensity_floor {floor} must be > 0 (05 §6, §16.6)")
+        raise _bad(f"customers.repeat_propensity_floor {floor} must be > 0")
     for seg, val in base["demand.repeat_propensity_initial_by_segment"].items():
         if not (floor <= val <= ceiling):
             raise _bad(
                 f"demand.repeat_propensity_initial_by_segment[{seg}] {val} outside "
                 f"[customers.repeat_propensity_floor {floor}, "
-                f"customers.repeat_propensity_max {ceiling}] (05 §6, §16.6)"
+                f"customers.repeat_propensity_max {ceiling}]"
             )
 
 
@@ -2004,11 +1821,11 @@ def _validate_word_of_mouth_weight_ordering(base: dict[str, Any]) -> None:
     pos = base["demand.word_of_mouth_positive_weight"]
     neg = base["demand.word_of_mouth_negative_weight"]
     if pos <= 0:
-        raise _bad(f"demand.word_of_mouth_positive_weight {pos} must be > 0 (05 §3.3, §16.6)")
+        raise _bad(f"demand.word_of_mouth_positive_weight {pos} must be > 0")
     if neg < pos:
         raise _bad(
             f"demand.word_of_mouth_negative_weight {neg} must be >= "
-            f"demand.word_of_mouth_positive_weight {pos} (05 §3.3, §16.6)"
+            f"demand.word_of_mouth_positive_weight {pos}"
         )
 
 
@@ -2016,15 +1833,14 @@ def _validate_outlying_address_share(base: dict[str, Any]) -> None:
     share = base["demand.outlying_address_share"]
     if not (0 < share < 1):
         raise _bad(
-            f"demand.outlying_address_share {share} must lie strictly inside (0, 1) "
-            "(05 §5.2, §16.6)"
+            f"demand.outlying_address_share {share} must lie strictly inside (0, 1)"
         )
 
 
 def _validate_temperature_normalization(base: dict[str, Any]) -> None:
     v = base["demand.temperature_normalization_f"]
     if v <= 0:
-        raise _bad(f"demand.temperature_normalization_f {v} must be > 0 (05 §3.3, §16.6)")
+        raise _bad(f"demand.temperature_normalization_f {v} must be > 0")
 
 
 def _validate_forecast_arrays_nondecreasing(base: dict[str, Any]) -> None:
@@ -2034,12 +1850,12 @@ def _validate_forecast_arrays_nondecreasing(base: dict[str, Any]) -> None:
     ):
         arr = base[path]
         if arr[0] != 0:
-            raise _bad(f"{path}[0] must equal 0, got {arr[0]} (05 §2.4, §16.6)")
+            raise _bad(f"{path}[0] must equal 0, got {arr[0]}")
         for i in range(1, len(arr)):
             if arr[i] < arr[i - 1]:
                 raise _bad(
                     f"{path} must be nondecreasing in horizon; "
-                    f"[{i}]={arr[i]} < [{i - 1}]={arr[i - 1]} (05 §2.4, §16.6)"
+                    f"[{i}]={arr[i]} < [{i - 1}]={arr[i - 1]}"
                 )
 
 
@@ -2051,12 +1867,12 @@ def _validate_storm_severity_partition(base: dict[str, Any]) -> None:
     if first_lo != lo_range:
         raise _bad(
             f"weather.storm_severity_bands first lo {first_lo} != "
-            f"weather.storm_severity_range min {lo_range} (05 §2.2, §16.6)"
+            f"weather.storm_severity_range min {lo_range}"
         )
     if last_hi != hi_range:
         raise _bad(
             f"weather.storm_severity_bands last hi {last_hi} != "
-            f"weather.storm_severity_range max {hi_range} (05 §2.2, §16.6)"
+            f"weather.storm_severity_range max {hi_range}"
         )
 
 
@@ -2067,7 +1883,7 @@ def _validate_precipitation_probability_condition_coverage(base: dict[str, Any])
         raise _bad(
             "weather.precipitation_probability_by_condition must cover exactly the "
             f"ConditionCode enum; missing={sorted(expected - got)} "
-            f"extra={sorted(got - expected)} (05 §2.2, §16.6)"
+            f"extra={sorted(got - expected)}"
         )
 
 
@@ -2081,7 +1897,7 @@ def _validate_acceptance_maps(base: dict[str, Any]) -> None:
         if set(m.keys()) != _URGENCY_CLASSES:
             raise _bad(
                 f"{path} keys must be exactly {sorted(_URGENCY_CLASSES)}, got "
-                f"{sorted(m.keys())} (05 §7.3, §16.6)"
+                f"{sorted(m.keys())}"
             )
     base_map = maps["acceptance.base_probability_by_urgency"]
     floor_map = maps["acceptance.floor_probability_by_urgency"]
@@ -2089,7 +1905,7 @@ def _validate_acceptance_maps(base: dict[str, Any]) -> None:
         if floor_map[cls] > base_map[cls]:
             raise _bad(
                 f"acceptance.floor_probability_by_urgency[{cls}] {floor_map[cls]} > "
-                f"base {base_map[cls]} (05 §7.3, §16.6)"
+                f"base {base_map[cls]}"
             )
 
 
@@ -2100,7 +1916,7 @@ def _validate_unit_interval_strict_params(base: dict[str, Any]) -> None:
     ):
         v = base[path]
         if not (0 < v < 1):
-            raise _bad(f"{path} {v} must lie strictly inside (0, 1) (05 §6, §8.5, §16.6)")
+            raise _bad(f"{path} {v} must lie strictly inside (0, 1)")
 
 
 def _validate_zone_weights_length(base: dict[str, Any]) -> None:
@@ -2109,7 +1925,7 @@ def _validate_zone_weights_length(base: dict[str, Any]) -> None:
     if len(weights) != count:
         raise _bad(
             f"demand.zone_weights has {len(weights)} entries, expected "
-            f"constants.zone_count {count} (05 §16.6)"
+            f"constants.zone_count {count}"
         )
 
 
@@ -2118,7 +1934,7 @@ def _validate_category_and_segment_key_sets(base: dict[str, Any]) -> None:
     if set(category_weights.keys()) != _SEGMENTS:
         raise _bad(
             f"demand.category_weights outer keys must be exactly {sorted(_SEGMENTS)}, got "
-            f"{sorted(category_weights.keys())} (05 §16.6)"
+            f"{sorted(category_weights.keys())}"
         )
     expected_inner = _SUPPORTED_CATEGORY_SET | set(base["demand.unsupported_categories"])
     for seg, inner in category_weights.items():
@@ -2128,7 +1944,7 @@ def _validate_category_and_segment_key_sets(base: dict[str, Any]) -> None:
             raise _bad(
                 f"demand.category_weights[{seg}] keys must exactly match the supported "
                 f"categories plus demand.unsupported_categories; missing={sorted(missing)} "
-                f"extra={sorted(extra)} (05 §16.6)"
+                f"extra={sorted(extra)}"
             )
     for path in (
         "demand.segment_weights",
@@ -2139,10 +1955,7 @@ def _validate_category_and_segment_key_sets(base: dict[str, Any]) -> None:
     ):
         keys = set(base[path].keys())
         if keys != _SEGMENTS:
-            raise _bad(
-                f"{path} keys must be exactly {sorted(_SEGMENTS)}, got {sorted(keys)} "
-                "(05 §16.6)"
-            )
+            raise _bad(f"{path} keys must be exactly {sorted(_SEGMENTS)}, got {sorted(keys)}")
 
 
 def _validate_category_sensitivity_key_sets(base: dict[str, Any]) -> None:
@@ -2155,7 +1968,7 @@ def _validate_category_sensitivity_key_sets(base: dict[str, Any]) -> None:
         if keys != _SUPPORTED_CATEGORY_SET:
             raise _bad(
                 f"{path} keys must be exactly {sorted(_SUPPORTED_CATEGORY_SET)}, got "
-                f"{sorted(keys)} (05 §16.6)"
+                f"{sorted(keys)}"
             )
 
 
@@ -2167,7 +1980,7 @@ def _validate_severity_keyed_maps(base: dict[str, Any]) -> None:
         if keys != expected:
             raise _bad(
                 f"{path} keys must be exactly {{'none'}} plus weather.storm_severity_bands "
-                f"names; got {sorted(keys)}, expected {sorted(expected)} (05 §16.6)"
+                f"names; got {sorted(keys)}, expected {sorted(expected)}"
             )
 
 
@@ -2176,7 +1989,7 @@ def _validate_condition_code_threshold_keys(base: dict[str, Any]) -> None:
     if keys != _CONDITION_THRESHOLD_KEYS:
         raise _bad(
             "weather.condition_code_thresholds keys must be exactly "
-            f"{sorted(_CONDITION_THRESHOLD_KEYS)}, got {sorted(keys)} (05 §16.6)"
+            f"{sorted(_CONDITION_THRESHOLD_KEYS)}, got {sorted(keys)}"
         )
 
 
@@ -2185,24 +1998,23 @@ def _validate_min_max_pairs(base: dict[str, Any]) -> None:
     if lo <= 0 or lo > hi:
         raise _bad(
             f"demand.weather_multiplier_min {lo} must be > 0 and <= "
-            f"demand.weather_multiplier_max {hi} (05 §3.3, §16.6)"
+            f"demand.weather_multiplier_max {hi}"
         )
     lo, hi = base["demand.reputation_multiplier_min"], base["demand.reputation_multiplier_max"]
     if lo > hi:
         raise _bad(
-            f"demand.reputation_multiplier_min {lo} > "
-            f"demand.reputation_multiplier_max {hi} (05 §3.3, §16.6)"
+            f"demand.reputation_multiplier_min {lo} > demand.reputation_multiplier_max {hi}"
         )
     lo = base["demand.word_of_mouth_multiplier_min"]
     hi = base["demand.word_of_mouth_multiplier_max"]
     if lo > hi:
         raise _bad(
             f"demand.word_of_mouth_multiplier_min {lo} > "
-            f"demand.word_of_mouth_multiplier_max {hi} (05 §3.3, §16.6)"
+            f"demand.word_of_mouth_multiplier_max {hi}"
         )
     v = base["competitors.demand_multiplier_min"]
     if not (0 < v <= 1):
-        raise _bad(f"competitors.demand_multiplier_min {v} must lie in (0, 1] (05 §3.3, §16.6)")
+        raise _bad(f"competitors.demand_multiplier_min {v} must lie in (0, 1]")
 
 
 def _validate_weather_positive_scalars(base: dict[str, Any]) -> None:
@@ -2213,7 +2025,7 @@ def _validate_weather_positive_scalars(base: dict[str, Any]) -> None:
     ):
         v = base[path]
         if v <= 0:
-            raise _bad(f"{path} {v} must be strictly positive (05 §2.2, §3.2, §16.6)")
+            raise _bad(f"{path} {v} must be strictly positive")
 
 
 def _month_day_tuple(s: str) -> tuple[int, int]:
@@ -2227,7 +2039,7 @@ def _validate_monsoon_window_order(base: dict[str, Any]) -> None:
     if _month_day_tuple(start_s) > _month_day_tuple(end_s):
         raise _bad(
             f"weather.monsoon_window_start {start_s} must not fall after "
-            f"weather.monsoon_window_end {end_s} (05 §2.2, §16.6)"
+            f"weather.monsoon_window_end {end_s}"
         )
 
 
@@ -2237,7 +2049,7 @@ def _validate_weather_precompute_window(base: dict[str, Any]) -> None:
     if precompute_start != warm_start_start:
         raise _bad(
             f"weather.precompute_start_date {precompute_start} must equal "
-            f"constants.warm_start_start {warm_start_start} (05 §2.1, §16.6)"
+            f"constants.warm_start_start {warm_start_start}"
         )
     precompute_end = datetime.date.fromisoformat(base["weather.precompute_end_date"])
     run_end = datetime.date.fromisoformat(base["run.end_date"])
@@ -2246,18 +2058,14 @@ def _validate_weather_precompute_window(base: dict[str, Any]) -> None:
     if precompute_end < required_end:
         raise _bad(
             f"weather.precompute_end_date {precompute_end} must reach run.end_date "
-            f"{run_end} + weather.forecast_max_horizon_days {horizon} = {required_end} "
-            "(05 §2.1, §16.6)"
+            f"{run_end} + weather.forecast_max_horizon_days {horizon} = {required_end}"
         )
 
 
 def _validate_arrival_time_weights_positive_sum(base: dict[str, Any]) -> None:
     total = sum(base["demand.arrival_time_of_day_weights"])
     if total <= 0:
-        raise _bad(
-            f"demand.arrival_time_of_day_weights must have a positive sum, got {total} "
-            "(05 §5.3, §16.6)"
-        )
+        raise _bad(f"demand.arrival_time_of_day_weights must have a positive sum, got {total}")
 
 
 _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (

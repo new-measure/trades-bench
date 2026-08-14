@@ -21,6 +21,8 @@ _OPEN_CONNS: list = []
 GEO_ARTIFACT_DIR = Path(__file__).parent / "fixtures" / "geo" / "geography-tempe-fixture"
 GEO_ARTIFACT_ID = "tempe-fixture-v1"
 
+GEO_FIXTURE_ZONE_WEIGHTS = [0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
+
 
 @functools.lru_cache(maxsize=1)
 def geo_artifact_sha256() -> str:
@@ -30,7 +32,13 @@ def geo_artifact_sha256() -> str:
 def geo_scenario_json(*, artifact_id: str = GEO_ARTIFACT_ID, artifact_sha256: str | None = None) -> str:
     sha256 = artifact_sha256 if artifact_sha256 is not None else geo_artifact_sha256()
     return json.dumps(
-        {"keys": {"geography.artifact_id": artifact_id, "geography.artifact_sha256": sha256}}
+        {
+            "keys": {
+                "geography.artifact_id": artifact_id,
+                "geography.artifact_sha256": sha256,
+                "demand.zone_weights": GEO_FIXTURE_ZONE_WEIGHTS,
+            }
+        }
     )
 
 

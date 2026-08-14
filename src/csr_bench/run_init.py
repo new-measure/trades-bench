@@ -5,7 +5,18 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from . import SPEC_VERSION, clock, constants, db, geo_reader, migrations, views, warm_start, weather
+from . import (
+    SPEC_VERSION,
+    clock,
+    constants,
+    db,
+    demand,
+    geo_reader,
+    migrations,
+    views,
+    warm_start,
+    weather,
+)
 from .config import RunConfig
 from .enums import RunStatus
 from .errors import EngineError, ErrorCode
@@ -34,8 +45,7 @@ def _verify_stored_geography_artifact(
             ErrorCode.GEOGRAPHY_ARTIFACT_MISMATCH,
             "this database has a pinned geography.artifact_sha256 but open_run_db was "
             "not given an artifact_dir to re-verify it against — the hash Must be "
-            "re-checked at every open (spec 02 §2.6), so the check cannot be skipped "
-            "by omission",
+            "re-checked at every open, so the check cannot be skipped by omission",
             details={"expected_sha256": expected_sha256},
         )
     geo_reader.verify_artifact_sha256(artifact_dir, expected_sha256)
@@ -93,7 +103,7 @@ def boundary_check(conn: sqlite3.Connection, config: RunConfig) -> None:
     )
     rules: list[tuple[str, bool]] = [
         (
-            "no open appointments (§8.5 rule 1)",
+            "no open appointments",
             conn.execute(
                 "SELECT 1 FROM _appointments WHERE status IN "
                 "('scheduled','dispatched','in_progress') "
@@ -102,39 +112,39 @@ def boundary_check(conn: sqlite3.Connection, config: RunConfig) -> None:
             ).fetchone() is None,
         ),
         (
-            "every invoice has a matching payment (§8.5 rule 2)",
+            "every invoice has a matching payment",
             conn.execute(
                 "SELECT 1 FROM _invoices i WHERE NOT EXISTS "
                 "(SELECT 1 FROM _payments p WHERE p.invoice_id = i.id) LIMIT 1"
             ).fetchone() is None,
         ),
         (
-            "no active calls (§8.5 rule 4)",
+            "no active calls",
             conn.execute(
                 "SELECT 1 FROM _calls WHERE status = 'active' LIMIT 1"
             ).fetchone() is None,
         ),
         (
-            "no open hiring requests (§8.5 rule 5)",
+            "no open hiring requests",
             conn.execute(
                 "SELECT 1 FROM _hiring_requests WHERE status = 'open' LIMIT 1"
             ).fetchone() is None,
         ),
         (
-            "no scheduled or in-progress training reservations (§8.5 rule 5)",
+            "no scheduled or in-progress training reservations",
             conn.execute(
                 "SELECT 1 FROM _training_reservations WHERE status IN "
                 "('scheduled','in_progress') LIMIT 1"
             ).fetchone() is None,
         ),
         (
-            "no scheduled non-job appointments (§8.5 rule 5)",
+            "no scheduled non-job appointments",
             conn.execute(
                 "SELECT 1 FROM _non_job_appointments WHERE status = 'scheduled' LIMIT 1"
             ).fetchone() is None,
         ),
         (
-            "no pending/notice or sick technicians (§8.5 rule 6)",
+            "no pending/notice or sick technicians",
             conn.execute(
                 "SELECT 1 FROM _technicians WHERE employment_status IN "
                 "('hired_pending_start','pending_termination','resigning_notice') "
@@ -142,26 +152,26 @@ def boundary_check(conn: sqlite3.Connection, config: RunConfig) -> None:
             ).fetchone() is None,
         ),
         (
-            "no active technician absences (§8.5 rule 6)",
+            "no active technician absences",
             conn.execute(
                 "SELECT 1 FROM _technician_absences WHERE status = 'active' LIMIT 1"
             ).fetchone() is None,
         ),
         (
-            "no block holds at or after the boundary (§8.5 rule 7)",
+            "no block holds at or after the boundary",
             conn.execute(
                 "SELECT 1 FROM _technician_block_holds WHERE block_start >= ? LIMIT 1",
                 (boundary_day_start_ms,),
             ).fetchone() is None,
         ),
         (
-            "no non-active on-call rotations (§8.5 rule 8)",
+            "no non-active on-call rotations",
             conn.execute(
                 "SELECT 1 FROM _on_call_rotations WHERE status != 'active' LIMIT 1"
             ).fetchone() is None,
         ),
         (
-            "cash equals finance.starting_cash (spec 02 §8.7)",
+            "cash equals finance.starting_cash",
             Ledger(conn).cash_balance() == config.get_int("finance.starting_cash"),
         ),
     ]
@@ -223,8 +233,8 @@ def initialize_run(
             raise EngineError(
                 ErrorCode.STATE_ILLEGAL,
                 "refusing to initialize onto a database that already contains a run "
-                "record: a partially built or completed database is never reused "
-                "(spec 02 §12) — use a fresh file",
+                "record: a partially built or completed database is never reused — "
+                "use a fresh file",
             )
         start_at_ms = _opening_instant(config)
         db.begin(conn)
@@ -259,6 +269,7 @@ def initialize_run(
         weather.precompute(
             conn, config, Rng(int(master_seed), SPEC_VERSION, conn=conn), created_at=start_at_ms
         )
+        demand.initialize_state(conn, config, created_at=start_at_ms)
         boundary_check(conn, config)
         db.set_run_status(conn, run_id, RunStatus.ACTIVE)
         conn.close()

@@ -118,10 +118,11 @@ def test_stream_enums_travel_through_json():
     assert json.dumps({"s": KeyedStreamName.ACCEPTANCE}) == '{"s": "acceptance"}'
 
 
-def test_event_kinds_only_contract_test_now():
+def test_event_kinds_closed_set_plus_demand():
     kinds = set(EventKind)
     assert kinds, " registry must be non-empty"
-    assert all(k.value.startswith("contract_test_") for k in EventKind)
+    non_contract = {k for k in EventKind if not k.value.startswith("contract_test_")}
+    assert non_contract == {EventKind.DEMAND_GENERATION, EventKind.CALL_INVOCATION}
 
 
 def test_entity_type_is_contract_test_only_now():

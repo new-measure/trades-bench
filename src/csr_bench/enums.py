@@ -88,6 +88,8 @@ class EventKind(StrEnum):
     CONTRACT_TEST_EVENT = "contract_test_event"
     CONTRACT_TEST_SETTLE_DEBIT = "contract_test_settle_debit"
     CONTRACT_TEST_SETTLE_CREDIT = "contract_test_settle_credit"
+    DEMAND_GENERATION = "demand_generation"
+    CALL_INVOCATION = "call_invocation"
 
 
 class SequentialStreamName(StrEnum):
