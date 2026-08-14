@@ -539,7 +539,7 @@ def report(run: RunContext) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="CSR-001 scripted determinism driver")
+    parser = argparse.ArgumentParser(description="scripted determinism driver")
     parser.add_argument("--db", required=True)
     parser.add_argument("--create", action="store_true")
     parser.add_argument("--first", type=int, default=1)

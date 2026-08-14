@@ -50,7 +50,7 @@ def test_no_source_updates_or_deletes_an_append_only_table():
         source = path.read_text()
         for table, _ in _dml_targets(source):
             assert table not in APPEND_ONLY_TABLES, (
-                f"{path.name}: {table} is append-only (§1.4) — {table} in a "
+                f"{path.name}: {table} is append-only — {table} in a "
                 f"UPDATE/DELETE statement"
             )
 
@@ -62,7 +62,7 @@ def test_events_carve_out_is_exactly_events_py_status_and_applied_at():
             if table != "_events":
                 continue
             assert path.name == "events.py", (
-                f"{path.name}: only events.py may update _events (decision 15)"
+                f"{path.name}: only events.py may update _events"
             )
             set_match = _EVENTS_SET.search(statement)
             assert set_match is not None, f"{path.name}: malformed _events UPDATE"
@@ -71,7 +71,7 @@ def test_events_carve_out_is_exactly_events_py_status_and_applied_at():
             }
             assert columns <= _EVENTS_ALLOWED_COLUMNS, (
                 f"{path.name}: _events SET touches {columns - _EVENTS_ALLOWED_COLUMNS}; "
-                f"only {_EVENTS_ALLOWED_COLUMNS} (decision 15)"
+                f"only {_EVENTS_ALLOWED_COLUMNS}"
             )
 
 

@@ -306,8 +306,7 @@ def write_artifact(
     missing = missing_required_fields(manifest)
     if missing:  # pragma: no cover - a build-time self-check, never expected
         raise GeoBuildError(
-            "manifest is missing required research/osm-data.md §7 fields: "
-            + ", ".join(missing)
+            "manifest is missing required fields: " + ", ".join(missing)
         )
     _write_manifest(output_dir / "manifest.json", manifest)
     return manifest
@@ -318,8 +317,7 @@ def _refuse_pending(result: PipelineResult) -> None:
     if pending:
         raise GeoBuildError(
             f"{len(pending)} catalog row(s) still carry status={PENDING_STATUS!r}; "
-            "every packaged address must be usable or explicitly unusable "
-            "(03 §14 invariant 3)"
+            "every packaged address must be usable or explicitly unusable"
         )
 
 

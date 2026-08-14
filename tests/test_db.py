@@ -52,7 +52,7 @@ def _seed_run(c, rid=None, *, status: RunStatus = RunStatus.INITIALIZING) -> str
     return rid
 
 
-def test_migrate_produces_the_spec_02_schema(conn):
+def test_migrate_produces_the_baseline_schema(conn):
     rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     names = {r["name"] for r in rows}
     assert {"_run", "_config", "_clock", "_ledger_entries"}.issubset(names)

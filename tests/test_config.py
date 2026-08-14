@@ -220,7 +220,7 @@ def test_reject_bad_date_string():
     from csr_bench.config import KeySpec, validate_value
 
     with pytest.raises(EngineError) as ei:
-        validate_value(KeySpec("x", "date_string", "", "t"), "2026-13-99")
+        validate_value(KeySpec("x", "date_string", ""), "2026-13-99")
     assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
 
 
@@ -228,7 +228,7 @@ def test_reject_non_canonical_date_string():
     from csr_bench.config import KeySpec, validate_value
 
     with pytest.raises(EngineError) as ei:
-        validate_value(KeySpec("x", "date_string", "", "t"), "20261001")
+        validate_value(KeySpec("x", "date_string", ""), "20261001")
     assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
 
 
@@ -619,7 +619,7 @@ def test_config_hash_helper_matches_runconfig():
 
 
 def test_decimal_list_validator_accepts_and_rejects():
-    spec = KeySpec("x", "decimal_list", [], "t", min=0, length=3)
+    spec = KeySpec("x", "decimal_list", [], min=0, length=3)
     assert validate_value(spec, [1, 2, 3]) == [Decimal("1"), Decimal("2"), Decimal("3")]
     with pytest.raises(EngineError) as ei:
         validate_value(spec, [1, 2])
@@ -630,7 +630,7 @@ def test_decimal_list_validator_accepts_and_rejects():
 
 
 def test_probability_list_validator_accepts_and_rejects():
-    spec = KeySpec("x", "probability_list", [], "t", length=2)
+    spec = KeySpec("x", "probability_list", [], length=2)
     assert validate_value(spec, [0, Decimal("0.5")]) == [Decimal("0"), Decimal("0.5")]
     with pytest.raises(EngineError) as ei:
         validate_value(spec, [0, Decimal("1.5")])
@@ -641,7 +641,7 @@ def test_probability_list_validator_accepts_and_rejects():
 
 
 def test_decimal_map_validator_accepts_and_rejects():
-    spec = KeySpec("x", "decimal_map", {}, "t", min=0)
+    spec = KeySpec("x", "decimal_map", {}, min=0)
     assert validate_value(spec, {"a": 1, "b": 2}) == {"a": Decimal("1"), "b": Decimal("2")}
     with pytest.raises(EngineError) as ei:
         validate_value(spec, {"a": -1})
@@ -652,7 +652,7 @@ def test_decimal_map_validator_accepts_and_rejects():
 
 
 def test_probability_map_validator_accepts_and_rejects():
-    spec = KeySpec("x", "probability_map", {}, "t")
+    spec = KeySpec("x", "probability_map", {})
     assert validate_value(spec, {"a": Decimal("0.5")}) == {"a": Decimal("0.5")}
     with pytest.raises(EngineError) as ei:
         validate_value(spec, {"a": Decimal("1.5")})
@@ -660,7 +660,7 @@ def test_probability_map_validator_accepts_and_rejects():
 
 
 def test_decimal_map_map_validator_accepts_and_rejects():
-    spec = KeySpec("x", "decimal_map_map", {}, "t")
+    spec = KeySpec("x", "decimal_map_map", {})
     assert validate_value(spec, {"a": {"x": 1}}) == {"a": {"x": Decimal("1")}}
     with pytest.raises(EngineError) as ei:
         validate_value(spec, {"a": {}})
@@ -671,7 +671,7 @@ def test_decimal_map_map_validator_accepts_and_rejects():
 
 
 def test_month_day_string_validator_accepts_and_rejects():
-    spec = KeySpec("x", "month_day_string", "", "t")
+    spec = KeySpec("x", "month_day_string", "")
     assert validate_value(spec, "06-15") == "06-15"
     with pytest.raises(EngineError) as ei:
         validate_value(spec, "13-01")
@@ -682,7 +682,7 @@ def test_month_day_string_validator_accepts_and_rejects():
 
 
 def test_decimal_range_validator_accepts_and_rejects():
-    spec = KeySpec("x", "decimal_range", {}, "t")
+    spec = KeySpec("x", "decimal_range", {})
     assert validate_value(spec, {"min": Decimal("0.2"), "max": Decimal("1.0")}) == (
         Decimal("0.2"),
         Decimal("1.0"),
@@ -693,7 +693,7 @@ def test_decimal_range_validator_accepts_and_rejects():
 
 
 def test_severity_bands_validator_accepts_and_rejects():
-    spec = KeySpec("x", "severity_bands", [], "t")
+    spec = KeySpec("x", "severity_bands", [])
     good = [["light", Decimal("0.2"), Decimal("0.5")], ["severe", Decimal("0.5"), Decimal("1.0")]]
     assert validate_value(spec, good) == [
         ("light", Decimal("0.2"), Decimal("0.5")),
@@ -777,12 +777,20 @@ def test_reject_scenario_override_of_weather_seasonal_period_days():
     _bad('{"keys": {"weather.seasonal_period_days": 365}}', ErrorCode.CONSTANT_OVERRIDE)
 
 
-def test_all_05_owned_keys_resolve_from_shipped_defaults():
+_DEMAND_MODEL_KEY_PREFIXES = (
+    "acceptance.",
+    "cancellations.",
+    "competitors.",
+    "customers.",
+    "demand.",
+    "weather.",
+)
+
+
+def test_all_demand_model_keys_resolve_from_shipped_defaults():
     reg = assemble_registry()
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
-    owned = [
-        path for path, spec in reg.items() if spec.owning_spec == "05-customers-calls-and-demand.md"
-    ]
+    owned = [path for path in reg if path.startswith(_DEMAND_MODEL_KEY_PREFIXES)]
     assert owned
     for path in owned:
         assert path in rc.resolved

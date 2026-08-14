@@ -122,7 +122,9 @@ def test_det04_05_interleaved_noise_moves_no_draw(tmp_path):
 
     assert observations_a == observations_b
     sequential = [v for label, v in observations_a if label.startswith("weather_process/")]
-    assert len(sequential) >= 3, "weather_process never advanced — DET-05 would be vacuous"
+    assert len(sequential) >= 3, (
+        "the sequential weather stream never advanced, so this test would be vacuous"
+    )
 
     label_counts = Counter(label for label, _ in observations_a)
     assert any(count > 1 for count in label_counts.values()), (

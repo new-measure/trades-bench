@@ -126,7 +126,7 @@ def check_stratification(
     result = StratificationResult(counts=counts, floors=floors, failures=tuple(failures))
     if failures:
         raise GateFailure(
-            "stratification gate failed (research/osm-data.md §4.9, 03 §3.2); "
+            "stratification gate failed; "
             f"{len(failures)} floor(s) unmet:\n  - " + "\n  - ".join(failures)
         )
     return result
@@ -314,9 +314,8 @@ def run_accuracy_gate(
     )
     if failures:
         raise GateFailure(
-            "accuracy gate failed (research/osm-data.md §5.3, 03 §4.2); the remedy "
-            "is more anchors or a finer partition, never a looser gate:\n  - "
-            + "\n  - ".join(failures)
+            "accuracy gate failed; the remedy is more anchors or a finer partition, "
+            "never a looser gate:\n  - " + "\n  - ".join(failures)
         )
     return result
 

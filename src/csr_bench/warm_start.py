@@ -178,7 +178,7 @@ def _build_fixture(conn: sqlite3.Connection, config: RunConfig) -> None:
         raise EngineError(
             ErrorCode.INVARIANT_VIOLATED,
             f"roster entry for constants.recent_hire_technician_id={recent_hire_id} "
-            f"must join inside the window on {RECENT_HIRE_JOINED_ON} (spec 02 §8.4)",
+            f"must join inside the window on {RECENT_HIRE_JOINED_ON}",
         )
     wages_by_trade = config.resolved["hiring.base_hourly_wage_by_trade"]
     starting_cash = config.get_int("finance.starting_cash")
@@ -345,8 +345,8 @@ def run(
     if row is None or RunStatus(row["status"]) is not RunStatus.INITIALIZING:
         raise EngineError(
             ErrorCode.INVALID_RUN_STATUS,
-            "warm start requires run.status = 'initializing' (spec 02 §8.1: "
-            "no invocation may occur during it)",
+            "warm start requires run.status = 'initializing'; no invocation may occur "
+            "during it",
         )
     if conn.in_transaction:
         raise EngineError(

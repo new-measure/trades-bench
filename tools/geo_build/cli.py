@@ -70,7 +70,7 @@ def _build(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m geo_build",
-        description="Build-time OSM geography pipeline (CSR-003).",
+        description="Build-time OSM geography pipeline.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -79,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     build.add_argument("osm_input", help="path to a .osm or .osm.pbf source file")
     build.add_argument(
-        "output_dir", help="directory to write the full §6 artifact tree into"
+        "output_dir", help="directory to write the full artifact tree into"
     )
     build.add_argument(
         "--dataset-version",
@@ -125,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
         f"(default {DEFAULT_ANCHOR_CANDIDATE_K})",
     )
 
-    gate = build.add_argument_group("accuracy gate (§5.3)")
+    gate = build.add_argument_group("accuracy gate")
     gate.add_argument(
         "--accuracy-sample-size",
         type=int,
@@ -146,7 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
         f"pass on an empty distribution (default {DEFAULT_ACCURACY_MIN_EVALUATED_FRACTION})",
     )
 
-    snapshot = build.add_argument_group("pinned source snapshot (§2, manifest §7)")
+    snapshot = build.add_argument_group("pinned source snapshot")
     snapshot.add_argument("--source-url", default=None, help="resolved Geofabrik download URL")
     snapshot.add_argument(
         "--source-published-at", default=None, help="server-reported publication date"

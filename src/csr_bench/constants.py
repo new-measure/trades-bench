@@ -97,9 +97,8 @@ CONSTANT_ENTRIES: list[ConstantEntry] = [
         {
             "min": 1,
             "max": 4,
-            "owning_spec": "02-data-and-initial-state.md",
-            "description": "Which of the four starting technicians joined inside the "
-            "warm-start window via a completed hiring request (spec 02 §8.4).",
+            "description": "Which of the four starting technicians joined inside the warm-start "
+            "window via a completed hiring request.",
         },
     ),
     ("constants.sickness_days_min", "int", SICKNESS_DAYS_MIN, {"min": 1}),

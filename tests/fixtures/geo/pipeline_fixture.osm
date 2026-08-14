@@ -330,7 +330,7 @@
     <tag k="addr:postcode" v="85251"/>
     <tag k="addr:flats" v="1-6"/>
   </node>
-  <!-- drivable road grid (CSR-003c): a regular lattice covering the
+  <!-- drivable road grid: a regular lattice covering the
        address elements above, so the opt-in OSRM tests have a real
        network to snap and route on. No addr:* tag, so none of these
        elements ever enters the address funnel. -->

@@ -389,9 +389,9 @@ def verify_views(conn: sqlite3.Connection) -> None:
 def validate_registry() -> None:
     if len(VIEWS) != 31 or {spec.name for spec in VIEWS} != _WHITELIST_NAMES:
         raise AssertionError(
-            "the whitelist must be exactly the 31 declared views (spec 02 §3.2): "
-            "the registry and the _WHITELIST_NAMES literal disagree — adding or "
-            "removing a view requires a deliberate whitelist decision"
+            "the whitelist must be exactly the 31 declared views: the registry and "
+            "the _WHITELIST_NAMES literal disagree — adding or removing a view "
+            "requires a deliberate whitelist decision"
         )
     for spec in VIEWS:
         seen: set[str] = set()

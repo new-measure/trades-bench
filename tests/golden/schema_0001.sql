@@ -1,5 +1,4 @@
--- Golden schema dump of the migrated CSR-Bench database (spec 02 §9; CSR-002
--- decision 16).
+-- Golden schema dump of the migrated CSR-Bench database.
 --
 -- Regenerate deliberately with:
 --   REGEN_GOLDEN_SCHEMA=1 uv run pytest tests/test_schema_contract.py -q
@@ -8,9 +7,9 @@
 -- Entries are ordered (type groups table / index / trigger, names sorted
 -- within a type) and each carries its stored SQL text verbatim; objects
 -- without stored SQL text (SQLite's implicit auto-indexes for UNIQUE
--- constraints) are marked. Views are excluded because migrations never create
--- them (CSR-002 decision 1). A schema change makes the compare test fail;
--- regenerating the file is the deliberate acceptance of the new schema.
+-- constraints) are marked. Views are excluded because migrations never
+-- create them. A schema change makes the compare test fail; regenerating
+-- the file is the deliberate acceptance of the new schema.
 -- table: _acceptance_parameters
 CREATE TABLE _acceptance_parameters (
     urgency_class TEXT PRIMARY KEY CHECK (urgency_class IN ('standard','urgent')),
