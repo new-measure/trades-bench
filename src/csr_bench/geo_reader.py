@@ -133,13 +133,16 @@ def read_anchors(artifact_dir: Path | str) -> tuple[AnchorRow, ...]:
     path = Path(artifact_dir) / ANCHORS_RELATIVE_PATH
     rows: list[AnchorRow] = []
     with open(path, newline="", encoding="utf-8") as f:
-        for raw in csv.DictReader(f):
+        reader = csv.DictReader(f)
+        header = reader.fieldnames or []
+        reader.fieldnames = [name.strip() for name in header]
+        for raw in reader:
             rows.append(
                 AnchorRow(
                     anchor_id=int(raw["anchor_id"]),
                     latitude=float(raw["latitude"]),
                     longitude=float(raw["longitude"]),
-                    selection_cell=raw["selection_cell"],
+                    selection_cell=raw["selection_cell"].strip(),
                 )
             )
     return tuple(rows)

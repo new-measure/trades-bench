@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.geo_reader import _polygon_centroid, verify_artifact_sha256
+from csr_bench.geo_reader import _polygon_centroid, read_anchors, verify_artifact_sha256
 
 
 def test_polygon_centroid_multipolygon_with_opposite_wound_parts():
@@ -54,3 +54,20 @@ def test_verify_artifact_sha256_file_where_directory_expected_raises_artifact_mi
     with pytest.raises(EngineError) as ei:
         verify_artifact_sha256(a_file, "a" * 64)
     assert ei.value.code is ErrorCode.GEOGRAPHY_ARTIFACT_MISMATCH
+
+
+def test_read_anchors_tolerates_column_aligned_padding_like_the_pinned_artifact(tmp_path):
+    routing = tmp_path / "routing"
+    routing.mkdir()
+    (routing / "anchors.csv").write_text(
+        "anchor_id, latitude , longitude  , selection_cell\n"
+        "        1, 32.942027, -112.148575, r+0004c+0031\n"
+        "        2, 33.394950, -111.938012, r+1902c+2226\n",
+        encoding="utf-8",
+    )
+    anchors = read_anchors(tmp_path)
+    assert [a.anchor_id for a in anchors] == [1, 2]
+    assert anchors[0].latitude == 32.942027
+    assert anchors[0].longitude == -112.148575
+    assert anchors[0].selection_cell == "r+0004c+0031"
+    assert anchors[1].selection_cell == "r+1902c+2226"
