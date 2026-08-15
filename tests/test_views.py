@@ -83,7 +83,6 @@ def test_technician_locations_is_the_five_public_columns(conn):
         "latitude",
         "longitude",
         "coordinates_updated_at",
-        "coordinates_updated_at_iso",
         "location_state",
     ]
     assert classify(("_technician_locations", "technician_id")) is VisibilityClass.PUBLIC_SQL

@@ -69,6 +69,15 @@ class Events:
         assert cur.lastrowid is not None
         return int(cur.lastrowid)
 
+    def update_payload(self, event_id: int, payload: dict) -> None:
+        self._require_txn("Events.update_payload")
+        payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        cur = self.conn.execute(
+            "UPDATE _events SET payload = ? WHERE event_id = ?", (payload_json, event_id)
+        )
+        if cur.rowcount == 0:
+            raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"event {event_id} not found")
+
     def cancel(self, event_id: int) -> None:
         self._require_txn("Events.cancel")
         cur = self.conn.execute(

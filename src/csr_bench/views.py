@@ -10,6 +10,12 @@ from .enums import VisibilityClass
 from .errors import EngineError, ErrorCode
 from .visibility import Field
 
+_GPS_PING_INTERVAL_SUBQUERY = (
+    "(SELECT CAST(json_extract(canonical_json, "
+    "'$.keys.\"geography.gps_ping_interval_minutes\"') AS INTEGER) * 60000 "
+    "AS ping_interval_ms FROM _config)"
+)
+
 
 @dataclass(frozen=True)
 class ViewColumn:
@@ -205,11 +211,65 @@ VIEWS: tuple[ViewSpec, ...] = (
         ("end_at", True), "service_date", "active", "on_call_rotation_id",
         ("created_at", True),
     ),
-    _view(
-        "technician_locations", "_technician_locations", "tl",
-        "technician_id", "latitude", "longitude",
-        ("coordinates_updated_at", True), "location_state",
-        filter_sql="tl.coordinates_updated_at <= k.current_time_ms",
+    ViewSpec(
+        name="technician_locations",
+        sql=(
+            "CREATE VIEW technician_locations AS\n"
+            "  SELECT tl.technician_id AS technician_id,\n"
+            "         CASE WHEN tl.location_state = 'traveling' THEN\n"
+            "           tl.trip_origin_latitude + (tl.trip_destination_latitude - tl.trip_origin_latitude)\n"
+            "           * MIN(1.0, MAX(0.0, CAST((tl.coordinates_updated_at\n"
+            "               + ((k.current_time_ms - tl.coordinates_updated_at) / g.ping_interval_ms) * g.ping_interval_ms\n"
+            "               - tl.trip_departed_at) AS REAL) / (tl.trip_travel_minutes * 60000.0)))\n"
+            "         ELSE tl.latitude END                                   AS latitude,\n"
+            "         CASE WHEN tl.location_state = 'traveling' THEN\n"
+            "           tl.trip_origin_longitude + (tl.trip_destination_longitude - tl.trip_origin_longitude)\n"
+            "           * MIN(1.0, MAX(0.0, CAST((tl.coordinates_updated_at\n"
+            "               + ((k.current_time_ms - tl.coordinates_updated_at) / g.ping_interval_ms) * g.ping_interval_ms\n"
+            "               - tl.trip_departed_at) AS REAL) / (tl.trip_travel_minutes * 60000.0)))\n"
+            "         ELSE tl.longitude END                                  AS longitude,\n"
+            "         (tl.coordinates_updated_at\n"
+            "           + ((k.current_time_ms - tl.coordinates_updated_at) / g.ping_interval_ms) * g.ping_interval_ms)\n"
+            "                                                                AS coordinates_updated_at,\n"
+            "         tl.location_state                                     AS location_state\n"
+            "  FROM _technician_locations tl, _clock k,\n"
+            f"       {_GPS_PING_INTERVAL_SUBQUERY} AS g\n"
+            "  WHERE tl.coordinates_updated_at <= k.current_time_ms"
+        ),
+        columns=(
+            ViewColumn(name="technician_id", source=Field("_technician_locations", "technician_id")),
+            ViewColumn(
+                name="latitude",
+                expr=(
+                    "CASE WHEN tl.location_state = 'traveling' THEN "
+                    "tl.trip_origin_latitude + (tl.trip_destination_latitude - "
+                    "tl.trip_origin_latitude) * MIN(1.0, MAX(0.0, "
+                    "CAST((ping_ms - tl.trip_departed_at) AS REAL) / "
+                    "(tl.trip_travel_minutes * 60000.0))) ELSE tl.latitude END"
+                ),
+                visibility_class=VisibilityClass.PUBLIC_SQL,
+            ),
+            ViewColumn(
+                name="longitude",
+                expr=(
+                    "CASE WHEN tl.location_state = 'traveling' THEN "
+                    "tl.trip_origin_longitude + (tl.trip_destination_longitude - "
+                    "tl.trip_origin_longitude) * MIN(1.0, MAX(0.0, "
+                    "CAST((ping_ms - tl.trip_departed_at) AS REAL) / "
+                    "(tl.trip_travel_minutes * 60000.0))) ELSE tl.longitude END"
+                ),
+                visibility_class=VisibilityClass.PUBLIC_SQL,
+            ),
+            ViewColumn(
+                name="coordinates_updated_at",
+                expr=(
+                    "tl.coordinates_updated_at + ((k.current_time_ms - "
+                    "tl.coordinates_updated_at) / g.ping_interval_ms) * g.ping_interval_ms"
+                ),
+                visibility_class=VisibilityClass.PUBLIC_SQL,
+            ),
+            ViewColumn(name="location_state", source=Field("_technician_locations", "location_state")),
+        ),
     ),
     _view(
         "technician_absences", "_technician_absences", "ta",
@@ -337,7 +397,7 @@ _WHITELIST_NAMES: frozenset[str] = frozenset(
 VIEW_WHITELIST: frozenset[str] = frozenset(spec.name for spec in VIEWS)
 
 VIEW_REGISTRY_HASH: str = (
-    "05d3b73e639fefa739afd49d460d5bb376245d62b2931a8e177aa5e2b7701404"
+    "015b1c2214e39f8ebd784943b4ef51d3705b0bf657080d64d571131f97580509"
 )
 
 

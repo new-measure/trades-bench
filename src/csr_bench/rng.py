@@ -153,6 +153,29 @@ def triangular(
     return s - (n - 1) + mid
 
 
+def inverse_cdf_variation(
+    u: int, *, low: int = TIMING_VARIATION_LOW, high: int = TIMING_VARIATION_HIGH
+) -> int:
+    if isinstance(u, bool) or not isinstance(u, int) or not (0 <= u < U64_MOD):
+        raise EngineError(ErrorCode.INVALID_ARGUMENT, f"u must be a u64, got {u!r}")
+    if low != -high or high <= 0:
+        raise EngineError(
+            ErrorCode.STATE_ILLEGAL,
+            f"inverse_cdf_variation needs a symmetric [low,high] about zero, got [{low},{high}]",
+        )
+    branch_one = 2 * u < U64_MOD
+    scaled = u if branch_one else U64_MOD - u
+    eight_h_sq = 8 * high * high
+    k = high
+    for candidate in range(high + 1):
+        if eight_h_sq * scaled <= U64_MOD * (2 * candidate + 1) ** 2:
+            k = candidate
+            break
+    base = k - high
+    result = base if branch_one else -base
+    return max(low, min(high, result))
+
+
 def uniform01(u: int) -> Decimal:
     with localcontext() as ctx:
         ctx.prec = _UNIFORM01_PREC
@@ -362,6 +385,21 @@ class Rng:
         u2 = self.draw(stream_name, entity_type, entity_id, scope, event_kind, draw_index + 1)
         return triangular(u1, u2, low=low, high=high)
 
+    def inverse_cdf_variation(
+        self,
+        stream_name: str,
+        entity_type: str,
+        entity_id: int,
+        scope: str,
+        event_kind: str,
+        draw_index: int = 0,
+        *,
+        low: int = TIMING_VARIATION_LOW,
+        high: int = TIMING_VARIATION_HIGH,
+    ) -> int:
+        u = self.draw(stream_name, entity_type, entity_id, scope, event_kind, draw_index)
+        return inverse_cdf_variation(u, low=low, high=high)
+
     def uniform01(
         self,
         stream_name: str,
@@ -490,6 +528,7 @@ __all__ = [
     "chance",
     "choice",
     "bounded_int",
+    "inverse_cdf_variation",
     "keyed_draw",
     "randint",
     "sequential_draw",

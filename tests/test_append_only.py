@@ -35,7 +35,7 @@ _EVENTS_SET = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-_EVENTS_ALLOWED_COLUMNS = frozenset({"status", "applied_at_ms"})
+_EVENTS_ALLOWED_COLUMNS = frozenset({"status", "applied_at_ms", "payload"})
 
 _SQLITE_COLUMN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*=")
 

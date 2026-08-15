@@ -14,7 +14,7 @@ from _helpers import (
     geo_artifact_sha256,
     register_conn,
 )
-from csr_bench import appointments, clock, demand
+from csr_bench import appointments, clock, demand, geo_reader
 from csr_bench.config import load_run_config
 from csr_bench.controller import Controller
 from csr_bench.enums import EventKind
@@ -26,6 +26,9 @@ SEED = 5
 END_DATE = "2026-10-03"
 WEEKDAY = "2026-10-01"
 WEEKEND = "2026-10-03"
+
+ARTIFACT = geo_reader.load_artifact(GEO_ARTIFACT_DIR)
+DESTINATION_ADDRESS = next(row for row in ARTIFACT.catalog if row.address_id == 2)
 
 _ON_CALL_TECHNICIAN_IDS = (1, 3, 4)
 _NON_ON_CALL_TECHNICIAN_ID = 2
@@ -51,7 +54,7 @@ def _build(tmp_path):
     initialize_run(db_path, master_seed=SEED, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
     conn = open_run_db(db_path, artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn)
-    controller = Controller(conn, cfg, ScriptedNoOpAdapter())
+    controller = Controller(conn, cfg, ScriptedNoOpAdapter(), artifact_dir=GEO_ARTIFACT_DIR)
     return conn, cfg, controller
 
 
@@ -69,9 +72,12 @@ def _customer_location_call(conn, now_ms: int, service_date: str, config=None) -
     conn.execute(
         "INSERT INTO _locations (id, customer_id, name, street, unit, city, state, "
         "postal_code, latitude, longitude, active, created_at, modified_at, "
-        "effective_zone_id) VALUES (?, ?, 'HQ', '1 Main St', '', 'Tempe', 'AZ', "
-        "'85282', 33.4, -111.9, 1, ?, ?, 4)",
-        (row_id, row_id, now_ms, now_ms),
+        "effective_zone_id, address_catalog_id) VALUES (?, ?, 'HQ', '1 Main St', '', "
+        "'Tempe', 'AZ', '85282', 33.4, -111.9, 1, ?, ?, ?, ?)",
+        (
+            row_id, row_id, now_ms, now_ms,
+            DESTINATION_ADDRESS.effective_zone_id, DESTINATION_ADDRESS.address_id,
+        ),
     )
     conn.execute(
         "INSERT INTO _calls (id, arrived_at, service_date, call_kind, status, "
@@ -85,7 +91,8 @@ def _customer_location_call(conn, now_ms: int, service_date: str, config=None) -
 def _book(services, config, **kwargs):
     request_id = privileged_request_id("book", next(_request_seq))
     response = privileged(
-        services, request_id, lambda ctx: appointments.book(ctx, config, **kwargs)
+        services, request_id,
+        lambda ctx: appointments.book(ctx, config, artifact=ARTIFACT, **kwargs),
     )
     return json.loads(response)
 
@@ -93,7 +100,8 @@ def _book(services, config, **kwargs):
 def _assign(services, config, **kwargs):
     request_id = privileged_request_id("assign", next(_request_seq))
     response = privileged(
-        services, request_id, lambda ctx: appointments.assign(ctx, config, **kwargs)
+        services, request_id,
+        lambda ctx: appointments.assign(ctx, config, artifact=ARTIFACT, **kwargs),
     )
     return json.loads(response)
 
@@ -535,6 +543,23 @@ def test_assign_appends_reassigned_event_and_moves_block_holds(tmp_path):
     assert all(h["technician_id"] == 3 for h in holds)
 
 
+def test_assign_rejects_an_appointment_whose_work_already_started(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    booked = _book_ok(
+        conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B09_11"
+    )
+    conn.execute(
+        "UPDATE _appointments SET status = 'in_progress' WHERE id = ?",
+        (booked["appointment_id"],),
+    )
+    conn.commit()
+    error = _err(
+        _assign(controller.services, cfg, appointment_id=booked["appointment_id"], technician_id=3)
+    )
+    assert error["code"] == ErrorCode.STATE_ILLEGAL.value
+    assert error["details"]["reason"] == "work_already_started"
+
+
 def test_trip_index_increments_once_per_reassignment(tmp_path):
     conn, cfg, controller = _build(tmp_path)
     booked = _book_ok(
@@ -579,3 +604,70 @@ def test_assign_command_requires_an_active_invocation(tmp_path):
     body2 = json.loads(response2)
     assert body2["ok"] is True
     assert body2["result"]["technician_id"] == 3
+
+
+def _off_hours_marks(conn, appointment_id):
+    rows = conn.execute(
+        "SELECT scheduled_at_ms, entity_type, payload FROM _events "
+        "WHERE kind = ? AND entity_id = ?",
+        (EventKind.OFF_HOURS_ACCRUAL_MARK.value, appointment_id),
+    ).fetchall()
+    return [(r["scheduled_at_ms"], r["entity_type"], json.loads(r["payload"])) for r in rows]
+
+
+def test_off_hours_mark_weekday_office_booking_schedules_no_mark(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    booked = _book_ok(
+        conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B09_11"
+    )
+    assert _off_hours_marks(conn, booked["appointment_id"]) == []
+
+
+def test_off_hours_mark_weekday_after_hours_block_schedules_at_seventeen_hundred(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    booked = _book_ok(
+        conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B17_19"
+    )
+    marks = _off_hours_marks(conn, booked["appointment_id"])
+    assert len(marks) == 1
+    scheduled_at_ms, entity_type, payload = marks[0]
+    assert scheduled_at_ms == clock.phoenix_instant(2026, 10, 1, 17, 0)
+    assert entity_type == "appointment"
+    assert payload == {"appointment_id": booked["appointment_id"], "block_hours": 2}
+
+
+def test_off_hours_mark_weekend_standard_job_schedules_at_its_block_start(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    booked = _book_ok(
+        conn, controller, cfg,
+        job_type_id=1, technician_id=1, first_block_code="B09_11", service_date=WEEKEND,
+    )
+    marks = _off_hours_marks(conn, booked["appointment_id"])
+    assert len(marks) == 1
+    scheduled_at_ms, entity_type, payload = marks[0]
+    assert scheduled_at_ms == clock.phoenix_instant(2026, 10, 3, 9, 0)
+    assert payload == {"appointment_id": booked["appointment_id"], "block_hours": 2}
+
+
+def test_off_hours_mark_weekend_installation_schedules_at_first_block_with_four_hours(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    booked = _book_ok(
+        conn, controller, cfg,
+        job_type_id=2, technician_id=1, first_block_code="B09_11", service_date=WEEKEND,
+    )
+    marks = _off_hours_marks(conn, booked["appointment_id"])
+    assert len(marks) == 1
+    scheduled_at_ms, entity_type, payload = marks[0]
+    assert scheduled_at_ms == clock.phoenix_instant(2026, 10, 3, 9, 0)
+    assert payload == {"appointment_id": booked["appointment_id"], "block_hours": 4}
+
+
+def test_off_hours_mark_is_never_cancelled_by_reassignment(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    booked = _book_ok(
+        conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B17_19"
+    )
+    before = _off_hours_marks(conn, booked["appointment_id"])
+    _ok(_assign(controller.services, cfg, appointment_id=booked["appointment_id"], technician_id=3))
+    after = _off_hours_marks(conn, booked["appointment_id"])
+    assert before == after

@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import date, timedelta
+from pathlib import Path
 
-from . import SPEC_VERSION, clock, constants, db, demand
+from . import SPEC_VERSION, clock, constants, db, demand, execution, geo_reader
 from .adapter import AdapterPrompt, HarnessAdapter
 from .config import RunConfig
 from .enums import (
@@ -18,6 +19,7 @@ from .enums import (
 )
 from .errors import EngineError, ErrorCode
 from .events import EventHandler, Events
+from .geo_reader import GeoArtifact
 from .invocations import Invocations
 from .ledger import Ledger, LedgerEntry
 from .rng import Rng, sqlite_audit_recorder
@@ -48,7 +50,6 @@ _STUB_EVENT_KINDS = (
     EventKind.ATTRITION_DRAW,
     EventKind.TRAINING_RATES_DRAWN,
     EventKind.SHIFT_MATERIALIZATION,
-    EventKind.FIRST_TRIP_DISPATCH,
 )
 
 _PRE_OPENING_STUB_KINDS = (
@@ -234,11 +235,7 @@ def _closing_invocation_handler(ctx: TxnContext, row: sqlite3.Row) -> dict | Non
 
 
 def _off_hours_bonus_cents(config: RunConfig) -> int:
-    raise EngineError(
-        ErrorCode.INVARIANT_VIOLATED,
-        "off-hours bonus has no configured amount yet, and no accrual mark can exist "
-        "to require one",
-    )
+    return config.get_int("payroll.off_hours_bonus_per_job")
 
 
 def _off_hours_entries(
@@ -256,7 +253,10 @@ def _off_hours_entries(
     entries: list[LedgerEntry] = []
     for mark in marks:
         payload = _payload_of(mark)
+        if "technician_id" not in payload:
+            continue
         technician_id = int(payload["technician_id"])
+        job_id = int(payload["job_id"])
         wages_cents = int(payload["block_hours"]) * int(payload["hourly_wage_cents"])
         entries.append(
             LedgerEntry(
@@ -266,6 +266,7 @@ def _off_hours_entries(
                 service_date=service_date,
                 description="off-hours wages",
                 technician_id=technician_id,
+                job_id=job_id,
             )
         )
         entries.append(
@@ -276,6 +277,7 @@ def _off_hours_entries(
                 service_date=service_date,
                 description="off-hours bonus",
                 technician_id=technician_id,
+                job_id=job_id,
             )
         )
     return entries
@@ -366,7 +368,9 @@ def _run_finalize_handler(ctx: TxnContext, row: sqlite3.Row) -> dict | None:
     return None
 
 
-def build_handlers(config: RunConfig) -> dict[EventKind, EventHandler]:
+def build_handlers(
+    config: RunConfig, artifact: GeoArtifact | None = None
+) -> dict[EventKind, EventHandler]:
     handlers: dict[EventKind, EventHandler] = {
         EventKind.DAY_ROLLOVER: _day_rollover_handler,
         EventKind.WEATHER_REALIZED: _weather_realized_handler,
@@ -380,6 +384,7 @@ def build_handlers(config: RunConfig) -> dict[EventKind, EventHandler]:
         EventKind.CHECKPOINT: _checkpoint_handler,
         EventKind.RUN_FINALIZE: _run_finalize_handler,
     }
+    handlers.update(execution.build_handlers(config, artifact))
     for kind in _STUB_EVENT_KINDS:
         handlers[kind] = _stub_handler
     return handlers
@@ -388,7 +393,12 @@ def build_handlers(config: RunConfig) -> dict[EventKind, EventHandler]:
 class Controller:
 
     def __init__(
-        self, conn: sqlite3.Connection, config: RunConfig, adapter: HarnessAdapter
+        self,
+        conn: sqlite3.Connection,
+        config: RunConfig,
+        adapter: HarnessAdapter,
+        *,
+        artifact_dir: str | Path | None = None,
     ) -> None:
         run_row = conn.execute("SELECT run_id, master_seed FROM _run").fetchone()
         if run_row is None:
@@ -397,6 +407,12 @@ class Controller:
         self.config = config
         self.adapter = adapter
         self.run_id = str(run_row["run_id"])
+        self.artifact: GeoArtifact | None = None
+        if artifact_dir is not None:
+            geo_reader.verify_artifact_sha256(
+                artifact_dir, config.get_string("geography.artifact_sha256")
+            )
+            self.artifact = geo_reader.load_artifact(artifact_dir)
         rng = Rng(
             int(run_row["master_seed"]),
             SPEC_VERSION,
@@ -413,7 +429,7 @@ class Controller:
             clock=clock,
             events=self.events,
         )
-        self.handlers = build_handlers(config)
+        self.handlers = build_handlers(config, self.artifact)
 
     def run(self, *, max_steps: int | None = None) -> RunStatus:
         steps = 0

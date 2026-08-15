@@ -22,8 +22,28 @@ _VIEW_COLUMNS: dict[str, frozenset[str]] = {
     for spec in views.VIEWS
 }
 
+_VIEW_INTERNAL_PRIVATE_READS: dict[str, frozenset[tuple[str, str]]] = {
+    "technician_locations": frozenset(
+        {
+            ("_technician_locations", "trip_origin_latitude"),
+            ("_technician_locations", "trip_origin_longitude"),
+            ("_technician_locations", "trip_destination_latitude"),
+            ("_technician_locations", "trip_destination_longitude"),
+            ("_technician_locations", "trip_departed_at"),
+            ("_technician_locations", "trip_travel_minutes"),
+            ("_config", "canonical_json"),
+        }
+    ),
+}
 
-def _authorize_read(table: str | None, column: str | None) -> int:
+_PROTECTED_VIEW_NAMES: frozenset[str] = frozenset(
+    name.lower() for name in _VIEW_INTERNAL_PRIVATE_READS
+)
+
+
+def _authorize_read(
+    table: str | None, column: str | None, trigger_name: str | None
+) -> int:
     if not table or not column:
         return sqlite3.SQLITE_DENY
     if table.startswith("_"):
@@ -32,6 +52,9 @@ def _authorize_read(table: str | None, column: str | None) -> int:
                 return sqlite3.SQLITE_OK
         except Exception:
             pass
+        allowed = _VIEW_INTERNAL_PRIVATE_READS.get(trigger_name or "")
+        if allowed is not None and (table, column) in allowed:
+            return sqlite3.SQLITE_OK
         return sqlite3.SQLITE_DENY
     if column in _VIEW_COLUMNS.get(table, ()):
         return sqlite3.SQLITE_OK
@@ -42,7 +65,7 @@ def _authorizer(action: int, arg1: str | None, arg2: str | None, db_name: str | 
     if action not in _ALLOWED_ACTIONS:
         return sqlite3.SQLITE_DENY
     if action == sqlite3.SQLITE_READ:
-        return _authorize_read(arg1, arg2)
+        return _authorize_read(arg1, arg2, trigger_name)
     return sqlite3.SQLITE_OK
 
 
@@ -111,6 +134,133 @@ def _has_second_statement(sql: str) -> bool:
     return False
 
 
+def _is_ident_char(c: str) -> bool:
+    return c.isalnum() or c == "_"
+
+
+def _skip_ws_comments(sql: str, i: int) -> int:
+    n = len(sql)
+    while i < n:
+        c = sql[i]
+        if c.isspace():
+            i += 1
+        elif sql.startswith("--", i):
+            i = _skip_until(sql, i, "\n")
+        elif sql.startswith("/*", i):
+            i = _skip_until(sql, i, "*/")
+        else:
+            break
+    return i
+
+
+def _read_ident(sql: str, i: int) -> tuple[str, int]:
+    n = len(sql)
+    if i < n and sql[i] in "\"'`":
+        quote = sql[i]
+        end = _skip_quoted(sql, i, quote)
+        return sql[i + 1:end - 1], end
+    if i < n and sql[i] == "[":
+        end = _skip_until(sql, i, "]")
+        return sql[i + 1:end - 1], end
+    j = i
+    while j < n and _is_ident_char(sql[j]):
+        j += 1
+    return sql[i:j], j
+
+
+def _skip_balanced_parens(sql: str, i: int) -> int:
+    n = len(sql)
+    depth = 0
+    while i < n:
+        c = sql[i]
+        if c in "'\"`":
+            i = _skip_quoted(sql, i, c)
+            continue
+        if c == "[":
+            i = _skip_until(sql, i, "]")
+            continue
+        if sql.startswith("--", i):
+            i = _skip_until(sql, i, "\n")
+            continue
+        if sql.startswith("/*", i):
+            i = _skip_until(sql, i, "*/")
+            continue
+        if c == "(":
+            depth += 1
+            i += 1
+            continue
+        if c == ")":
+            depth -= 1
+            i += 1
+            if depth == 0:
+                return i
+            continue
+        i += 1
+    return i
+
+
+def _reject_cte_clause_names(sql: str, i: int) -> None:
+    n = len(sql)
+    i = _skip_ws_comments(sql, i)
+    ident2, j2 = _read_ident(sql, i)
+    if ident2.upper() == "RECURSIVE":
+        i = _skip_ws_comments(sql, j2)
+    while True:
+        name, i = _read_ident(sql, i)
+        if not name:
+            return
+        if name.lower() in _PROTECTED_VIEW_NAMES:
+            raise EngineError.unauthorized()
+        i = _skip_ws_comments(sql, i)
+        if i < n and sql[i] == "(":
+            i = _skip_balanced_parens(sql, i)
+            i = _skip_ws_comments(sql, i)
+        as_ident, i2 = _read_ident(sql, i)
+        if as_ident.upper() != "AS":
+            return
+        i = _skip_ws_comments(sql, i2)
+        modifier_ident, i3 = _read_ident(sql, i)
+        if modifier_ident.upper() in ("MATERIALIZED", "NOT"):
+            i = _skip_ws_comments(sql, i3)
+            if modifier_ident.upper() == "NOT":
+                _not_materialized, i4 = _read_ident(sql, i)
+                i = _skip_ws_comments(sql, i4)
+        if i >= n or sql[i] != "(":
+            return
+        i = _skip_balanced_parens(sql, i)
+        i = _skip_ws_comments(sql, i)
+        if i < n and sql[i] == ",":
+            i = _skip_ws_comments(sql, i + 1)
+            continue
+        return
+
+
+def _reject_cte_name_collisions(sql: str) -> None:
+    n = len(sql)
+    i = 0
+    while i < n:
+        c = sql[i]
+        if c in "'\"`":
+            i = _skip_quoted(sql, i, c)
+            continue
+        if c == "[":
+            i = _skip_until(sql, i, "]")
+            continue
+        if sql.startswith("--", i):
+            i = _skip_until(sql, i, "\n")
+            continue
+        if sql.startswith("/*", i):
+            i = _skip_until(sql, i, "*/")
+            continue
+        if _is_ident_char(c):
+            ident, j = _read_ident(sql, i)
+            if ident.upper() == "WITH":
+                _reject_cte_clause_names(sql, j)
+            i = j
+            continue
+        i += 1
+
+
 def _reject_payload(sql: str) -> None:
     text = sql.lstrip()
     i = 0
@@ -132,6 +282,7 @@ def _reject_payload(sql: str) -> None:
         raise EngineError.unauthorized()
     if _has_second_statement(sql):
         raise EngineError.unauthorized()
+    _reject_cte_name_collisions(sql)
 
 
 def _uniform_error(exc: sqlite3.Error) -> EngineError:

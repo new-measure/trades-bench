@@ -6,8 +6,10 @@ from datetime import date
 
 from . import clock, constants
 from .config import RunConfig
-from .enums import DayType
+from .enums import DayType, EntityType, EventKind
 from .errors import EngineError, ErrorCode
+from .events import Events
+from .geo_reader import GeoArtifact
 from .txn import Services, TxnContext, command
 
 BLOCK_CODES: tuple[str, ...] = ("B07_09", "B09_11", "B11_13", "B13_15", "B15_17", "B17_19")
@@ -228,7 +230,10 @@ def book(
     technician_id: int,
     service_date: str,
     first_block_code: str,
+    artifact: GeoArtifact | None = None,
 ) -> dict:
+    from . import execution
+
     conn = ctx.conn
     now = ctx.now()
 
@@ -314,6 +319,34 @@ def book(
             (technician_id, block_start, appointment_id, now),
         )
 
+    day_type = DayType.from_iso_weekday(date.fromisoformat(service_date).isoweekday())
+    off_hours_indices = [
+        idx
+        for idx, code in enumerate(block_codes)
+        if day_type is DayType.WEEKEND or code == "B17_19"
+    ]
+    if off_hours_indices:
+        first_off_hours_start = windows[off_hours_indices[0]][0]
+        Events(conn, ctx.rng).schedule(
+            EventKind.OFF_HOURS_ACCRUAL_MARK,
+            first_off_hours_start,
+            entity_type=EntityType.APPOINTMENT.value,
+            entity_id=appointment_id,
+            payload={"appointment_id": appointment_id, "block_hours": 2 * scheduled_blocks},
+        )
+
+    if execution.first_trip_dispatch_applied(conn, service_date):
+        conn.execute(
+            "UPDATE _day_state SET unresolved_execution_count = unresolved_execution_count + 1 "
+            "WHERE service_date = ?",
+            (service_date,),
+        )
+        execution.replan_same_day(
+            ctx, config, artifact,
+            technician_id=technician_id, service_date=service_date,
+            appointment_id=appointment_id,
+        )
+
     return {
         "job_id": job_id,
         "job_number": job_number,
@@ -338,7 +371,10 @@ def assign(
     *,
     appointment_id: int,
     technician_id: int,
+    artifact: GeoArtifact | None = None,
 ) -> dict:
+    from . import execution
+
     conn = ctx.conn
     now = ctx.now()
 
@@ -354,6 +390,12 @@ def assign(
             "terminal_appointment",
             f"appointment {appointment_id} is terminal ({appt['status']}) and cannot "
             "be reassigned",
+            appointment_id=appointment_id,
+        )
+    if appt["status"] != "scheduled":
+        raise _state_illegal(
+            "work_already_started",
+            f"appointment {appointment_id} is {appt['status']} and cannot be reassigned",
             appointment_id=appointment_id,
         )
 
@@ -457,6 +499,19 @@ def assign(
                     f"{appointment_id} block {row['block_code']}",
                 )
 
+    if execution.first_trip_dispatch_applied(conn, service_date):
+        if previous_technician_id is not None:
+            execution.handle_outgoing_technician(
+                ctx, config, artifact,
+                appointment_id=appointment_id, technician_id=previous_technician_id,
+                service_date=service_date,
+            )
+        execution.replan_same_day(
+            ctx, config, artifact,
+            technician_id=technician_id, service_date=service_date,
+            appointment_id=appointment_id,
+        )
+
     return {
         "appointment_id": appointment_id,
         "technician_id": technician_id,
@@ -472,12 +527,14 @@ def assign_command(
     *,
     appointment_id: int,
     technician_id: int,
+    artifact: GeoArtifact | None = None,
 ) -> bytes:
     return command(
         services,
         request_id,
         lambda ctx: assign(
-            ctx, config, appointment_id=appointment_id, technician_id=technician_id
+            ctx, config, appointment_id=appointment_id, technician_id=technician_id,
+            artifact=artifact,
         ),
     )
 

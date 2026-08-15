@@ -84,6 +84,16 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
     ),
     (
+        "payroll.off_hours_bonus_per_job",
+        "cost",
+        5000,
+        {
+            "deferred": "provisional",
+            "description": "Flat bonus in cents posted alongside off-hours wages for each "
+            "off-hours accrual mark that carries an assignee.",
+        },
+    ),
+    (
         "geography.artifact_id",
         "string",
         "arizona-v1",
@@ -337,6 +347,42 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "deferred": "provisional",
             "description": "Floor on the duration multiplier.",
+        },
+    ),
+    (
+        "quality.duration_skill_coefficient",
+        "decimal",
+        Decimal("0"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Weight applied to the skill term of the execution duration "
+            "multiplier. The skill input is fixed at zero until the hidden quality model "
+            "ships.",
+        },
+    ),
+    (
+        "quality.duration_strain_coefficient",
+        "decimal",
+        Decimal("0"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Weight applied to the strain term of the execution duration "
+            "multiplier. The strain input is fixed at zero until the hidden quality model "
+            "ships.",
+        },
+    ),
+    (
+        "quality.duration_complexity_coefficient",
+        "decimal",
+        Decimal("0"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Weight applied to the complexity term of the execution duration "
+            "multiplier. The complexity input is fixed at zero until the hidden quality "
+            "model ships.",
         },
     ),
     (
@@ -1381,7 +1427,12 @@ def _v_int(spec: KeySpec, value: Any) -> int:
 
 
 def _v_decimal(spec: KeySpec, value: Any) -> Decimal:
-    return _as_decimal(value)
+    d = _as_decimal(value)
+    if spec.min is not None and d < spec.min:
+        raise _bad(f"{spec.path}: {d} below min {spec.min}")
+    if spec.max is not None and d > spec.max:
+        raise _bad(f"{spec.path}: {d} above max {spec.max}")
+    return d
 
 
 def _v_probability(spec: KeySpec, value: Any) -> Decimal:
