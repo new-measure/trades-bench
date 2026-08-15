@@ -335,6 +335,14 @@ def book(
             payload={"appointment_id": appointment_id, "block_hours": 2 * scheduled_blocks},
         )
 
+    Events(conn, ctx.rng).schedule(
+        EventKind.COMPANY_NO_SHOW,
+        windows[0][1],
+        entity_type=EntityType.APPOINTMENT.value,
+        entity_id=appointment_id,
+        payload={"appointment_id": appointment_id},
+    )
+
     if execution.first_trip_dispatch_applied(conn, service_date):
         conn.execute(
             "UPDATE _day_state SET unresolved_execution_count = unresolved_execution_count + 1 "

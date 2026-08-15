@@ -19,6 +19,8 @@ BLOCK_CODES = appointments.BLOCK_CODES
 _TERMINAL = appointments._TERMINAL_APPOINTMENT_STATUSES
 _TERMINAL_PLACEHOLDERS = ", ".join("?" for _ in _TERMINAL)
 
+_LATENESS_GRACE_MS = 10 * 60000
+
 
 def block_index(block_code: str) -> int:
     return BLOCK_CODES.index(block_code)
@@ -162,63 +164,6 @@ def planned_travel_minutes(
     return max(minutes, config.get_int("travel.min_travel_minutes"))
 
 
-@dataclass(frozen=True)
-class ChainPosition:
-
-    location_state: str
-    catalog_id: int | None
-    effective_zone_id: int | None
-    last_block_index: int | None
-    departs_from_ms: int | None
-    appointment_id: int | None
-
-
-_HOME_POSITION = ChainPosition(
-    location_state="home",
-    catalog_id=None,
-    effective_zone_id=None,
-    last_block_index=None,
-    departs_from_ms=None,
-    appointment_id=None,
-)
-
-
-def technician_chain_position(
-    conn: sqlite3.Connection, technician_id: int, service_date: str
-) -> ChainPosition:
-    row = conn.execute(
-        "SELECT ae.appointment_id, ae.occurred_at, ab.block_code, loc.address_catalog_id, "
-        "loc.effective_zone_id "
-        "FROM _appointment_events ae "
-        "JOIN _appointments a ON a.id = ae.appointment_id "
-        "JOIN _jobs j ON j.id = a.job_id "
-        "JOIN _locations loc ON loc.id = j.location_id "
-        "JOIN _appointment_blocks ab ON ab.appointment_id = ae.appointment_id "
-        "AND ab.ordinal = (SELECT MAX(ordinal) FROM _appointment_blocks "
-        "WHERE appointment_id = ae.appointment_id) "
-        "WHERE ae.technician_id = ? AND ae.service_date = ? "
-        "AND ae.event_type IN ('arrived', 'work_completed') "
-        "ORDER BY ab.block_start DESC, ae.occurred_at DESC LIMIT 1",
-        (technician_id, service_date),
-    ).fetchone()
-    if row is None:
-        return _HOME_POSITION
-    catalog_id = row["address_catalog_id"]
-    if catalog_id is None:
-        raise EngineError(
-            ErrorCode.STATE_ILLEGAL,
-            f"appointment {row['appointment_id']} location has no address catalog row",
-        )
-    return ChainPosition(
-        location_state="appointment",
-        catalog_id=int(catalog_id),
-        effective_zone_id=int(row["effective_zone_id"]),
-        last_block_index=block_index(row["block_code"]),
-        departs_from_ms=int(row["occurred_at"]),
-        appointment_id=int(row["appointment_id"]),
-    )
-
-
 def start_variation_minutes(rng: Rng, appointment_id: int, service_date: str) -> int:
     return rng.inverse_cdf_variation(
         KeyedStreamName.JOB_EXECUTION.value,
@@ -352,7 +297,7 @@ def _write_appointment_event(
     conn: sqlite3.Connection,
     *,
     appointment_id: int,
-    technician_id: int,
+    technician_id: int | None,
     event_type: str,
     occurred_at: int,
     service_date: str,
@@ -789,28 +734,41 @@ def _abandon_en_route(
         )
         return
 
-    position = technician_chain_position(conn, technician_id, service_date)
-    if position.appointment_id is None or position.catalog_id is None:
+    day_start, day_end = _day_bounds_ms(service_date)
+    origin_row = conn.execute(
+        "SELECT a.id AS appointment_id, j.location_id AS location_id, "
+        "final_block.block_code AS block_code "
+        "FROM _appointment_assignments aa "
+        "JOIN _appointments a ON a.id = aa.appointment_id "
+        "JOIN _jobs j ON j.id = a.job_id "
+        "JOIN _locations loc ON loc.id = j.location_id "
+        "JOIN _appointment_blocks first_block ON first_block.appointment_id = a.id "
+        "AND first_block.ordinal = 1 "
+        "JOIN _appointment_blocks final_block ON final_block.appointment_id = a.id "
+        "AND final_block.ordinal = (SELECT MAX(ordinal) FROM _appointment_blocks "
+        "WHERE appointment_id = a.id) "
+        "WHERE aa.technician_id = ? AND loc.latitude = ? AND loc.longitude = ? "
+        "AND a.id != ? "
+        "AND first_block.block_start >= ? AND first_block.block_start < ? "
+        "ORDER BY first_block.block_start DESC LIMIT 1",
+        (technician_id, origin_lat, origin_lon, appointment_id, day_start, day_end),
+    ).fetchone()
+    if origin_row is None:
         raise EngineError(
             ErrorCode.INVARIANT_VIOLATED,
             f"technician {technician_id} turn-back has no resolvable prior appointment "
             f"location on {service_date}",
         )
-    from_location = RoutablePoint(
-        catalog_point=geography.catalog_point(conn, position.catalog_id),
-        effective_zone_id=position.effective_zone_id,
-        latitude=origin_lat,
-        longitude=origin_lon,
-    )
+    from_location = location_point(conn, int(origin_row["location_id"]))
     plan_next_chain_step(
         ctx,
         config,
         artifact,
         technician_id=technician_id,
         service_date=service_date,
-        from_appointment_id=position.appointment_id,
+        from_appointment_id=int(origin_row["appointment_id"]),
         from_location=from_location,
-        from_block_index=position.last_block_index,
+        from_block_index=block_index(origin_row["block_code"]),
         departure_ms=ready_at,
     )
 
@@ -972,6 +930,11 @@ def appointment_dispatch_handler(config: RunConfig, artifact: GeoArtifact | None
         payload = _payload(row)
         appointment_id = int(payload["appointment_id"])
         technician_id = int(payload["technician_id"])
+        status = conn.execute(
+            "SELECT status FROM _appointments WHERE id = ?", (appointment_id,)
+        ).fetchone()["status"]
+        if status in _TERMINAL:
+            return None
         service_date = clock.service_date_for_ms(departure_ms)
         origin = technician_home_point(conn, technician_id)
         _job_id, location_id = _appointment_job_location_id(conn, appointment_id)
@@ -987,7 +950,7 @@ def appointment_dispatch_handler(config: RunConfig, artifact: GeoArtifact | None
     return handler
 
 
-def appointment_arrival_handler(config: RunConfig) -> EventHandler:
+def appointment_arrival_handler(config: RunConfig, artifact: GeoArtifact | None) -> EventHandler:
 
     def handler(ctx, row: sqlite3.Row) -> dict | None:
         now = _advance_to_event(ctx, row)
@@ -1007,15 +970,30 @@ def appointment_arrival_handler(config: RunConfig) -> EventHandler:
             longitude=float(loc["trip_destination_longitude"]),
             updated_at=now,
         )
+        appt = conn.execute(
+            "SELECT status, scheduled_start, arrival_window_end FROM _appointments WHERE id = ?",
+            (appointment_id,),
+        ).fetchone()
+        if appt["status"] in _TERMINAL:
+            blocks = _appointment_blocks(conn, appointment_id)
+            final_block_index = block_index(blocks[-1]["block_code"])
+            _job_id, location_id = _appointment_job_location_id(conn, appointment_id)
+            origin = location_point(conn, location_id)
+            plan_next_chain_step(
+                ctx, config, artifact,
+                technician_id=technician_id, service_date=service_date,
+                from_appointment_id=appointment_id, from_location=origin,
+                from_block_index=final_block_index, departure_ms=now,
+            )
+            return None
         _write_appointment_event(
             conn, appointment_id=appointment_id, technician_id=technician_id,
             event_type="arrived", occurred_at=now, service_date=service_date,
         )
-        appt = conn.execute(
-            "SELECT scheduled_start FROM _appointments WHERE id = ?", (appointment_id,)
-        ).fetchone()
         start_variation = start_variation_minutes(ctx.rng, appointment_id, service_date)
         work_started_ms = max(now, int(appt["scheduled_start"]) + start_variation * 60000)
+        if work_started_ms > int(appt["arrival_window_end"]):
+            return None
         Events(conn, ctx.rng).schedule(
             EventKind.WORK_STARTED, work_started_ms,
             entity_type=EntityType.APPOINTMENT.value, entity_id=appointment_id,
@@ -1035,10 +1013,16 @@ def work_started_handler(config: RunConfig) -> EventHandler:
         appointment_id = int(payload["appointment_id"])
         technician_id = int(payload["technician_id"])
         service_date = _appointment_service_date(conn, appointment_id)
+        scheduled_start = int(
+            conn.execute(
+                "SELECT scheduled_start FROM _appointments WHERE id = ?", (appointment_id,)
+            ).fetchone()["scheduled_start"]
+        )
+        lateness_minutes = max(0, now - scheduled_start - _LATENESS_GRACE_MS) // 60000
         updated = conn.execute(
             "UPDATE _appointments SET status = 'in_progress', actual_start = ?, "
-            "modified_at = ? WHERE id = ? AND status = 'scheduled'",
-            (now, now, appointment_id),
+            "lateness_minutes = ?, modified_at = ? WHERE id = ? AND status = 'scheduled'",
+            (now, lateness_minutes, now, appointment_id),
         )
         if updated.rowcount != 1:
             raise EngineError(
@@ -1068,6 +1052,96 @@ def work_started_handler(config: RunConfig) -> EventHandler:
             EventKind.WORK_COMPLETED, completion_ms,
             entity_type=EntityType.APPOINTMENT.value, entity_id=appointment_id,
             payload={"appointment_id": appointment_id, "technician_id": technician_id},
+        )
+        return None
+
+    return handler
+
+
+def company_no_show_handler(config: RunConfig, artifact: GeoArtifact | None) -> EventHandler:
+
+    def handler(ctx, row: sqlite3.Row) -> dict | None:
+        now = _advance_to_event(ctx, row)
+        cutoff = int(row["scheduled_at_ms"])
+        conn = ctx.conn
+        payload = _payload(row)
+        appointment_id = int(payload["appointment_id"])
+        appt = conn.execute(
+            "SELECT status FROM _appointments WHERE id = ?", (appointment_id,)
+        ).fetchone()
+        if appt is None:
+            raise EngineError(
+                ErrorCode.ENTITY_NOT_FOUND, f"appointment {appointment_id} not found"
+            )
+        if appt["status"] != "scheduled":
+            return None
+        service_date = _appointment_service_date(conn, appointment_id)
+        updated = conn.execute(
+            "UPDATE _appointments SET status = 'no_show', modified_at = ? "
+            "WHERE id = ? AND status = 'scheduled'",
+            (cutoff, appointment_id),
+        )
+        if updated.rowcount != 1:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED,
+                f"appointment {appointment_id} was not scheduled at company no-show",
+            )
+        technician_id = _active_technician_id(conn, appointment_id)
+        _write_appointment_event(
+            conn, appointment_id=appointment_id, technician_id=technician_id,
+            event_type="no_show", occurred_at=cutoff, service_date=service_date,
+        )
+        conn.execute(
+            "DELETE FROM _technician_block_holds WHERE appointment_id = ?",
+            (appointment_id,),
+        )
+        appointment_number = str(
+            conn.execute(
+                "SELECT appointment_number FROM _appointments WHERE id = ?",
+                (appointment_id,),
+            ).fetchone()["appointment_number"]
+        )
+        conn.execute(
+            "INSERT INTO _notifications (created_at, service_date, notification_type, "
+            "entity_type, entity_id, message) "
+            "VALUES (?, ?, 'company_no_show', 'appointment', ?, ?)",
+            (
+                cutoff, service_date, appointment_id,
+                f"No technician started work for appointment {appointment_number} "
+                f"on {service_date} before its arrival window ended, so the company "
+                "missed the appointment.",
+            ),
+        )
+        dispatch = _pending_dispatch_event(conn, appointment_id)
+        if dispatch is not None:
+            Events(conn, ctx.rng).cancel(int(dispatch["event_id"]))
+            if technician_id is not None:
+                plan_next_dispatch_if_idle(
+                    ctx, config, artifact,
+                    technician_id=technician_id, service_date=service_date,
+                    floor_ms=now,
+                )
+        elif technician_id is not None and _pending_arrival_event(conn, appointment_id) is None:
+            arrived = conn.execute(
+                "SELECT 1 FROM _appointment_events WHERE appointment_id = ? "
+                "AND technician_id = ? AND event_type = 'arrived' LIMIT 1",
+                (appointment_id, technician_id),
+            ).fetchone()
+            if arrived is not None:
+                _job_id, location_id = _appointment_job_location_id(conn, appointment_id)
+                origin = location_point(conn, location_id)
+                blocks = _appointment_blocks(conn, appointment_id)
+                final_block_index = block_index(blocks[-1]["block_code"])
+                plan_next_chain_step(
+                    ctx, config, artifact,
+                    technician_id=technician_id, service_date=service_date,
+                    from_appointment_id=appointment_id, from_location=origin,
+                    from_block_index=final_block_index, departure_ms=now,
+                )
+        conn.execute(
+            "UPDATE _day_state SET unresolved_execution_count = unresolved_execution_count - 1 "
+            "WHERE service_date = ?",
+            (service_date,),
         )
         return None
 
@@ -1217,9 +1291,10 @@ def build_handlers(config: RunConfig, artifact: GeoArtifact | None) -> dict[Even
         EventKind.OFF_HOURS_ACCRUAL_MARK: off_hours_accrual_mark_handler,
         EventKind.FIRST_TRIP_DISPATCH: first_trip_dispatch_handler(config, artifact),
         EventKind.APPOINTMENT_DISPATCH: appointment_dispatch_handler(config, artifact),
-        EventKind.APPOINTMENT_ARRIVAL: appointment_arrival_handler(config),
+        EventKind.APPOINTMENT_ARRIVAL: appointment_arrival_handler(config, artifact),
         EventKind.WORK_STARTED: work_started_handler(config),
         EventKind.WORK_COMPLETED: work_completed_handler(config, artifact),
+        EventKind.COMPANY_NO_SHOW: company_no_show_handler(config, artifact),
         EventKind.TECHNICIAN_RETURN_HOME: technician_return_home_handler(config, artifact),
         EventKind.TECHNICIAN_HOME_ARRIVAL: technician_home_arrival_handler(config, artifact),
     }
@@ -1227,7 +1302,6 @@ def build_handlers(config: RunConfig, artifact: GeoArtifact | None) -> dict[Even
 
 __all__ = [
     "BLOCK_CODES",
-    "ChainPosition",
     "RoutablePoint",
     "block_code_at",
     "block_end_instant",
@@ -1248,6 +1322,5 @@ __all__ = [
     "planned_travel_minutes",
     "replan_same_day",
     "start_variation_minutes",
-    "technician_chain_position",
     "technician_home_point",
 ]

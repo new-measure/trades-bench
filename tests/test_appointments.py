@@ -671,3 +671,66 @@ def test_off_hours_mark_is_never_cancelled_by_reassignment(tmp_path):
     _ok(_assign(controller.services, cfg, appointment_id=booked["appointment_id"], technician_id=3))
     after = _off_hours_marks(conn, booked["appointment_id"])
     assert before == after
+
+
+def _no_show_guards(conn, appointment_id):
+    rows = conn.execute(
+        "SELECT scheduled_at_ms, entity_type, status, payload FROM _events "
+        "WHERE kind = ? AND entity_id = ?",
+        (EventKind.COMPANY_NO_SHOW.value, appointment_id),
+    ).fetchall()
+    return [
+        (r["scheduled_at_ms"], r["entity_type"], r["status"], json.loads(r["payload"]))
+        for r in rows
+    ]
+
+
+@pytest.mark.parametrize(
+    "job_type_id, first_block_code, cutoff_hour",
+    [
+        (1, "B09_11", 11),
+        (1, "B17_19", 19),
+        (2, "B07_09", 9),
+        (2, "B11_13", 13),
+    ],
+)
+def test_booking_schedules_one_company_no_show_event_at_first_block_end(
+    tmp_path, job_type_id, first_block_code, cutoff_hour
+):
+    conn, cfg, controller = _build(tmp_path)
+    booked = _book_ok(
+        conn, controller, cfg,
+        job_type_id=job_type_id, technician_id=1, first_block_code=first_block_code,
+    )
+    assert _no_show_guards(conn, booked["appointment_id"]) == [
+        (
+            clock.phoenix_instant(2026, 10, 1, cutoff_hour, 0),
+            "appointment",
+            "pending",
+            {"appointment_id": booked["appointment_id"]},
+        )
+    ]
+
+
+def test_every_booking_gets_exactly_one_company_no_show_event(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    first = _book_ok(
+        conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B09_11"
+    )
+    second = _book_ok(
+        conn, controller, cfg, job_type_id=2, technician_id=3, first_block_code="B11_13"
+    )
+    assert len(_no_show_guards(conn, first["appointment_id"])) == 1
+    assert len(_no_show_guards(conn, second["appointment_id"])) == 1
+
+
+def test_company_no_show_event_is_never_cancelled_by_reassignment(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    booked = _book_ok(
+        conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B09_11"
+    )
+    before = _no_show_guards(conn, booked["appointment_id"])
+    _ok(_assign(controller.services, cfg, appointment_id=booked["appointment_id"], technician_id=3))
+    after = _no_show_guards(conn, booked["appointment_id"])
+    assert before == after
+    assert after[0][2] == "pending"
