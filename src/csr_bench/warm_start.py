@@ -4,7 +4,7 @@ import json
 import sqlite3
 from datetime import date, timedelta
 
-from . import clock, db, geo_reader
+from . import clock, db, geo_reader, geography
 from .config import RunConfig
 from .enums import LedgerCategory, RunStatus
 from .errors import EngineError, ErrorCode
@@ -18,14 +18,17 @@ HIRING_LEAD_DAYS = 33
 
 RECRUITING_COST_WAGE_MULTIPLE = 10
 
-_ROSTER: dict[int, tuple[str, str, str, str, str, float, float, str]] = {
-    1: ("Marcus Vega", "2218 N 16th St", "", "Phoenix", "85006", 33.5019, -112.0441, "2022-05-02"),
-    2: ("Diana Chen", "4520 N 72nd St", "", "Scottsdale", "85251", 33.5021, -111.9275, RECENT_HIRE_JOINED_ON),
-    3: ("Roberto Salas", "1638 S Country Club Dr", "", "Mesa", "85210", 33.4078, -111.8354, "2023-08-14"),
-    4: ("Katherine Osei", "5940 W Glendale Ave", "", "Glendale", "85301", 33.5387, -112.1889, "2025-02-10"),
+_ROSTER: dict[int, tuple[str, str]] = {
+    1: ("Marcus Vega", "2022-05-02"),
+    2: ("Diana Chen", RECENT_HIRE_JOINED_ON),
+    3: ("Roberto Salas", "2023-08-14"),
+    4: ("Katherine Osei", "2025-02-10"),
 }
 
-_HOME_ZONES: dict[int, int] = {1: 1, 2: 3, 3: 5, 4: 8}
+_HOME_CATALOG_IDS_BY_DATASET: dict[str, dict[int, int]] = {
+    "arizona-v1": {1: 316527, 2: 968775, 3: 749311, 4: 895824},
+    "tempe-fixture-v1": {1: 414, 2: 723, 3: 177, 4: 472},
+}
 
 _QUALIFICATIONS: dict[int, tuple[str, ...]] = {
     1: ("hvac_service",),
@@ -172,9 +175,49 @@ def _populate_geography(
         )
 
 
+def _catalog_dataset_version(conn: sqlite3.Connection) -> str:
+    rows = conn.execute("SELECT DISTINCT dataset_version FROM _address_catalog").fetchall()
+    if len(rows) != 1:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"the address catalog must carry exactly one dataset_version, found {len(rows)}",
+        )
+    return str(rows[0]["dataset_version"])
+
+
+def _home_catalog_ids(dataset_version: str) -> dict[int, int]:
+    ids = _HOME_CATALOG_IDS_BY_DATASET.get(dataset_version)
+    if ids is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"no fixture technician homes are pinned for geography dataset "
+            f"{dataset_version!r}",
+        )
+    return ids
+
+
+def _resolve_home(conn: sqlite3.Connection, address_catalog_id: int) -> sqlite3.Row:
+    geography.catalog_point(conn, address_catalog_id)
+    row = conn.execute(
+        "SELECT house_number, street, city, state, postal_code, latitude, "
+        "longitude, zone_id, effective_zone_id FROM _address_catalog WHERE id = ?",
+        (address_catalog_id,),
+    ).fetchone()
+    if row is None:
+        raise EngineError(
+            ErrorCode.ENTITY_NOT_FOUND,
+            f"home address_catalog_id {address_catalog_id} not found in the catalog",
+        )
+    return row
+
+
+def _home_zone_id(home: sqlite3.Row) -> int | None:
+    return int(home["zone_id"]) if home["zone_id"] is not None else None
+
+
 def _build_fixture(conn: sqlite3.Connection, config: RunConfig) -> None:
     recent_hire_id = config.get_int("constants.recent_hire_technician_id")
-    if _ROSTER[recent_hire_id][7] != RECENT_HIRE_JOINED_ON:
+    if _ROSTER[recent_hire_id][1] != RECENT_HIRE_JOINED_ON:
         raise EngineError(
             ErrorCode.INVARIANT_VIOLATED,
             f"roster entry for constants.recent_hire_technician_id={recent_hire_id} "
@@ -183,34 +226,46 @@ def _build_fixture(conn: sqlite3.Connection, config: RunConfig) -> None:
     wages_by_trade = config.resolved["hiring.base_hourly_wage_by_trade"]
     starting_cash = config.get_int("finance.starting_cash")
 
+    home_catalog_ids = _home_catalog_ids(_catalog_dataset_version(conn))
+    homes = {
+        tech_id: _resolve_home(conn, address_catalog_id)
+        for tech_id, address_catalog_id in home_catalog_ids.items()
+    }
+
     rows = []
     for tech_id in sorted(_ROSTER):
-        name, street, unit, city, postal, lat, lon, joined_on = _ROSTER[tech_id]
+        name, joined_on = _ROSTER[tech_id]
         quals = _QUALIFICATIONS[tech_id]
         wage = max(wages_by_trade[q] for q in quals)
+        home = homes[tech_id]
+        street = f"{home['house_number']} {home['street']}"
         rows.append(
             (
-                tech_id, name, street, unit, city, "AZ", postal, lat, lon,
-                _HOME_ZONES[tech_id], joined_on, wage,
-                _date_instant(joined_on), BOUNDARY_MS,
+                tech_id, name, street, "", home["city"], home["state"],
+                home["postal_code"], home["latitude"], home["longitude"],
+                _home_zone_id(home), joined_on, wage,
+                _date_instant(joined_on), BOUNDARY_MS, home_catalog_ids[tech_id],
             )
         )
     conn.executemany(
         """INSERT INTO _technicians
            (id, name, street, unit, city, state, postal_code, home_latitude,
             home_longitude, home_zone_id, joined_on, hourly_wage_cents,
-            employment_status, availability_status, created_at, modified_at, origin)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'available', ?, ?, 'warm_start')""",
+            employment_status, availability_status, created_at, modified_at, origin,
+            home_address_catalog_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'available', ?, ?,
+                   'warm_start', ?)""",
         rows,
     )
 
     skill_rows = []
     skill_id = 0
     for tech_id in sorted(_QUALIFICATIONS):
-        joined_ms = _date_instant(_ROSTER[tech_id][7])
+        joined_on = _ROSTER[tech_id][1]
+        joined_ms = _date_instant(joined_on)
         for code in _QUALIFICATIONS[tech_id]:
             skill_id += 1
-            skill_rows.append((skill_id, tech_id, code, 1, _ROSTER[tech_id][7], joined_ms))
+            skill_rows.append((skill_id, tech_id, code, 1, joined_on, joined_ms))
     conn.executemany(
         """INSERT INTO _technician_skills
            (id, technician_id, skill_code, active, granted_on, created_at, origin)
@@ -242,8 +297,8 @@ def _build_fixture(conn: sqlite3.Connection, config: RunConfig) -> None:
            (technician_id, latitude, longitude, coordinates_updated_at, location_state)
            VALUES (?, ?, ?, ?, 'home')""",
         [
-            (tech_id, lat, lon, BOUNDARY_MS)
-            for tech_id, (_, _, _, _, _, lat, lon, _) in sorted(_ROSTER.items())
+            (tech_id, homes[tech_id]["latitude"], homes[tech_id]["longitude"], BOUNDARY_MS)
+            for tech_id in sorted(_ROSTER)
         ],
     )
 
@@ -277,7 +332,7 @@ def _build_fixture(conn: sqlite3.Connection, config: RunConfig) -> None:
         (
             requested_at,
             json.dumps(list(recent_quals), separators=(",", ":")),
-            _HOME_ZONES[recent_hire_id],
+            _home_zone_id(homes[recent_hire_id]),
             recent_wage * RECRUITING_COST_WAGE_MULTIPLE,
             recent_wage,
             RECENT_HIRE_JOINED_ON,

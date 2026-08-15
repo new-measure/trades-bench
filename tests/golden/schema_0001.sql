@@ -106,7 +106,7 @@ CREATE TABLE _appointments (
     created_at           INTEGER NOT NULL,
     modified_at          INTEGER NOT NULL,
     origin               TEXT NOT NULL CHECK (origin IN ('warm_start','run')) DEFAULT 'run'
-)
+, lateness_minutes INTEGER)
 
 -- table: _block_locks
 CREATE TABLE _block_locks (
@@ -757,7 +757,8 @@ CREATE TABLE _technicians (
     final_working_date    TEXT,
     created_at            INTEGER NOT NULL,
     modified_at           INTEGER NOT NULL,
-    origin                TEXT NOT NULL CHECK (origin IN ('warm_start','run')) DEFAULT 'run',
+    origin                TEXT NOT NULL CHECK (origin IN ('warm_start','run')) DEFAULT 'run', home_address_catalog_id INTEGER
+    REFERENCES _address_catalog(id) ON DELETE RESTRICT,
     CHECK (employment_status NOT IN ('terminated','resigned')
            OR final_working_date IS NOT NULL)
 )

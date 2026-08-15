@@ -7,7 +7,7 @@ from datetime import date, timedelta
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config, geo_scenario_json, register_conn
-from csr_bench import _dump, clock, db, warm_start
+from csr_bench import _dump, clock, db, geography, warm_start
 from csr_bench.config import load_run_config
 from csr_bench.db import get_run, in_memory
 from csr_bench.enums import RunStatus
@@ -128,6 +128,47 @@ def test_ws02_roster_and_coverage(tmp_path):
     )
 
 
+def test_home_catalog_ids_reject_an_unpinned_dataset():
+    with pytest.raises(EngineError) as excinfo:
+        warm_start._home_catalog_ids("unknown-dataset-v9")
+    assert excinfo.value.code == ErrorCode.INVARIANT_VIOLATED
+
+
+def test_home_catalog_ids_pin_all_four_technicians_per_dataset():
+    for dataset, ids in warm_start._HOME_CATALOG_IDS_BY_DATASET.items():
+        assert sorted(ids) == [1, 2, 3, 4], dataset
+        assert len(set(ids.values())) == 4, dataset
+
+
+def test_ws03_technician_homes_resolve_through_the_address_catalog(tmp_path):
+    conn, _, _, _ = _build(tmp_path)
+    for tech_id, address_catalog_id in warm_start._home_catalog_ids(
+        "tempe-fixture-v1"
+    ).items():
+        point = geography.catalog_point(conn, address_catalog_id)
+        assert point.address_id == address_catalog_id
+        tech = conn.execute(
+            "SELECT street, city, state, postal_code, home_latitude, "
+            "home_longitude, home_zone_id, home_address_catalog_id "
+            "FROM _technicians WHERE id = ?",
+            (tech_id,),
+        ).fetchone()
+        catalog = conn.execute(
+            "SELECT house_number, street, city, state, postal_code, latitude, "
+            "longitude, zone_id, effective_zone_id FROM _address_catalog WHERE id = ?",
+            (address_catalog_id,),
+        ).fetchone()
+        assert tech["home_address_catalog_id"] == address_catalog_id
+        assert tech["street"] == f"{catalog['house_number']} {catalog['street']}"
+        assert tech["city"] == catalog["city"]
+        assert tech["state"] == catalog["state"]
+        assert tech["postal_code"] == catalog["postal_code"]
+        assert tech["home_latitude"] == catalog["latitude"]
+        assert tech["home_longitude"] == catalog["longitude"]
+        assert catalog["zone_id"] is not None
+        assert tech["home_zone_id"] == catalog["zone_id"]
+
+
 def test_ws05_rebuilds_are_byte_identical_and_seed_independent(tmp_path):
     conn1, rid1, _, _ = _build(tmp_path, seed=1)
     conn2, rid2, _, _ = _build(tmp_path, seed=2)
@@ -191,7 +232,7 @@ def test_ws09_fixture_form_views(tmp_path):
     assert hr["status"] == "completed"
     assert json.loads(hr["requested_skill_codes_json"]) == ["hvac_service", "hvac_install"]
     assert hr["minimum_experience_years"] == 3
-    assert hr["preferred_home_zone_id"] == 3
+    assert hr["preferred_home_zone_id"] == 4
     assert hr["committed_start_date"] == "2026-08-03"
     assert hr["committed_hourly_wage_cents"] == 4000
     assert hr["recruiting_cost_cents"] == 40000

@@ -98,6 +98,7 @@ RULE_2_PRIVATE_FIELDS = frozenset(
         Field("_locations", "effective_zone_id"),
         Field("_locations", "address_catalog_id"),
         Field("_calls", "address_catalog_id"),
+        Field("_technicians", "home_address_catalog_id"),
     }
     | {
         Field("_technician_locations", column)

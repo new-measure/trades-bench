@@ -392,6 +392,7 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_appointments", "created_at"): V.PUBLIC_SQL,
     Field("_appointments", "modified_at"): V.PUBLIC_SQL,
     Field("_appointments", "origin"): V.PRIVATE_ENGINE,
+    Field("_appointments", "lateness_minutes"): V.PUBLIC_SQL,
 
     Field("_appointment_blocks", "id"): V.PUBLIC_SQL,
     Field("_appointment_blocks", "appointment_id"): V.PUBLIC_SQL,
@@ -446,6 +447,7 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_technicians", "created_at"): V.PUBLIC_SQL,
     Field("_technicians", "modified_at"): V.PUBLIC_SQL,
     Field("_technicians", "origin"): V.PRIVATE_ENGINE,
+    Field("_technicians", "home_address_catalog_id"): V.PRIVATE_ENGINE,
 
     Field("_technician_skills", "id"): V.PUBLIC_SQL,
     Field("_technician_skills", "technician_id"): V.PUBLIC_SQL,

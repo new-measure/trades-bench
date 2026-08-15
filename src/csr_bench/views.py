@@ -166,7 +166,8 @@ VIEWS: tuple[ViewSpec, ...] = (
         "id", "appointment_number", "job_id", "status",
         ("scheduled_start", True), ("scheduled_end", True),
         ("arrival_window_start", True), ("arrival_window_end", True),
-        ("actual_start", True), ("actual_end", True), ("cancelled_at", True),
+        ("actual_start", True), ("actual_end", True), "lateness_minutes",
+        ("cancelled_at", True),
         ("created_at", True), ("modified_at", True),
     ),
     _view(
@@ -336,7 +337,7 @@ _WHITELIST_NAMES: frozenset[str] = frozenset(
 VIEW_WHITELIST: frozenset[str] = frozenset(spec.name for spec in VIEWS)
 
 VIEW_REGISTRY_HASH: str = (
-    "95f0c90aaf08120df5d1a315bfb7ed5e60e52dc00114cc38d913b2550adca5d8"
+    "05d3b73e639fefa739afd49d460d5bb376245d62b2931a8e177aa5e2b7701404"
 )
 
 
