@@ -154,7 +154,7 @@ DAY_TWO_TRACE = [
 ]
 
 
-def _insert_customer_location_call(conn, config, order: BookingOrder, now_ms: int) -> None:
+def _insert_customer_location_call(conn, config, order: BookingOrder, now_ms: int) -> int:
     crm_id = order.crm_id
     address = CATALOG_BY_ADDRESS_ID[order.address_id]
     conn.execute(
@@ -176,12 +176,13 @@ def _insert_customer_location_call(conn, config, order: BookingOrder, now_ms: in
             now_ms, now_ms, address.effective_zone_id, address.address_id,
         ),
     )
-    conn.execute(
-        "INSERT INTO _calls (id, arrived_at, service_date, call_kind, status, "
+    cur = conn.execute(
+        "INSERT INTO _calls (arrived_at, service_date, call_kind, status, "
         "caller_name, caller_phone, requested_service_name, urgent, created_at) "
-        "VALUES (?, ?, ?, 'new_job', 'booked', ?, '555-0100', ?, 0, ?)",
-        (crm_id, now_ms, order.service_date, f"Caller {crm_id}", order.service, now_ms),
+        "VALUES (?, ?, 'new_job', 'booked', ?, '555-0100', ?, 0, ?)",
+        (now_ms, order.service_date, f"Caller {crm_id}", order.service, now_ms),
     )
+    return int(cur.lastrowid)
 
 
 class ScriptedBookingAdapter(ScriptedNoOpAdapter):
@@ -204,10 +205,10 @@ class ScriptedBookingAdapter(ScriptedNoOpAdapter):
         artifact = controller.artifact
 
         def fn(ctx):
-            _insert_customer_location_call(ctx.conn, config, order, ctx.now())
+            call_id = _insert_customer_location_call(ctx.conn, config, order, ctx.now())
             return appointments.book(
                 ctx, config, artifact=artifact,
-                call_id=order.crm_id, customer_id=order.crm_id, location_id=order.crm_id,
+                call_id=call_id, customer_id=order.crm_id, location_id=order.crm_id,
                 job_type_id=order.job_type_id, requested_service_name=order.service,
                 priority="normal", summary=order.key, technician_id=order.technician_id,
                 service_date=order.service_date, first_block_code=order.first_block_code,

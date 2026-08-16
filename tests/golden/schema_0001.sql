@@ -146,7 +146,8 @@ CREATE TABLE _call_hidden (
     prospect_id             INTEGER REFERENCES _prospect_state(id) ON DELETE RESTRICT,
     acceptance_result       INTEGER,
     created_at              INTEGER NOT NULL
-)
+, arrival_event_id INTEGER
+    REFERENCES _events(event_id) ON DELETE RESTRICT)
 
 -- table: _calls
 CREATE TABLE _calls (

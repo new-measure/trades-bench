@@ -238,6 +238,7 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_call_hidden", "prospect_id"): V.PRIVATE_ENGINE,
     Field("_call_hidden", "acceptance_result"): V.PRIVATE_ENGINE,
     Field("_call_hidden", "created_at"): V.PRIVATE_ENGINE,
+    Field("_call_hidden", "arrival_event_id"): V.PRIVATE_ENGINE,
 
     Field("_customer_repeat_state", "customer_id"): V.PRIVATE_ENGINE,
     Field("_customer_repeat_state", "propensity_micros"): V.PRIVATE_ENGINE,

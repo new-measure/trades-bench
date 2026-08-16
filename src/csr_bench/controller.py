@@ -5,7 +5,7 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import SPEC_VERSION, clock, constants, db, demand, execution, geo_reader
+from . import SPEC_VERSION, calls, clock, constants, db, demand, execution, geo_reader
 from .adapter import AdapterPrompt, HarnessAdapter
 from .config import RunConfig
 from .enums import (
@@ -204,15 +204,8 @@ def _block_lock_handler(ctx: TxnContext, row: sqlite3.Row) -> dict | None:
 
 
 def _call_invocation_handler(ctx: TxnContext, row: sqlite3.Row) -> dict | None:
-    _advance_to_event(ctx, row)
-    pending = ctx.conn.execute(
-        "SELECT 1 FROM _pending_calls WHERE id = ?", (row["entity_id"],)
-    ).fetchone()
-    if pending is None:
-        raise EngineError(
-            ErrorCode.ENTITY_NOT_FOUND,
-            f"call event {row['event_id']} references missing pending call {row['entity_id']}",
-        )
+    now = _advance_to_event(ctx, row)
+    calls.arrive(ctx.conn, row, now_ms=now)
     return None
 
 
@@ -537,20 +530,7 @@ class Controller:
         self, invocation_type: InvocationType, ts: int, row: sqlite3.Row
     ) -> AdapterPrompt:
         if invocation_type is InvocationType.CALL:
-            pending = self.conn.execute(
-                "SELECT caller_name, caller_phone FROM _pending_calls WHERE id = ?",
-                (row["entity_id"],),
-            ).fetchone()
-            if pending is None:
-                raise EngineError(
-                    ErrorCode.ENTITY_NOT_FOUND,
-                    f"pending call {row['entity_id']} not found for prompt",
-                )
-            payload: dict[str, object] = {
-                "time": clock.to_iso8601(ts),
-                "caller_name": str(pending["caller_name"]),
-                "caller_phone": str(pending["caller_phone"]),
-            }
+            payload: dict[str, object] = calls.prompt_payload(self.conn, row, ts)
         elif invocation_type is InvocationType.OPENING:
             payload = {
                 "service_date": _event_service_date(row),

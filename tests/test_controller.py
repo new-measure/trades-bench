@@ -69,10 +69,10 @@ def _run_id(conn):
 
 def _arrivals(conn, service_date):
     return [
-        row["arrival_at"]
+        row["arrived_at"]
         for row in conn.execute(
-            "SELECT arrival_at FROM _pending_calls WHERE service_date = ? "
-            "ORDER BY arrival_at, id",
+            "SELECT arrived_at FROM _calls WHERE service_date = ? "
+            "ORDER BY arrived_at, id",
             (service_date,),
         )
     ]
@@ -145,19 +145,23 @@ def test_day_state_rows_record_openings_closings_and_settlement(completed_run):
         assert row["last_execution_completed_at"] is None
 
 
-def test_every_pending_call_yields_one_completed_call_invocation_at_arrival(completed_run):
+def test_every_arrived_call_is_permanent_and_drains_its_pending_row(completed_run):
     conn = completed_run["conn"]
-    pending = conn.execute(
-        "SELECT id, arrival_at, event_id FROM _pending_calls ORDER BY arrival_at, id"
+    assert conn.execute("SELECT COUNT(*) c FROM _pending_calls").fetchone()["c"] == 0
+    arrived = conn.execute(
+        "SELECT c.id, c.arrived_at, c.status, h.arrival_event_id "
+        "FROM _calls c JOIN _call_hidden h ON h.call_id = c.id "
+        "ORDER BY c.arrived_at, c.id"
     ).fetchall()
-    assert pending
-    for row in pending:
-        minutes = clock.phoenix_local(row["arrival_at"]).hour * 60
+    assert arrived
+    for row in arrived:
+        local = clock.phoenix_local(row["arrived_at"])
+        minutes = local.hour * 60 + local.minute
         assert constants.CALL_WINDOW_START_MIN <= minutes < constants.CALL_WINDOW_END_MIN
     call_invocations = conn.execute(
         "SELECT ts_ms, status FROM _invocations WHERE type = 'call' ORDER BY sequence"
     ).fetchall()
-    assert [row["ts_ms"] for row in call_invocations] == [row["arrival_at"] for row in pending]
+    assert [row["ts_ms"] for row in call_invocations] == [row["arrived_at"] for row in arrived]
     assert all(row["status"] == "completed" for row in call_invocations)
     applied_call_events = {
         row["event_id"]
@@ -165,10 +169,10 @@ def test_every_pending_call_yields_one_completed_call_invocation_at_arrival(comp
             "SELECT event_id FROM _events WHERE kind = 'call_invocation' AND status = 'applied'"
         )
     }
-    assert applied_call_events == {row["event_id"] for row in pending}
+    assert applied_call_events == {row["arrival_event_id"] for row in arrived}
 
 
-def test_adapter_prompts_arrive_in_timestamp_order_with_minimal_payloads(completed_run):
+def test_adapter_prompts_arrive_in_timestamp_order_with_field_set_payloads(completed_run):
     conn = completed_run["conn"]
     prompts = completed_run["adapter"].prompts
     expected = []
@@ -179,19 +183,44 @@ def test_adapter_prompts_arrive_in_timestamp_order_with_minimal_payloads(complet
     assert [(prompt.kind.value, prompt.ts_ms) for prompt in prompts] == expected
     timestamps = [prompt.ts_ms for prompt in prompts]
     assert timestamps == sorted(timestamps)
-    for prompt in prompts:
-        if prompt.kind.value == "call":
-            assert set(prompt.payload) == {"time", "caller_name", "caller_phone"}
-        else:
-            assert set(prompt.payload) == {"service_date", "time"}
-    pending = conn.execute(
-        "SELECT caller_name, caller_phone FROM _pending_calls ORDER BY arrival_at, id"
-    ).fetchall()
     call_prompts = [prompt for prompt in prompts if prompt.kind.value == "call"]
+    for prompt in call_prompts:
+        assert set(prompt.payload) == {
+            "time", "call_id", "caller", "phone", "address",
+            "customer_type", "requested_service", "urgent",
+        }
+    for prompt in prompts:
+        if prompt.kind.value != "call":
+            assert set(prompt.payload) == {"service_date", "time"}
+    arrived = conn.execute(
+        "SELECT c.id, c.caller_name, c.caller_phone, c.segment, "
+        "c.requested_service_name, c.urgent, ac.formatted_address "
+        "FROM _calls c JOIN _address_catalog ac ON ac.id = c.address_catalog_id "
+        "ORDER BY c.arrived_at, c.id"
+    ).fetchall()
     assert [
-        (prompt.payload["caller_name"], prompt.payload["caller_phone"])
+        (
+            prompt.payload["call_id"],
+            prompt.payload["caller"],
+            prompt.payload["phone"],
+            prompt.payload["customer_type"],
+            prompt.payload["address"],
+            prompt.payload["requested_service"],
+            prompt.payload["urgent"],
+        )
         for prompt in call_prompts
-    ] == [(row["caller_name"], row["caller_phone"]) for row in pending]
+    ] == [
+        (
+            row["id"],
+            row["caller_name"],
+            row["caller_phone"],
+            row["segment"],
+            row["formatted_address"],
+            row["requested_service_name"],
+            bool(row["urgent"]),
+        )
+        for row in arrived
+    ]
 
 
 def test_block_locks_cover_six_blocks_per_day_at_the_right_instants(completed_run):
