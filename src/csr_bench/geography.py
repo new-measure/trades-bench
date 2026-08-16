@@ -34,14 +34,15 @@ class MapsDistanceResult:
     dataset_version: str
 
 
-def resolve(
+def resolve_catalog(
     conn: sqlite3.Connection,
     abbreviation_table: Mapping[str, Mapping[str, str]],
     address_text: str,
-) -> int:
+) -> tuple[sqlite3.Row, address.NormalizedAddress]:
     normalized = address.normalize(address_text, abbreviation_table)
     row = conn.execute(
-        "SELECT id FROM _address_catalog WHERE canonical_key = ?",
+        "SELECT id, house_number, street, city, state, postal_code, latitude, longitude, "
+        "zone_id, effective_zone_id FROM _address_catalog WHERE canonical_key = ?",
         (normalized.canonical_key,),
     ).fetchone()
     if row is None:
@@ -50,6 +51,15 @@ def resolve(
             f"no catalog address matches {address_text!r}",
             details={"canonical_key": normalized.canonical_key},
         )
+    return row, normalized
+
+
+def resolve(
+    conn: sqlite3.Connection,
+    abbreviation_table: Mapping[str, Mapping[str, str]],
+    address_text: str,
+) -> int:
+    row, _ = resolve_catalog(conn, abbreviation_table, address_text)
     return int(row["id"])
 
 
@@ -134,5 +144,6 @@ __all__ = [
     "catalog_point",
     "maps_distance",
     "resolve",
+    "resolve_catalog",
     "route_distance_km",
 ]
