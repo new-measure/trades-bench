@@ -54,7 +54,7 @@ def test_invocation_freezes_current_time_for_commands():
         frozen["v"] = ctx.now_ms
         return {"inv": iv}
 
-    command(sv, "noop.read.1", fn)
+    command(sv, "noop.read.1", fn, operation="test.op", args={})
     assert frozen["v"] == ts
     assert clock.now(conn) == ts
     sv.invocations.complete(iv, services=sv)
@@ -121,7 +121,9 @@ def _closing_restricted_command(services, request_id, target_ts):
         ctx.services.ledger.post([LedgerEntry(LedgerCategory.REVENUE, 1, target_ts)])
         return {"target_ts": target_ts}
 
-    return command(services, request_id, fn)
+    return command(
+        services, request_id, fn, operation="test.closing", args={"target_ts": target_ts}
+    )
 
 
 def test_closing_invocation_rejects_finished_day_mutation_and_allows_future():

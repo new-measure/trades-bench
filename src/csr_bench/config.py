@@ -1307,6 +1307,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         "decimal",
         Decimal("0.05"),
         {
+            "min": Decimal("0.000001"),
             "deferred": "provisional",
             "description": "Clamp floor of repeat-call propensity; Must be > 0 so no customer is "
             "ever permanently lost.",

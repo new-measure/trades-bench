@@ -544,6 +544,8 @@ def assign_command(
             ctx, config, appointment_id=appointment_id, technician_id=technician_id,
             artifact=artifact,
         ),
+        operation="dispatch.assign",
+        args={"appointment_id": appointment_id, "technician_id": technician_id},
     )
 
 

@@ -95,9 +95,15 @@ def test_money_integrity_over_arbitrary_committed_sequences(actions):
         pre_audit = audit_count(conn)
 
         if kind == "revenue":
-            resp = command(services, f"step:{step}", _revenue_fn(amount))
+            resp = command(
+                services, f"step:{step}", _revenue_fn(amount),
+                operation="test.op", args={},
+            )
         elif kind == "spend":
-            resp = command(services, f"step:{step}", _spend_fn(amount, step))
+            resp = command(
+                services, f"step:{step}", _spend_fn(amount, step),
+                operation="test.op", args={},
+            )
         else:
             resp = privileged(services, privileged_request_id("settle", step), _settle_fn(amount))
         body = json.loads(resp)

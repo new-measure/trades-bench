@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
+from itertools import count
 
 import pytest
 
@@ -9,9 +11,11 @@ from _helpers import (
     GEO_ARTIFACT_DIR,
     GEO_ARTIFACT_ID,
     GEO_FIXTURE_ZONE_WEIGHTS,
+    audit_count,
     geo_artifact_sha256,
+    register_conn,
 )
-from csr_bench import SPEC_VERSION, calls, clock, db
+from csr_bench import SPEC_VERSION, calls, clock, db, demand
 from csr_bench.config import load_run_config
 from csr_bench.controller import Controller
 from csr_bench.db import connect
@@ -20,6 +24,7 @@ from csr_bench.errors import EngineError, ErrorCode
 from csr_bench.events import Events
 from csr_bench.rng import Rng
 from csr_bench.run_init import initialize_run, open_run_db
+from csr_bench.txn import command
 
 SEED = 11
 START_DATE = "2026-10-01"
@@ -342,3 +347,863 @@ def test_new_caller_arrival_commits_before_the_prompt_renders(tmp_path):
         assert row["service_street"]
         assert row["service_postal_code"]
     conn.close()
+
+
+_request_seq = count(1)
+_arrival_seq = count(0)
+
+
+def _next_request_id(prefix: str) -> str:
+    return f"{prefix}.{next(_request_seq)}"
+
+
+def _arrival_at():
+    return clock.phoenix_instant(2026, 10, 1, 9, 0) + next(_arrival_seq) * 60_000
+
+
+def _open_invocation(conn, now, invocation_type="call"):
+    conn.execute(
+        "INSERT INTO _invocations (type, ts_ms, sequence, status, attempt_count) "
+        "VALUES (?, ?, "
+        "(SELECT COALESCE(MAX(sequence), 0) + 1 FROM _invocations), 'active', 0)",
+        (invocation_type, now),
+    )
+
+
+def _close_active_invocation(conn):
+    conn.execute("UPDATE _invocations SET status = 'completed' WHERE status = 'active'")
+
+
+def _build(tmp_path, *, seed=SEED, config=None, name="run.db"):
+    cfg = config if config is not None else _config()
+    conn = _init(tmp_path / name, cfg, seed=seed)
+    register_conn(conn)
+    controller = Controller(conn, cfg, ScriptedNoOpAdapter(), artifact_dir=GEO_ARTIFACT_DIR)
+    return conn, cfg, controller
+
+
+def _arrive_applied(conn, rng, pending_id, arrival_at):
+    db.begin(conn)
+    rng.enter_txn()
+    try:
+        event_id = Events(conn, rng).schedule(
+            EventKind.CALL_INVOCATION,
+            arrival_at,
+            entity_type="pending_call",
+            entity_id=pending_id,
+        )
+        event_row = conn.execute(
+            "SELECT * FROM _events WHERE event_id = ?", (event_id,)
+        ).fetchone()
+        call_id = calls.arrive(conn, event_row, now_ms=arrival_at)
+        conn.execute(
+            "UPDATE _events SET status = 'applied', applied_at_ms = ? WHERE event_id = ?",
+            (arrival_at, event_id),
+        )
+    except BaseException:
+        rng.exit_txn()
+        db.rollback(conn)
+        raise
+    rng.exit_txn()
+    db.commit(conn)
+    return call_id
+
+
+def _new_caller_call(
+    conn, controller, *, catalog, segment="residential",
+    caller_name="Fixture Caller", caller_phone="4805551234", prospect_id=None,
+):
+    now = _now_ms(conn)
+    arrival_at = _arrival_at()
+    pending_id = _insert_pending(
+        conn, now, arrival_at,
+        channel="new_caller", segment=segment, address_catalog_id=catalog["id"],
+        caller_name=caller_name, caller_phone=caller_phone, prospect_id=prospect_id,
+    )
+    return _arrive_applied(conn, controller.services.rng, pending_id, arrival_at)
+
+
+def _registered_customer_call(conn, controller, *, customer_id, catalog, segment="residential"):
+    now = _now_ms(conn)
+    arrival_at = _arrival_at()
+    pending_id = _insert_pending(
+        conn, now, arrival_at,
+        channel="existing_customer", segment=segment, customer_id=customer_id,
+        address_catalog_id=catalog["id"],
+    )
+    return _arrive_applied(conn, controller.services.rng, pending_id, arrival_at)
+
+
+def _insert_bare_call(
+    conn, now, *, status="active", call_kind="new_job", customer_id=None,
+    address_catalog_id=None, segment="residential",
+):
+    cur = conn.execute(
+        "INSERT INTO _calls (arrived_at, service_date, call_kind, status, caller_name, "
+        "caller_phone, segment, customer_id, requested_service_name, urgent, "
+        "address_catalog_id, created_at) VALUES (?, ?, ?, ?, 'Fixture Caller', '4805551234', "
+        "?, ?, 'HVAC service', 0, ?, ?)",
+        (now, START_DATE, call_kind, status, segment, customer_id, address_catalog_id, now),
+    )
+    return int(cur.lastrowid)
+
+
+def _insert_customer_repeat_state(conn, customer_id, propensity_micros, now, last_outcome=None):
+    conn.execute(
+        "INSERT INTO _customer_repeat_state (customer_id, propensity_micros, last_outcome, "
+        "competitor_captured_at, updated_at) VALUES (?, ?, ?, NULL, ?)",
+        (customer_id, propensity_micros, last_outcome, now),
+    )
+
+
+def _insert_prospect_state(
+    conn, now, *, propensity_micros, last_outcome=None, segment="residential",
+    caller_name="Fixture Caller", caller_phone="4805551234",
+):
+    identity_key = f"{caller_phone}|{caller_name}"
+    cur = conn.execute(
+        "INSERT INTO _prospect_state (identity_key, caller_name, caller_phone, segment, "
+        "home_zone_id, propensity_micros, last_outcome, competitor_captured_at, created_at, "
+        "updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?)",
+        (identity_key, caller_name, caller_phone, segment, propensity_micros, last_outcome, now, now),
+    )
+    return int(cur.lastrowid)
+
+
+def _reject(controller, cfg, *, call_id, request_id=None):
+    rid = request_id if request_id is not None else _next_request_id("reject")
+    response = calls.reject_command(controller.services, rid, cfg, call_id=call_id)
+    return response, json.loads(response)
+
+
+def _ok(body: dict) -> dict:
+    assert body["ok"] is True, body
+    return body["result"]
+
+
+def _err(body: dict) -> dict:
+    assert body["ok"] is False, body
+    return body["error"]
+
+
+def _competitor_state(conn):
+    return conn.execute(
+        "SELECT share_micros, capture_count FROM _competitor_state WHERE singleton = 1"
+    ).fetchone()
+
+
+def _competitor_leak_rows(conn, call_id):
+    return conn.execute(
+        "SELECT stream_name, entity_type, entity_id, scope, event_kind, draw_index "
+        "FROM _random_audit WHERE stream_name = 'competitor_leak' AND entity_id = ? "
+        "ORDER BY seq",
+        (call_id,),
+    ).fetchall()
+
+
+def _prospect_state_by_identity(conn, *, caller_phone="4805551234", caller_name="Fixture Caller"):
+    identity_key = f"{caller_phone}|{caller_name}"
+    return conn.execute(
+        "SELECT * FROM _prospect_state WHERE identity_key = ?", (identity_key,)
+    ).fetchone()
+
+
+def _customer_repeat_row(conn, customer_id):
+    return conn.execute(
+        "SELECT * FROM _customer_repeat_state WHERE customer_id = ?", (customer_id,)
+    ).fetchone()
+
+
+def _ledger_count(conn):
+    return conn.execute("SELECT COUNT(*) c FROM _ledger_entries").fetchone()["c"]
+
+
+def _notification_count(conn):
+    return conn.execute("SELECT COUNT(*) c FROM _notifications").fetchone()["c"]
+
+
+def _prospect_count(conn):
+    return conn.execute("SELECT COUNT(*) c FROM _prospect_state").fetchone()["c"]
+
+
+def _customer_repeat_count(conn):
+    return conn.execute("SELECT COUNT(*) c FROM _customer_repeat_state").fetchone()["c"]
+
+
+def _world_snapshot(conn):
+    comp = _competitor_state(conn)
+    return (
+        audit_count(conn),
+        _prospect_count(conn),
+        _customer_repeat_count(conn),
+        int(comp["share_micros"]),
+        int(comp["capture_count"]),
+        _ledger_count(conn),
+        _notification_count(conn),
+    )
+
+
+def _call_terminal_snapshot(conn, call_id):
+    row = conn.execute(
+        "SELECT status, terminal_reason, terminal_at FROM _calls WHERE id = ?", (call_id,)
+    ).fetchone()
+    return (row["status"], row["terminal_reason"], row["terminal_at"])
+
+
+def _clamped_multiplied(value_micros: int, multiplier: Decimal, floor: Decimal, ceiling: Decimal) -> int:
+    return demand._clamp_micros(demand._multiply_micros(value_micros, multiplier), floor, ceiling)
+
+
+def test_reject_new_caller_creates_rejected_prospect(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id = _new_caller_call(conn, controller, catalog=catalog)
+
+    ledger_before = _ledger_count(conn)
+    response, body = _reject(controller, cfg, call_id=call_id)
+    result = _ok(body)
+    assert result == {"call_id": call_id, "outcome": "rejected", "message": "Call rejected."}
+
+    call = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
+    assert call["status"] == "rejected"
+    assert call["terminal_reason"] == "agent_rejected"
+    assert call["terminal_at"] is not None
+
+    initial = cfg.resolved["demand.repeat_propensity_initial_by_segment"]["residential"]
+    multiplier = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
+    floor = cfg.get_decimal("customers.repeat_propensity_floor")
+    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
+    expected = _clamped_multiplied(demand._to_micros(initial), multiplier, floor, ceiling)
+
+    prospect = _prospect_state_by_identity(conn)
+    assert prospect is not None
+    assert prospect["propensity_micros"] == expected
+    assert prospect["last_outcome"] == "rejected"
+
+    assert _ledger_count(conn) == ledger_before
+
+    parsed = json.loads(response)
+    assert parsed == body
+
+
+def test_reject_registered_customer_updates_repeat_state_no_prospect(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    customer_id = _insert_customer(conn, now)
+    _insert_customer_repeat_state(conn, customer_id, 2_000_000, now)
+    _open_invocation(conn, now)
+    call_id = _registered_customer_call(conn, controller, customer_id=customer_id, catalog=catalog)
+
+    prospect_before = _prospect_count(conn)
+    _, body = _reject(controller, cfg, call_id=call_id)
+    _ok(body)
+
+    multiplier = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
+    floor = cfg.get_decimal("customers.repeat_propensity_floor")
+    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
+    expected = _clamped_multiplied(2_000_000, multiplier, floor, ceiling)
+
+    row = _customer_repeat_row(conn, customer_id)
+    assert row["propensity_micros"] == expected
+    assert row["last_outcome"] == "rejected"
+    assert _prospect_count(conn) == prospect_before
+
+
+def test_competitor_leakage_registered_customer_applies_both_multipliers(tmp_path):
+    config = _config(**{
+        "competitors.attempt_probability": 1.0,
+        "competitors.served_well_probability": 1.0,
+    })
+    conn, cfg, controller = _build(tmp_path, config=config)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    customer_id = _insert_customer(conn, now)
+    _insert_customer_repeat_state(conn, customer_id, 2_000_000, now)
+    _open_invocation(conn, now)
+    call_id = _registered_customer_call(conn, controller, customer_id=customer_id, catalog=catalog)
+
+    comp_before = _competitor_state(conn)
+    prospect_before = _prospect_count(conn)
+    _, body = _reject(controller, cfg, call_id=call_id)
+    _ok(body)
+
+    rejection_mult = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
+    served_mult = cfg.get_decimal("competitors.served_well_repeat_multiplier")
+    floor = cfg.get_decimal("customers.repeat_propensity_floor")
+    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
+    after_rejection = _clamped_multiplied(2_000_000, rejection_mult, floor, ceiling)
+    expected = _clamped_multiplied(after_rejection, served_mult, floor, ceiling)
+
+    row = _customer_repeat_row(conn, customer_id)
+    assert row["propensity_micros"] == expected
+    assert row["competitor_captured_at"] is not None
+    assert _prospect_count(conn) == prospect_before
+
+    comp_after = _competitor_state(conn)
+    gain = demand._to_micros(cfg.get_decimal("competitors.share_gain_per_capture"))
+    assert comp_after["share_micros"] == min(comp_before["share_micros"] + gain, 1_000_000)
+    assert comp_after["capture_count"] == comp_before["capture_count"] + 1
+
+    rows = _competitor_leak_rows(conn, call_id)
+    assert len(rows) == 2
+    for row in rows:
+        assert row["stream_name"] == "competitor_leak"
+        assert row["entity_type"] == "call"
+        assert row["entity_id"] == call_id
+        assert row["scope"] == ""
+    assert rows[0]["event_kind"] == "competitor_attempt"
+    assert rows[0]["draw_index"] == 0
+    assert rows[1]["event_kind"] == "competitor_served_well"
+    assert rows[1]["draw_index"] == 1
+
+
+def test_reject_returning_prospect_updates_same_row(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    prospect_id = _insert_prospect_state(conn, now, propensity_micros=2_000_000)
+    _open_invocation(conn, now)
+    call_id = _new_caller_call(conn, controller, catalog=catalog, prospect_id=prospect_id)
+
+    _, body = _reject(controller, cfg, call_id=call_id)
+    _ok(body)
+
+    multiplier = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
+    floor = cfg.get_decimal("customers.repeat_propensity_floor")
+    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
+    expected = _clamped_multiplied(2_000_000, multiplier, floor, ceiling)
+
+    assert _prospect_count(conn) == 1
+    row = conn.execute("SELECT * FROM _prospect_state WHERE id = ?", (prospect_id,)).fetchone()
+    assert row["propensity_micros"] == expected
+    assert row["last_outcome"] == "rejected"
+
+
+def test_competitor_leakage_attempt_and_served_applies_both_multipliers(tmp_path):
+    config = _config(**{
+        "competitors.attempt_probability": 1.0,
+        "competitors.served_well_probability": 1.0,
+    })
+    conn, cfg, controller = _build(tmp_path, config=config)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id = _new_caller_call(conn, controller, catalog=catalog)
+
+    comp_before = _competitor_state(conn)
+    _, body = _reject(controller, cfg, call_id=call_id)
+    _ok(body)
+
+    initial = cfg.resolved["demand.repeat_propensity_initial_by_segment"]["residential"]
+    rejection_mult = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
+    served_mult = cfg.get_decimal("competitors.served_well_repeat_multiplier")
+    floor = cfg.get_decimal("customers.repeat_propensity_floor")
+    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
+    after_rejection = _clamped_multiplied(demand._to_micros(initial), rejection_mult, floor, ceiling)
+    expected = _clamped_multiplied(after_rejection, served_mult, floor, ceiling)
+
+    prospect = _prospect_state_by_identity(conn)
+    assert prospect["propensity_micros"] == expected
+    assert prospect["competitor_captured_at"] is not None
+
+    comp_after = _competitor_state(conn)
+    gain = demand._to_micros(cfg.get_decimal("competitors.share_gain_per_capture"))
+    assert comp_after["share_micros"] == min(comp_before["share_micros"] + gain, 1_000_000)
+    assert comp_after["capture_count"] == comp_before["capture_count"] + 1
+
+    rows = _competitor_leak_rows(conn, call_id)
+    assert len(rows) == 2
+    for row in rows:
+        assert row["stream_name"] == "competitor_leak"
+        assert row["entity_type"] == "call"
+        assert row["entity_id"] == call_id
+        assert row["scope"] == ""
+    assert rows[0]["event_kind"] == "competitor_attempt"
+    assert rows[0]["draw_index"] == 0
+    assert rows[1]["event_kind"] == "competitor_served_well"
+    assert rows[1]["draw_index"] == 1
+
+
+def test_competitor_leakage_no_attempt_takes_one_draw(tmp_path):
+    config = _config(**{"competitors.attempt_probability": 0.0})
+    conn, cfg, controller = _build(tmp_path, config=config)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id = _new_caller_call(conn, controller, catalog=catalog)
+
+    comp_before = _competitor_state(conn)
+    _, body = _reject(controller, cfg, call_id=call_id)
+    _ok(body)
+
+    rows = _competitor_leak_rows(conn, call_id)
+    assert len(rows) == 1
+    assert rows[0]["event_kind"] == "competitor_attempt"
+    assert rows[0]["draw_index"] == 0
+
+    prospect = _prospect_state_by_identity(conn)
+    assert prospect["competitor_captured_at"] is None
+    comp_after = _competitor_state(conn)
+    assert comp_after["share_micros"] == comp_before["share_micros"]
+    assert comp_after["capture_count"] == comp_before["capture_count"]
+
+
+def test_competitor_leakage_attempt_but_not_served_takes_two_draws_no_capture(tmp_path):
+    config = _config(**{
+        "competitors.attempt_probability": 1.0,
+        "competitors.served_well_probability": 0.0,
+    })
+    conn, cfg, controller = _build(tmp_path, config=config)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id = _new_caller_call(conn, controller, catalog=catalog)
+
+    comp_before = _competitor_state(conn)
+    _, body = _reject(controller, cfg, call_id=call_id)
+    _ok(body)
+
+    rows = _competitor_leak_rows(conn, call_id)
+    assert len(rows) == 2
+    assert rows[0]["event_kind"] == "competitor_attempt"
+    assert rows[1]["event_kind"] == "competitor_served_well"
+
+    prospect = _prospect_state_by_identity(conn)
+    assert prospect["competitor_captured_at"] is None
+    comp_after = _competitor_state(conn)
+    assert comp_after["share_micros"] == comp_before["share_micros"]
+    assert comp_after["capture_count"] == comp_before["capture_count"]
+
+
+def test_rejection_equivalence_across_terminal_reasons(tmp_path):
+    reasons = ["agent_rejected", "customer_declined", "unanswered"]
+    snapshots = {}
+    call_ids = {}
+    for reason in reasons:
+        config = _config()
+        conn, cfg, controller = _build(tmp_path, config=config, name=f"{reason}.db")
+        now = _now_ms(conn)
+        catalog = _usable_catalog_rows(conn, 1)[0]
+        _open_invocation(conn, now)
+        call_id = _new_caller_call(conn, controller, catalog=catalog)
+        call_ids[reason] = call_id
+
+        def fn(ctx, call_id=call_id, reason=reason, cfg=cfg):
+            call = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
+            calls.ordinary_rejection(ctx, cfg, call, terminal_reason=reason)
+            return None
+
+        response = command(
+            controller.services,
+            _next_request_id("ordinary_rejection"),
+            fn,
+            operation="test.ordinary_rejection",
+            args={"call_id": call_id, "reason": reason},
+        )
+        body = json.loads(response)
+        assert body["ok"] is True, body
+
+        prospect = _prospect_state_by_identity(conn)
+        comp = _competitor_state(conn)
+        rows = _competitor_leak_rows(conn, call_id)
+        call = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
+        snapshots[reason] = {
+            "prospect_propensity": prospect["propensity_micros"],
+            "prospect_last_outcome": prospect["last_outcome"],
+            "prospect_competitor_captured_at": prospect["competitor_captured_at"],
+            "competitor_state": (comp["share_micros"], comp["capture_count"]),
+            "audit_rows": [tuple(r) for r in rows],
+            "ledger_count": _ledger_count(conn),
+            "status": call["status"],
+            "terminal_reason": call["terminal_reason"],
+            "terminal_at": call["terminal_at"],
+        }
+        conn.close()
+
+    assert call_ids["agent_rejected"] == call_ids["customer_declined"] == call_ids["unanswered"]
+
+    baseline = snapshots["agent_rejected"]
+    for reason in ("customer_declined", "unanswered"):
+        other = snapshots[reason]
+        assert other["prospect_propensity"] == baseline["prospect_propensity"]
+        assert other["prospect_last_outcome"] == baseline["prospect_last_outcome"]
+        assert other["prospect_competitor_captured_at"] == baseline["prospect_competitor_captured_at"]
+        assert other["competitor_state"] == baseline["competitor_state"]
+        assert other["audit_rows"] == baseline["audit_rows"]
+        assert other["ledger_count"] == baseline["ledger_count"]
+        assert other["terminal_at"] == baseline["terminal_at"]
+
+    expected_status = {
+        "agent_rejected": "rejected",
+        "customer_declined": "declined",
+        "unanswered": "unanswered",
+    }
+    for reason, snap in snapshots.items():
+        assert snap["status"] == expected_status[reason]
+        assert snap["terminal_reason"] == reason
+
+
+def test_ordinary_rejection_guards_cancellation_call_directly(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    _open_invocation(conn, now)
+    call_id = _insert_bare_call(conn, now, call_kind="cancellation")
+
+    def fn(ctx):
+        call = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
+        calls.ordinary_rejection(ctx, cfg, call, terminal_reason="unanswered")
+        return None
+
+    before = _world_snapshot(conn)
+    terminal_before = _call_terminal_snapshot(conn, call_id)
+    response = command(
+        controller.services,
+        _next_request_id("ordinary_rejection_guard"),
+        fn,
+        operation="test.ordinary_rejection",
+        args={"call_id": call_id},
+    )
+    err = _err(json.loads(response))
+    assert err["code"] == "state_illegal"
+    assert err["details"]["reason"] == "cancellation_call"
+    assert _world_snapshot(conn) == before
+    assert _call_terminal_snapshot(conn, call_id) == terminal_before
+
+
+def test_ordinary_rejection_guards_non_active_call_directly(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    _open_invocation(conn, now)
+    call_id = _insert_bare_call(conn, now, status="rejected", call_kind="new_job")
+
+    def fn(ctx):
+        call = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
+        calls.ordinary_rejection(ctx, cfg, call, terminal_reason="unanswered")
+        return None
+
+    before = _world_snapshot(conn)
+    terminal_before = _call_terminal_snapshot(conn, call_id)
+    response = command(
+        controller.services,
+        _next_request_id("ordinary_rejection_guard"),
+        fn,
+        operation="test.ordinary_rejection",
+        args={"call_id": call_id},
+    )
+    err = _err(json.loads(response))
+    assert err["code"] == "state_illegal"
+    assert err["details"]["reason"] == "call_not_active"
+    assert _world_snapshot(conn) == before
+    assert _call_terminal_snapshot(conn, call_id) == terminal_before
+
+
+def test_propensity_never_permanently_lost_under_alternating_consequences(tmp_path):
+    import random
+
+    config = _config(**{
+        "demand.rejection_repeat_propensity_multiplier": 0.01,
+        "competitors.served_well_repeat_multiplier": 0.01,
+    })
+    conn, cfg, controller = _build(tmp_path, config=config)
+    now = _now_ms(conn)
+    customer_id = _insert_customer(conn, now)
+    _insert_customer_repeat_state(conn, customer_id, 1_500_000, now)
+
+    floor_micros = demand._to_micros(cfg.get_decimal("customers.repeat_propensity_floor"))
+    rand = random.Random(0)
+    prior = 1_500_000
+    for _ in range(120):
+        if rand.random() < 0.5:
+            demand.apply_rejection_consequence(conn, cfg, now_ms=now, customer_id=customer_id)
+        else:
+            demand.apply_competitor_capture(conn, cfg, now_ms=now, customer_id=customer_id)
+        propensity = _customer_repeat_row(conn, customer_id)["propensity_micros"]
+        assert propensity > 0
+        assert propensity <= prior
+        prior = propensity
+
+    assert prior == floor_micros
+
+
+def test_reject_unknown_call_id_fails_entity_not_found(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    _open_invocation(conn, now)
+    before = _world_snapshot(conn)
+
+    _, body = _reject(controller, cfg, call_id=999999)
+    err = _err(body)
+    assert err["code"] == "entity_not_found"
+    assert _world_snapshot(conn) == before
+
+
+def test_reject_stale_call_while_a_newer_call_is_current(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog_a, catalog_b = _usable_catalog_rows(conn, 2)
+    _open_invocation(conn, now)
+    call_a = _new_caller_call(
+        conn, controller, catalog=catalog_a, caller_name="Caller A", caller_phone="4805550001"
+    )
+    call_b = _new_caller_call(
+        conn, controller, catalog=catalog_b, caller_name="Caller B", caller_phone="4805550002"
+    )
+    assert calls.current_active_call_id(conn) == call_b
+
+    before = _world_snapshot(conn)
+    stale_before = _call_terminal_snapshot(conn, call_a)
+    _, body = _reject(controller, cfg, call_id=call_a)
+    err = _err(body)
+    assert err["code"] == "state_illegal"
+    assert err["details"]["reason"] == "call_not_active"
+    assert _world_snapshot(conn) == before
+    assert _call_terminal_snapshot(conn, call_a) == stale_before
+
+
+def test_reject_cancellation_call_fails_cancellation_call(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    _open_invocation(conn, now)
+    call_id = _insert_bare_call(conn, now, call_kind="cancellation")
+
+    before = _world_snapshot(conn)
+    terminal_before = _call_terminal_snapshot(conn, call_id)
+    _, body = _reject(controller, cfg, call_id=call_id)
+    err = _err(body)
+    assert err["code"] == "state_illegal"
+    assert err["details"]["reason"] == "cancellation_call"
+    assert _world_snapshot(conn) == before
+    assert _call_terminal_snapshot(conn, call_id) == terminal_before
+
+
+def test_reject_terminal_call_fails_on_second_attempt(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id = _new_caller_call(conn, controller, catalog=catalog)
+
+    _, first_body = _reject(controller, cfg, call_id=call_id)
+    _ok(first_body)
+
+    before = _world_snapshot(conn)
+    terminal_before = _call_terminal_snapshot(conn, call_id)
+    _, second_body = _reject(controller, cfg, call_id=call_id, request_id=_next_request_id("reject_retry"))
+    err = _err(second_body)
+    assert err["code"] == "state_illegal"
+    assert err["details"]["reason"] == "call_not_active"
+    assert _world_snapshot(conn) == before
+    assert _call_terminal_snapshot(conn, call_id) == terminal_before
+
+
+def test_reject_during_opening_invocation_fails_call_not_active(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id = _new_caller_call(conn, controller, catalog=catalog)
+    _close_active_invocation(conn)
+    _open_invocation(conn, now, invocation_type="opening")
+
+    before = _world_snapshot(conn)
+    terminal_before = _call_terminal_snapshot(conn, call_id)
+    _, body = _reject(controller, cfg, call_id=call_id)
+    err = _err(body)
+    assert err["code"] == "state_illegal"
+    assert err["details"]["reason"] == "call_not_active"
+    assert _world_snapshot(conn) == before
+    assert _call_terminal_snapshot(conn, call_id) == terminal_before
+
+
+def test_reject_with_no_active_invocation_fails_invocation_conflict(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id = _new_caller_call(conn, controller, catalog=catalog)
+    _close_active_invocation(conn)
+
+    before = _world_snapshot(conn)
+    terminal_before = _call_terminal_snapshot(conn, call_id)
+    _, body = _reject(controller, cfg, call_id=call_id)
+    err = _err(body)
+    assert err["code"] == "invocation_conflict"
+    assert _world_snapshot(conn) == before
+    assert _call_terminal_snapshot(conn, call_id) == terminal_before
+
+
+def test_reject_non_int_call_id_fails_invalid_argument(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    _open_invocation(conn, now)
+    before = _world_snapshot(conn)
+
+    for bad_call_id in ("5", True, 5.0, None):
+        _, body = _reject(controller, cfg, call_id=bad_call_id)
+        err = _err(body)
+        assert err["code"] == "invalid_argument"
+    assert _world_snapshot(conn) == before
+
+
+def test_reject_idempotent_retry_returns_stored_response(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id = _new_caller_call(conn, controller, catalog=catalog)
+
+    request_id = _next_request_id("reject_idempotent")
+    first_response, first_body = _reject(controller, cfg, call_id=call_id, request_id=request_id)
+    _ok(first_body)
+
+    prospect_after_first = _prospect_state_by_identity(conn)["propensity_micros"]
+    audit_after_first = audit_count(conn)
+
+    second_response, second_body = _reject(controller, cfg, call_id=call_id, request_id=request_id)
+    assert second_response == first_response
+
+    prospect_after_second = _prospect_state_by_identity(conn)["propensity_micros"]
+    audit_after_second = audit_count(conn)
+    assert prospect_after_second == prospect_after_first
+    assert audit_after_second == audit_after_first
+
+
+def test_reject_independence_call_a_rejection_does_not_shift_call_b(tmp_path):
+    config = _config()
+
+    conn_a, cfg_a, controller_a = _build(tmp_path, config=config, name="world_a.db")
+    now_a = _now_ms(conn_a)
+    catalog_a1, catalog_a2 = _usable_catalog_rows(conn_a, 2)
+    _open_invocation(conn_a, now_a)
+    call_a_id = _new_caller_call(
+        conn_a, controller_a, catalog=catalog_a1, caller_name="Caller A", caller_phone="4805550001"
+    )
+    call_b_in_a = _new_caller_call(
+        conn_a, controller_a, catalog=catalog_a2, caller_name="Caller B", caller_phone="4805550002"
+    )
+    _, body_b_only = _reject(controller_a, cfg_a, call_id=call_b_in_a)
+    _ok(body_b_only)
+    prospect_b_only = _prospect_state_by_identity(
+        conn_a, caller_phone="4805550002", caller_name="Caller B"
+    )
+
+    conn_b, cfg_b, controller_b = _build(tmp_path, config=config, name="world_b.db")
+    now_b = _now_ms(conn_b)
+    catalog_b1, catalog_b2 = _usable_catalog_rows(conn_b, 2)
+    _open_invocation(conn_b, now_b)
+    call_a_id_2 = _new_caller_call(
+        conn_b, controller_b, catalog=catalog_b1, caller_name="Caller A", caller_phone="4805550001"
+    )
+    assert call_a_id_2 == call_a_id
+
+    _, body_a_first = _reject(controller_b, cfg_b, call_id=call_a_id_2)
+    _ok(body_a_first)
+
+    call_b_id_2 = _new_caller_call(
+        conn_b, controller_b, catalog=catalog_b2, caller_name="Caller B", caller_phone="4805550002"
+    )
+    assert call_b_id_2 == call_b_in_a
+
+    _, body_b_after = _reject(controller_b, cfg_b, call_id=call_b_id_2)
+    _ok(body_b_after)
+    prospect_b_after_a = _prospect_state_by_identity(
+        conn_b, caller_phone="4805550002", caller_name="Caller B"
+    )
+
+    assert prospect_b_after_a["propensity_micros"] == prospect_b_only["propensity_micros"]
+    assert prospect_b_after_a["last_outcome"] == prospect_b_only["last_outcome"]
+    assert (prospect_b_after_a["competitor_captured_at"] is None) == (
+        prospect_b_only["competitor_captured_at"] is None
+    )
+
+
+def test_reject_replayed_request_id_for_different_call_conflicts(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog_a, catalog_b = _usable_catalog_rows(conn, 2)
+    _open_invocation(conn, now)
+    call_a = _new_caller_call(
+        conn, controller, catalog=catalog_a, caller_name="Caller A", caller_phone="4805550001"
+    )
+    request_id = _next_request_id("reject_replay")
+    first_response, body_a = _reject(controller, cfg, call_id=call_a, request_id=request_id)
+    _ok(body_a)
+
+    call_b = _new_caller_call(
+        conn, controller, catalog=catalog_b, caller_name="Caller B", caller_phone="4805550002"
+    )
+    before = _world_snapshot(conn)
+    terminal_before = _call_terminal_snapshot(conn, call_b)
+    assert terminal_before[0] == "active"
+
+    _, body_conflict = _reject(controller, cfg, call_id=call_b, request_id=request_id)
+    err = _err(body_conflict)
+    assert err["code"] == "request_id_conflict"
+    assert _world_snapshot(conn) == before
+    assert _call_terminal_snapshot(conn, call_b) == terminal_before
+
+    replay_response, replay_body = _reject(controller, cfg, call_id=call_a, request_id=request_id)
+    assert replay_response == first_response
+    _ok(replay_body)
+    assert _world_snapshot(conn) == before
+
+    _, body_b = _reject(controller, cfg, call_id=call_b)
+    _ok(body_b)
+    assert _call_terminal_snapshot(conn, call_b)[0] == "rejected"
+
+
+def test_reject_callback_call_takes_ordinary_path_without_notifications(tmp_path):
+    config = _config(**{"competitors.attempt_probability": 0.0})
+    conn, cfg, controller = _build(tmp_path, config=config)
+    now = _now_ms(conn)
+    completed_at = clock.phoenix_instant(2026, 9, 20, 15, 0)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    customer_id = _insert_customer(conn, now)
+    location_id = _insert_location(conn, now, customer_id, catalog)
+    _insert_customer_repeat_state(conn, customer_id, 2_000_000, now)
+    prior_call = conn.execute(
+        "INSERT INTO _calls (arrived_at, service_date, call_kind, status, caller_name, "
+        "caller_phone, requested_service_name, urgent, created_at) "
+        "VALUES (?, '2026-09-19', 'new_job', 'booked', 'Fixture Caller', '4805551234', "
+        "'HVAC service', 0, ?)",
+        (clock.phoenix_instant(2026, 9, 19, 10, 0), now),
+    )
+    prior_job = conn.execute(
+        "INSERT INTO _jobs (job_number, call_id, customer_id, location_id, job_type_id, "
+        "requested_service_name, status, priority, no_charge, summary, created_at, "
+        "completed_at, modified_at) "
+        "VALUES ('9001', ?, ?, ?, 1, 'HVAC service', 'completed', 'normal', 0, '', ?, ?, ?)",
+        (int(prior_call.lastrowid), customer_id, location_id, now, completed_at, now),
+    )
+    job_id = int(prior_job.lastrowid)
+    _open_invocation(conn, now)
+    arrival_at = _arrival_at()
+    pending_id = _insert_pending(
+        conn, now, arrival_at,
+        channel="callback", customer_id=customer_id, location_id=location_id,
+        related_job_id=job_id,
+    )
+    call_id = _arrive_applied(conn, controller.services.rng, pending_id, arrival_at)
+
+    ledger_before = _ledger_count(conn)
+    _, body = _reject(controller, cfg, call_id=call_id)
+    _ok(body)
+
+    call = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
+    assert call["status"] == "rejected"
+    assert call["terminal_reason"] == "agent_rejected"
+    assert call["related_job_id"] == job_id
+
+    multiplier = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
+    floor = cfg.get_decimal("customers.repeat_propensity_floor")
+    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
+    expected = _clamped_multiplied(2_000_000, multiplier, floor, ceiling)
+    row = _customer_repeat_row(conn, customer_id)
+    assert row["propensity_micros"] == expected
+    assert row["last_outcome"] == "rejected"
+
+    assert _ledger_count(conn) == ledger_before
+    assert _notification_count(conn) == 0

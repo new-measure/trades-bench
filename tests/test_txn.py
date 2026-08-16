@@ -73,7 +73,10 @@ def _audit_count(conn):
 def test_command_rejects_reserved_request_id_with_uniform_error():
     conn, rid, sv, _, _ = _services(active_invocation=True)
     with pytest.raises(EngineError) as ei:
-        command(sv, privileged_request_id("apply_event", 7), lambda ctx: {})
+        command(
+            sv, privileged_request_id("apply_event", 7), lambda ctx: {},
+            operation="test.op", args={},
+        )
     assert ei.value.code is ErrorCode.UNAUTHORIZED
     assert ei.value.message == "unauthorized"
 
@@ -94,7 +97,7 @@ def test_privileged_op_unreachable_via_command_probe():
     conn, rid, sv, _, _ = _services(active_invocation=True)
     ridp = privileged_request_id("settle", "day_1")
     with pytest.raises(EngineError) as ei:
-        command(sv, ridp, lambda ctx: {"ok": True})
+        command(sv, ridp, lambda ctx: {"ok": True}, operation="test.op", args={})
     assert ei.value.code is ErrorCode.UNAUTHORIZED
 
 
@@ -106,8 +109,8 @@ def test_command_fails_when_run_not_active_and_fn_never_runs():
         return {}
 
     conn, rid, sv, _, _ = _services(status=RunStatus.INITIALIZING, active_invocation=True)
-    r1 = command(sv, "req.1", fn)
-    r2 = command(sv, "req.1", fn)
+    r1 = command(sv, "req.1", fn, operation="test.op", args={})
+    r2 = command(sv, "req.1", fn, operation="test.op", args={})
     assert calls["n"] == 0
     assert r1 == r2
     assert json.loads(r1)["error"]["code"] == "invalid_run_status"
@@ -122,7 +125,7 @@ def test_command_fails_without_active_invocation():
         ctx.rng.draw("acceptance", "customer", 1, "2026-10-01", "k", 0)
         return {}
 
-    r = command(sv, "req.2", fn)
+    r = command(sv, "req.2", fn, operation="test.op", args={})
     assert json.loads(r)["error"]["code"] == "invocation_conflict"
     assert drew["n"] == 0
     assert _audit_count(conn) == 0
@@ -148,8 +151,8 @@ def test_successful_command_idempotent_byte_for_byte_no_duplicates():
         return {"booked": True, "entity_id": 7}
 
     conn, rid, sv, ledger, _ = _services(active_invocation=True)
-    r1 = command(sv, "jobs.book.5", fn)
-    r2 = command(sv, "jobs.book.5", fn)
+    r1 = command(sv, "jobs.book.5", fn, operation="test.op", args={})
+    r2 = command(sv, "jobs.book.5", fn, operation="test.op", args={})
     assert r1 == r2
     assert json.loads(r1) == {"ok": True, "result": {"booked": True, "entity_id": 7}}
     assert ledger_calls["n"] == 1
@@ -167,8 +170,8 @@ def test_failed_command_is_idempotent_and_rolls_back_draws_and_writes():
         raise EngineError(ErrorCode.INSUFFICIENT_CASH, "not enough")
 
     conn, rid, sv, ledger, _ = _services(active_invocation=True)
-    r1 = command(sv, "jobs.hire.5", fn)
-    r2 = command(sv, "jobs.hire.5", fn)
+    r1 = command(sv, "jobs.hire.5", fn, operation="test.op", args={})
+    r2 = command(sv, "jobs.hire.5", fn, operation="test.op", args={})
     assert r1 == r2
     assert json.loads(r1)["error"]["code"] == "insufficient_cash"
     assert runs["n"] == 1
@@ -183,7 +186,7 @@ def test_failed_validation_does_not_consume_a_draw_or_write():
         raise EngineError(ErrorCode.ENTITY_NOT_FOUND, "no such job")
 
     conn, rid, sv, ledger, _ = _services(active_invocation=True)
-    r = command(sv, "jobs.x", fn)
+    r = command(sv, "jobs.x", fn, operation="test.op", args={})
     assert json.loads(r)["error"]["code"] == "entity_not_found"
     assert ledger.entry_count() == 0
     assert _audit_count(conn) == 0
@@ -197,8 +200,8 @@ def test_invocation_conflict_error_is_not_memoized():
         calls["n"] += 1
         return {}
 
-    r1 = command(sv, "req.conflict", fn)
-    r2 = command(sv, "req.conflict", fn)
+    r1 = command(sv, "req.conflict", fn, operation="test.op", args={})
+    r2 = command(sv, "req.conflict", fn, operation="test.op", args={})
     assert json.loads(r1)["error"]["code"] == "invocation_conflict"
     assert json.loads(r2)["error"]["code"] == "invocation_conflict"
     assert calls["n"] == 0
@@ -219,7 +222,7 @@ def test_unexpected_exception_returns_structured_error_and_rolls_back():
         raise RuntimeError("adapter bug")
 
     conn, rid, sv, ledger, _ = _services(active_invocation=True)
-    r = command(sv, "req.boom", fn)
+    r = command(sv, "req.boom", fn, operation="test.op", args={})
     body = json.loads(r)
     assert body["ok"] is False
     assert body["error"]["code"] == "unexpected_failure"
@@ -237,8 +240,8 @@ def test_unexpected_exception_is_not_memoized_and_retry_reruns_fn():
         raise TypeError("boom")
 
     conn, rid, sv, _, _ = _services(active_invocation=True)
-    r1 = command(sv, "req.boom2", fn)
-    r2 = command(sv, "req.boom2", fn)
+    r1 = command(sv, "req.boom2", fn, operation="test.op", args={})
+    r2 = command(sv, "req.boom2", fn, operation="test.op", args={})
     assert calls["n"] == 2
     assert json.loads(r1)["error"]["code"] == "unexpected_failure"
     assert json.loads(r2)["error"]["code"] == "unexpected_failure"
@@ -255,10 +258,10 @@ def test_command_succeeds_after_a_prior_unexpected_failure_on_same_connection():
         raise RuntimeError("adapter bug")
 
     conn, rid, sv, _, _ = _services(active_invocation=True)
-    command(sv, "req.boom3", boom)
+    command(sv, "req.boom3", boom, operation="test.op", args={})
     assert conn.in_transaction is False
 
-    r = command(sv, "req.ok", lambda ctx: {"done": True})
+    r = command(sv, "req.ok", lambda ctx: {"done": True}, operation="test.op", args={})
     assert json.loads(r) == {"ok": True, "result": {"done": True}}
 
 
@@ -269,14 +272,14 @@ def test_non_serializable_payload_rolls_back_and_recovers_connection():
         return {"tags": {"a", "b"}}
 
     conn, rid, sv, ledger, _ = _services(active_invocation=True)
-    r = command(sv, "req.badpayload", fn)
+    r = command(sv, "req.badpayload", fn, operation="test.op", args={})
     body = json.loads(r)
     assert body["ok"] is False
     assert body["error"]["code"] == "unexpected_failure"
     assert conn.in_transaction is False
     assert ledger.entry_count() == 0
 
-    r2 = command(sv, "req.ok2", lambda ctx: {"done": True})
+    r2 = command(sv, "req.ok2", lambda ctx: {"done": True}, operation="test.op", args={})
     assert json.loads(r2) == {"ok": True, "result": {"done": True}}
 
 
@@ -323,7 +326,7 @@ def test_privileged_id_isolated_from_public_namespace_table():
     conn, rid, sv, _, _ = _services(active_invocation=True)
     ridp = privileged_request_id("note", "x")
     with pytest.raises(EngineError):
-        command(sv, ridp, lambda ctx: None)  # type: ignore[arg-type]
+        command(sv, ridp, lambda ctx: None, operation="test.op", args={})  # type: ignore[arg-type]
     r = privileged(sv, ridp, lambda ctx: {"note": True})
     assert json.loads(r)["ok"] is True
     rows = conn.execute(
@@ -334,7 +337,60 @@ def test_privileged_id_isolated_from_public_namespace_table():
 
 def test_no_response_record_outside_run_active_commands():
     conn, rid, sv, _, _ = _services(status=RunStatus.INITIALIZING, active_invocation=True)
-    command(sv, "r.x", lambda ctx: None)  # type: ignore[arg-type]
+    command(sv, "r.x", lambda ctx: None, operation="test.op", args={})  # type: ignore[arg-type]
     rows = conn.execute("SELECT * FROM _idempotency").fetchall()
     assert len(rows) == 1
     assert rows[0]["namespace"] == PUBLIC_NAMESPACE
+
+
+def test_same_request_id_different_args_conflicts_without_running_fn():
+    runs = {"n": 0}
+
+    def fn(ctx):
+        runs["n"] += 1
+        ctx.rng.draw("acceptance", "customer", 1, "2026-10-01", "k", 0)
+        return {"call_id": 1}
+
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    r1 = command(sv, "req.fp", fn, operation="calls.reject", args={"call_id": 1})
+    assert json.loads(r1)["ok"] is True
+    assert runs["n"] == 1
+    assert _audit_count(conn) == 1
+
+    r2 = command(sv, "req.fp", fn, operation="calls.reject", args={"call_id": 2})
+    assert json.loads(r2)["error"]["code"] == "request_id_conflict"
+    assert runs["n"] == 1
+    assert _audit_count(conn) == 1
+
+    rows = conn.execute(
+        "SELECT response FROM _idempotency WHERE request_id=?", ("req.fp",)
+    ).fetchall()
+    assert len(rows) == 1
+    assert bytes(rows[0]["response"]) == r1
+
+    r3 = command(sv, "req.fp", fn, operation="calls.reject", args={"call_id": 1})
+    assert r3 == r1
+    assert runs["n"] == 1
+
+
+def test_same_request_id_different_operation_conflicts():
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    r1 = command(sv, "req.op", lambda ctx: {"x": 1}, operation="test.a", args={"id": 5})
+    assert json.loads(r1)["ok"] is True
+    r2 = command(sv, "req.op", lambda ctx: {"x": 1}, operation="test.b", args={"id": 5})
+    assert json.loads(r2)["error"]["code"] == "request_id_conflict"
+
+
+def test_conflict_after_cached_error_preserves_original_error_replay():
+    def fn(ctx):
+        raise EngineError(ErrorCode.INSUFFICIENT_CASH, "not enough")
+
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    r1 = command(sv, "req.errfp", fn, operation="test.op", args={"id": 1})
+    assert json.loads(r1)["error"]["code"] == "insufficient_cash"
+
+    r2 = command(sv, "req.errfp", fn, operation="test.op", args={"id": 2})
+    assert json.loads(r2)["error"]["code"] == "request_id_conflict"
+
+    r3 = command(sv, "req.errfp", fn, operation="test.op", args={"id": 1})
+    assert r3 == r1

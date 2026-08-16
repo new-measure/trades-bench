@@ -238,19 +238,19 @@ def test_counter_follows_the_command_transaction():
         drawn.append(ctx.rng.stream(STREAM).next())
         raise EngineError(ErrorCode.STATE_ILLEGAL, "domain check failed after the draw")
 
-    first = command(sv, "req-1", advance)
+    first = command(sv, "req-1", advance, operation="test.op", args={})
     assert drawn == [sequential_draw(seed, 0)]
     assert _state_row(conn)["counter"] == 1
 
-    command(sv, "req-2", advance_then_fail)
+    command(sv, "req-2", advance_then_fail, operation="test.op", args={})
     assert drawn[-1] == sequential_draw(seed, 1)
     assert _state_row(conn)["counter"] == 1
 
-    assert command(sv, "req-1", advance) == first
+    assert command(sv, "req-1", advance, operation="test.op", args={}) == first
     assert len(drawn) == 2
     assert _state_row(conn)["counter"] == 1
 
-    command(sv, "req-3", advance)
+    command(sv, "req-3", advance, operation="test.op", args={})
     assert drawn[-1] == sequential_draw(seed, 1)
     assert _state_row(conn)["counter"] == 2
 

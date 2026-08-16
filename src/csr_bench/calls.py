@@ -2,8 +2,17 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import clock
+from . import clock, demand
+from .config import RunConfig
+from .enums import EventKind, KeyedStreamName
 from .errors import EngineError, ErrorCode
+from .txn import Services, TxnContext, command
+
+_ORDINARY_REJECTION_STATUS_BY_REASON = {
+    "agent_rejected": "rejected",
+    "customer_declined": "declined",
+    "unanswered": "unanswered",
+}
 
 
 def arrive(conn: sqlite3.Connection, event_row: sqlite3.Row, *, now_ms: int) -> int:
@@ -206,4 +215,156 @@ def _required_int(row: sqlite3.Row, column: str, context: str) -> int:
     return int(value)
 
 
-__all__ = ["arrive", "prompt_payload"]
+def _state_illegal(reason: str, message: str, **details: object) -> EngineError:
+    return EngineError(ErrorCode.STATE_ILLEGAL, message, details={"reason": reason, **details})
+
+
+def _call_row(conn: sqlite3.Connection, call_id: int) -> sqlite3.Row:
+    row = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
+    if row is None:
+        raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"call {call_id} not found")
+    return row
+
+
+def current_active_call_id(conn: sqlite3.Connection) -> int | None:
+    row = conn.execute(
+        "SELECT h.call_id FROM _events e "
+        "JOIN _call_hidden h ON h.arrival_event_id = e.event_id "
+        "WHERE e.status = 'applied' AND e.kind = ? "
+        "ORDER BY e.applied_at_ms DESC, e.event_id DESC LIMIT 1",
+        (EventKind.CALL_INVOCATION.value,),
+    ).fetchone()
+    return int(row["call_id"]) if row is not None else None
+
+
+def require_current_new_job_call(ctx: TxnContext, call: sqlite3.Row) -> None:
+    call_id = int(call["id"])
+    if ctx.invocation is not None and ctx.invocation["type"] != "call":
+        raise _state_illegal(
+            "call_not_active",
+            f"call {call_id} is reachable only inside an active call invocation",
+        )
+    if call["status"] != "active":
+        raise _state_illegal(
+            "call_not_active", f"call {call_id} is not active (status {call['status']})"
+        )
+    if call["call_kind"] != "new_job":
+        raise _state_illegal("cancellation_call", f"call {call_id} is a cancellation call")
+    if current_active_call_id(ctx.conn) != call_id:
+        raise _state_illegal(
+            "call_not_active", f"call {call_id} is not the currently active call"
+        )
+
+
+def ordinary_rejection(
+    ctx: TxnContext, config: RunConfig, call: sqlite3.Row, *, terminal_reason: str
+) -> None:
+    status = _ORDINARY_REJECTION_STATUS_BY_REASON.get(terminal_reason)
+    if status is None:
+        raise EngineError(
+            ErrorCode.INVALID_ARGUMENT,
+            "terminal_reason must be one of "
+            f"{sorted(_ORDINARY_REJECTION_STATUS_BY_REASON)}, got {terminal_reason!r}",
+        )
+
+    call_id = int(call["id"])
+    if call["call_kind"] != "new_job":
+        raise _state_illegal("cancellation_call", f"call {call_id} is a cancellation call")
+    if call["status"] != "active":
+        raise _state_illegal(
+            "call_not_active", f"call {call_id} is not active (status {call['status']})"
+        )
+
+    conn = ctx.conn
+    now = ctx.now()
+
+    conn.execute(
+        "UPDATE _calls SET status = ?, terminal_reason = ?, terminal_at = ? WHERE id = ?",
+        (status, terminal_reason, now, call_id),
+    )
+
+    customer_id = call["customer_id"]
+    prospect_id: int | None = None
+    if customer_id is not None:
+        demand.apply_rejection_consequence(conn, config, now_ms=now, customer_id=customer_id)
+    else:
+        hidden = conn.execute(
+            "SELECT true_segment FROM _call_hidden WHERE call_id = ?", (call_id,)
+        ).fetchone()
+        if hidden is None:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED, f"call {call_id} has no _call_hidden row"
+            )
+        if call["address_catalog_id"] is None:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED, f"call {call_id} has no address_catalog_id"
+            )
+        catalog = conn.execute(
+            "SELECT effective_zone_id FROM _address_catalog WHERE id = ?",
+            (call["address_catalog_id"],),
+        ).fetchone()
+        if catalog is None:
+            raise EngineError(
+                ErrorCode.ENTITY_NOT_FOUND,
+                f"catalog address {call['address_catalog_id']} not found",
+            )
+        prospect = {
+            "caller_name": call["caller_name"],
+            "caller_phone": call["caller_phone"],
+            "segment": hidden["true_segment"],
+            "home_zone_id": int(catalog["effective_zone_id"]),
+        }
+        prospect_id = demand.apply_rejection_consequence(
+            conn, config, now_ms=now, prospect=prospect
+        )
+
+    attempt = ctx.rng.chance(
+        KeyedStreamName.COMPETITOR_LEAK.value, "call", call_id, "", "competitor_attempt",
+        config.get_prob_threshold("competitors.attempt_probability"), draw_index=0,
+    )
+    if attempt:
+        served = ctx.rng.chance(
+            KeyedStreamName.COMPETITOR_LEAK.value, "call", call_id, "", "competitor_served_well",
+            config.get_prob_threshold("competitors.served_well_probability"), draw_index=1,
+        )
+        if served:
+            if customer_id is not None:
+                demand.apply_competitor_capture(conn, config, now_ms=now, customer_id=customer_id)
+            else:
+                demand.apply_competitor_capture(conn, config, now_ms=now, prospect_id=prospect_id)
+
+
+def reject(ctx: TxnContext, config: RunConfig, *, call_id: int) -> dict:
+    if isinstance(call_id, bool) or not isinstance(call_id, int):
+        raise EngineError(
+            ErrorCode.INVALID_ARGUMENT, f"call_id must be an int, got {call_id!r}"
+        )
+
+    call = _call_row(ctx.conn, call_id)
+    require_current_new_job_call(ctx, call)
+    ordinary_rejection(ctx, config, call, terminal_reason="agent_rejected")
+
+    return {"call_id": call_id, "outcome": "rejected", "message": "Call rejected."}
+
+
+def reject_command(
+    services: Services, request_id: str, config: RunConfig, *, call_id: int
+) -> bytes:
+    return command(
+        services,
+        request_id,
+        lambda ctx: reject(ctx, config, call_id=call_id),
+        operation="calls.reject",
+        args={"call_id": call_id},
+    )
+
+
+__all__ = [
+    "arrive",
+    "current_active_call_id",
+    "ordinary_rejection",
+    "prompt_payload",
+    "reject",
+    "reject_command",
+    "require_current_new_job_call",
+]

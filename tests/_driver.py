@@ -365,7 +365,7 @@ def _replay_trap(ctx: TxnContext) -> dict:
 
 def _run_command(run: RunContext, name: str, fn: Callable[[TxnContext], dict]) -> None:
     request_id = f"script:{name}"
-    response = command(run.services, request_id, fn)
+    response = command(run.services, request_id, fn, operation=name, args={})
     _require_ok(name, response)
     run.public_request_ids.append(request_id)
     run.notes.append((f"response:{request_id}", response.hex()))
@@ -485,13 +485,22 @@ def _interleave(run: RunContext, after: str) -> None:
     run.events.pending_in_order()
 
     for request_id in run.public_request_ids:
+        op = request_id.removeprefix("script:")
         run.notes.append(
-            (f"retry:{request_id}", command(run.services, request_id, _replay_trap).hex())
+            (
+                f"retry:{request_id}",
+                command(run.services, request_id, _replay_trap, operation=op, args={}).hex(),
+            )
         )
 
     if run.invocations.active() is not None:
         request_id = f"probe:overspend:{after}"
-        body = json.loads(command(run.services, request_id, partial(_cmd_overspend, run)))
+        body = json.loads(
+            command(
+                run.services, request_id, partial(_cmd_overspend, run),
+                operation="probe.overspend", args={},
+            )
+        )
         run.notes.append((f"rejected:{request_id}", body.get("error", {}).get("code", "")))
 
 

@@ -28,6 +28,7 @@ class ErrorCode(StrEnum):
     ADDRESS_NORMALIZATION_AMBIGUOUS = "address_normalization_ambiguous"
     ADDRESS_UNRESOLVABLE = "address_unresolvable"
     GEOGRAPHY_ARTIFACT_MISMATCH = "geography_artifact_mismatch"
+    REQUEST_ID_CONFLICT = "request_id_conflict"
 
 
 _UNAUTHORIZED_MESSAGE = "unauthorized"

@@ -722,6 +722,13 @@ def test_reject_repeat_propensity_floor_not_positive():
     )
 
 
+def test_reject_repeat_propensity_floor_below_one_micro():
+    _bad(
+        '{"keys": {"customers.repeat_propensity_floor": 0.0000001}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
 def test_reject_word_of_mouth_negative_weight_below_positive():
     _bad(
         '{"keys": {"demand.word_of_mouth_negative_weight": 0.5}}',

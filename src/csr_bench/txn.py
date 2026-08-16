@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -59,16 +61,23 @@ def _run_status(conn: sqlite3.Connection) -> RunStatus:
     return RunStatus(row["status"])
 
 
-def _existing_response(
+def fingerprint(operation: str, args: Mapping[str, object]) -> str:
+    canonical = json.dumps(
+        {"operation": operation, "args": args}, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _existing_entry(
     conn: sqlite3.Connection, request_id: str, namespace: str
-) -> bytes | None:
+) -> tuple[str, bytes] | None:
     row = conn.execute(
-        "SELECT response FROM _idempotency WHERE namespace=? AND request_id=?",
+        "SELECT fingerprint, response FROM _idempotency WHERE namespace=? AND request_id=?",
         (namespace, request_id),
     ).fetchone()
     if row is None:
         return None
-    return bytes(row["response"])
+    return str(row["fingerprint"]), bytes(row["response"])
 
 
 def _store_response(
@@ -77,11 +86,12 @@ def _store_response(
     namespace: str,
     response: bytes,
     created_at_ms: int,
+    fingerprint_value: str,
 ) -> None:
     conn.execute(
         "INSERT OR IGNORE INTO _idempotency "
-        "(namespace, request_id, response, created_at_ms) VALUES (?, ?, ?, ?)",
-        (namespace, request_id, response, created_at_ms),
+        "(namespace, request_id, response, fingerprint, created_at_ms) VALUES (?, ?, ?, ?, ?)",
+        (namespace, request_id, response, fingerprint_value, created_at_ms),
     )
 
 
@@ -97,13 +107,20 @@ def _execute(
     require_status: RunStatus,
     require_active_invocation: bool,
     privileged: bool,
+    fingerprint_value: str,
 ) -> bytes:
     conn = services.conn
     rng = services.rng
 
-    existing = _existing_response(conn, request_id, namespace)
+    existing = _existing_entry(conn, request_id, namespace)
     if existing is not None:
-        return existing
+        existing_fingerprint, existing_response = existing
+        if existing_fingerprint == fingerprint_value:
+            return existing_response
+        return EngineError(
+            ErrorCode.REQUEST_ID_CONFLICT,
+            f"request_id {request_id!r} was already used with different arguments",
+        ).to_response()
 
     now = clock.now(conn)
     ctx = TxnContext(conn, rng, now, services, privileged=privileged)
@@ -129,7 +146,7 @@ def _execute(
             ctx.invocation = active
         payload = fn(ctx)
         response = ok_response(payload)
-        _store_response(conn, request_id, namespace, response, now)
+        _store_response(conn, request_id, namespace, response, now, fingerprint_value)
         if services.ledger is not None:
             services.ledger.bankruptcy_check()
         commit(conn)
@@ -150,7 +167,7 @@ def _execute(
         response = err.to_response()
         if err.code not in NON_CACHEABLE_ERRORS:
             begin(conn)
-            _store_response(conn, request_id, namespace, response, now)
+            _store_response(conn, request_id, namespace, response, now, fingerprint_value)
             commit(conn)
         return response
 
@@ -158,7 +175,14 @@ def _execute(
     return response
 
 
-def command(services: Services, request_id: str, fn: Fn) -> bytes:
+def command(
+    services: Services,
+    request_id: str,
+    fn: Fn,
+    *,
+    operation: str,
+    args: Mapping[str, object],
+) -> bytes:
     if is_reserved(request_id):
         raise EngineError.unauthorized()
     return _execute(
@@ -169,6 +193,7 @@ def command(services: Services, request_id: str, fn: Fn) -> bytes:
         require_status=RunStatus.ACTIVE,
         require_active_invocation=True,
         privileged=False,
+        fingerprint_value=fingerprint(operation, args),
     )
 
 
@@ -193,6 +218,7 @@ def privileged(
         require_status=require_status,
         require_active_invocation=require_active_invocation,
         privileged=True,
+        fingerprint_value="",
     )
 
 
@@ -204,6 +230,7 @@ __all__ = [
     "Services",
     "TxnContext",
     "command",
+    "fingerprint",
     "is_reserved",
     "privileged",
     "privileged_request_id",

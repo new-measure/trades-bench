@@ -58,6 +58,7 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_idempotency", "namespace"): V.PRIVATE_ENGINE,
     Field("_idempotency", "request_id"): V.PRIVATE_ENGINE,
     Field("_idempotency", "response"): V.PRIVATE_ENGINE,
+    Field("_idempotency", "fingerprint"): V.PRIVATE_ENGINE,
     Field("_idempotency", "created_at_ms"): V.PRIVATE_ENGINE,
 
     Field("_invocations", "invocation_id"): V.POST_RUN_ONLY,

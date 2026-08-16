@@ -308,7 +308,7 @@ CREATE TABLE _idempotency (
     namespace       TEXT NOT NULL,
     request_id      TEXT NOT NULL,
     response        BLOB NOT NULL,
-    created_at_ms   INTEGER NOT NULL,
+    created_at_ms   INTEGER NOT NULL, fingerprint TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (namespace, request_id)
 )
 

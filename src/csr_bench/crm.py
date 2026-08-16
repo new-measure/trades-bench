@@ -3,9 +3,8 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from . import demand, geography
+from . import calls, demand, geography
 from .config import RunConfig
-from .enums import EventKind
 from .errors import EngineError, ErrorCode
 from .geo_reader import GeoArtifact
 from .txn import Services, TxnContext, command
@@ -110,38 +109,6 @@ def _call_row(conn: sqlite3.Connection, call_id: int) -> sqlite3.Row:
     return row
 
 
-def _current_active_call_id(conn: sqlite3.Connection) -> int | None:
-    row = conn.execute(
-        "SELECT h.call_id FROM _events e "
-        "JOIN _call_hidden h ON h.arrival_event_id = e.event_id "
-        "WHERE e.status = 'applied' AND e.kind = ? "
-        "ORDER BY e.applied_at_ms DESC, e.event_id DESC LIMIT 1",
-        (EventKind.CALL_INVOCATION.value,),
-    ).fetchone()
-    return int(row["call_id"]) if row is not None else None
-
-
-def _check_call_reachable(ctx: TxnContext, call: sqlite3.Row) -> None:
-    call_id = int(call["id"])
-    if ctx.invocation is not None and ctx.invocation["type"] != "call":
-        raise _state_illegal(
-            "call_not_active",
-            f"call {call_id} is reachable only inside an active call invocation",
-        )
-    if call["status"] != "active":
-        raise _state_illegal(
-            "call_not_active", f"call {call_id} is not active (status {call['status']})"
-        )
-    if call["call_kind"] != "new_job":
-        raise _state_illegal(
-            "cancellation_call", f"call {call_id} is a cancellation call"
-        )
-    if _current_active_call_id(ctx.conn) != call_id:
-        raise _state_illegal(
-            "call_not_active", f"call {call_id} is not the currently active call"
-        )
-
-
 def _write_contacts(
     conn: sqlite3.Connection, table: str, id_column: str, entity_id: int,
     contacts: list[dict], now: int,
@@ -174,7 +141,7 @@ def create_customer(
     now = ctx.now()
 
     call = _call_row(conn, call_id)
-    _check_call_reachable(ctx, call)
+    calls.require_current_new_job_call(ctx, call)
     if call["customer_id"] is not None:
         raise _state_illegal(
             "already_registered", f"call {call_id} already has a registered customer"
@@ -234,7 +201,7 @@ def create_location(
     now = ctx.now()
 
     call = _call_row(conn, call_id)
-    _check_call_reachable(ctx, call)
+    calls.require_current_new_job_call(ctx, call)
     if call["customer_id"] is None:
         raise _state_illegal(
             "customer_not_registered", f"call {call_id} has no registered customer yet"
@@ -298,6 +265,8 @@ def create_customer_command(
         lambda ctx: create_customer(
             ctx, config, call_id=call_id, name=name, segment=segment, contacts=contacts,
         ),
+        operation="crm.create_customer",
+        args={"call_id": call_id, "name": name, "segment": segment, "contacts": contacts},
     )
 
 
@@ -319,6 +288,8 @@ def create_location_command(
             ctx, config, call_id=call_id, customer_id=customer_id, address=address,
             contacts=contacts, artifact=artifact,
         ),
+        operation="crm.create_location",
+        args={"call_id": call_id, "customer_id": customer_id, "address": address, "contacts": contacts},
     )
 
 
