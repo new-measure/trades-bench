@@ -5,7 +5,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date
 
-from . import clock, constants
+from . import clock, constants, surface
 from .config import RunConfig
 from .enums import DayType, EntityType, EventKind
 from .errors import EngineError, ErrorCode
@@ -455,6 +455,9 @@ def assign(
     technician_id: int,
     artifact: GeoArtifact | None = None,
 ) -> dict:
+    surface.require_id("appointment_id", appointment_id)
+    surface.require_id("technician_id", technician_id)
+
     from . import execution
 
     conn = ctx.conn

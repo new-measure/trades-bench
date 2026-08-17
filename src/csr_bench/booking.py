@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_FLOOR, Decimal, localcontext
 
-from . import appointments, calls, clock, constants
+from . import appointments, calls, clock, constants, surface
 from .config import RunConfig, probability_threshold
 from .enums import EventKind, KeyedStreamName
 from .errors import EngineError, ErrorCode
@@ -19,10 +19,6 @@ _BLOCK_START_BY_LABEL: dict[str, str] = {
         appointments.BLOCK_CODES, constants.BLOCK_GRID_MINUTES, strict=True
     )
 }
-
-
-def _bad_argument(message: str) -> EngineError:
-    return EngineError(ErrorCode.INVALID_ARGUMENT, message)
 
 
 def _state_illegal(reason: str, message: str, **details: object) -> EngineError:
@@ -144,11 +140,9 @@ def book(
         ("call_id", call_id), ("customer_id", customer_id), ("location_id", location_id),
         ("job_type_id", job_type_id), ("technician_id", technician_id),
     ):
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise _bad_argument(f"{name} must be an int, got {value!r}")
+        surface.require_id(name, value)
     for name, value in (("service_date", service_date), ("block_start", block_start)):
-        if not isinstance(value, str):
-            raise _bad_argument(f"{name} must be a str, got {value!r}")
+        surface.require_str(name, value)
 
     conn = ctx.conn
     now = ctx.now()
@@ -193,17 +187,7 @@ def book(
     if technician is None:
         raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"technician_id {technician_id} not found")
 
-    try:
-        parsed_service_date = date.fromisoformat(service_date)
-    except ValueError:
-        raise _state_illegal(
-            "invalid_service_date", f"service_date {service_date!r} is not a valid ISO date"
-        ) from None
-    if parsed_service_date.isoformat() != service_date:
-        raise _state_illegal(
-            "invalid_service_date",
-            f"service_date {service_date!r} is not in YYYY-MM-DD form",
-        )
+    service_date = surface.require_service_date("service_date", service_date)
 
     if (
         technician["final_working_date"] is not None

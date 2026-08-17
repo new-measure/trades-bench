@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from . import calls, demand, geography
+from . import calls, demand, geography, surface
 from .config import RunConfig
 from .errors import EngineError, ErrorCode
 from .geo_reader import GeoArtifact
@@ -133,6 +133,7 @@ def create_customer(
     segment: str,
     contacts: object,
 ) -> dict:
+    surface.require_id("call_id", call_id)
     name = _validate_name(name)
     segment = _validate_segment(segment)
     contacts = _validate_contacts(contacts, require_phone=True, allow_none=False)
@@ -194,6 +195,8 @@ def create_location(
     contacts: object = None,
     artifact: GeoArtifact | None = None,
 ) -> dict:
+    surface.require_id("call_id", call_id)
+    surface.require_id("customer_id", customer_id)
     address = _validate_address(address)
     contacts = _validate_contacts(contacts, require_phone=False, allow_none=True)
 

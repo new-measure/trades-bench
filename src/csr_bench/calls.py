@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import clock, demand
+from . import clock, demand, surface
 from .config import RunConfig
 from .enums import EventKind, KeyedStreamName
 from .errors import EngineError, ErrorCode
@@ -335,10 +335,7 @@ def ordinary_rejection(
 
 
 def reject(ctx: TxnContext, config: RunConfig, *, call_id: int) -> dict:
-    if isinstance(call_id, bool) or not isinstance(call_id, int):
-        raise EngineError(
-            ErrorCode.INVALID_ARGUMENT, f"call_id must be an int, got {call_id!r}"
-        )
+    surface.require_id("call_id", call_id)
 
     call = _call_row(ctx.conn, call_id)
     require_current_new_job_call(ctx, call)
