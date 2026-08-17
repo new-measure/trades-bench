@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
 
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
-from csr_bench import views, warm_start
+from csr_bench import db, views, warm_start
+from csr_bench._dump import dump_hash
 from csr_bench.db import read_config
 from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.migrations import applied_versions
+from csr_bench.migrations import MIGRATIONS_PACKAGE_DIR, applied_versions, migrate
 from csr_bench.run_init import initialize_run, open_run_db
 from csr_bench.views import VIEWS, verify_views
 from csr_bench.visibility import FIELD_REGISTRY
@@ -25,6 +27,7 @@ def test_open_run_db_twice_is_idempotent(tmp_path):
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
         (7, "idempotency_fingerprint"), (8, "job_outcomes"),
+        (9, "drop_attempt_count"),
     ]
     conn1.close()
     conn2 = open_run_db(path)
@@ -35,6 +38,74 @@ def test_open_run_db_twice_is_idempotent(tmp_path):
         for row in conn2.execute("SELECT name FROM sqlite_schema WHERE type='view'")
     }
     assert stored == {spec.name for spec in VIEWS}
+
+
+def test_open_run_db_upgrades_a_populated_pre_0009_file(tmp_path):
+    schema_0008 = tmp_path / "schema_0008"
+    schema_0008.mkdir()
+    for f in MIGRATIONS_PACKAGE_DIR.iterdir():
+        if f.is_file() and f.name != "__init__.py" and int(f.name[:4]) < 9:
+            shutil.copy2(f, schema_0008 / f.name)
+    old = tmp_path / "pre_0009.db"
+    conn = db.connect(old)
+    register_conn(conn)
+    try:
+        migrate(conn, migrations_path=schema_0008)
+        assert applied_versions(conn)[-1] == (8, "job_outcomes")
+        views.create_views(conn)
+        db.begin(conn)
+        db.populate_visibility_registry(conn)
+        conn.execute(
+            "INSERT INTO _visibility_registry VALUES "
+            "('_invocations', 'attempt_count', 'post_run_only')"
+        )
+        db.commit(conn)
+        conn.execute(
+            "INSERT INTO _invocations "
+            "(type, ts_ms, sequence, status, prompt_version, attempt_count) "
+            "VALUES ('call', 0, 1, 'completed', NULL, 3)"
+        )
+    finally:
+        conn.close()
+    resumed_path = tmp_path / "resumed.db"
+    shutil.copy2(old, resumed_path)
+    fresh_path = tmp_path / "fresh.db"
+    resumed = open_run_db(resumed_path)
+    register_conn(resumed)
+    fresh = open_run_db(fresh_path)
+    register_conn(fresh)
+    try:
+        fresh.execute(
+            "INSERT INTO _invocations "
+            "(type, ts_ms, sequence, status, prompt_version) "
+            "VALUES ('call', 0, 1, 'completed', NULL)"
+        )
+        assert applied_versions(resumed)[-1] == (9, "drop_attempt_count")
+        resumed_inv = [
+            row["name"] for row in resumed.execute("PRAGMA table_info(_invocations)").fetchall()
+        ]
+        assert "attempt_count" not in resumed_inv
+        assert resumed_inv == [
+            row["name"] for row in fresh.execute("PRAGMA table_info(_invocations)").fetchall()
+        ]
+        registry = (
+            'SELECT "table", "column", visibility_class FROM _visibility_registry '
+            'ORDER BY "table", "column"'
+        )
+        assert resumed.execute(registry).fetchall() == fresh.execute(registry).fetchall()
+        assert dump_hash(resumed, "same-world") == dump_hash(fresh, "same-world")
+    finally:
+        resumed.close()
+        fresh.close()
+
+
+def test_open_run_db_asserts_sqlite_version_floor(tmp_path, monkeypatch):
+    monkeypatch.setattr(sqlite3, "sqlite_version_info", (3, 34, 0))
+    with pytest.raises(EngineError) as ei:
+        open_run_db(tmp_path / "floor.db")
+    assert ei.value.code is ErrorCode.MIGRATION_FAILED
+    assert "3.35.0" in ei.value.message
+    assert "3.34.0" in ei.value.message
 
 
 def test_initialize_run_end_to_end(tmp_path):

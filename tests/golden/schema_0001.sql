@@ -319,9 +319,7 @@ CREATE TABLE _invocations (
     ts_ms           INTEGER NOT NULL,
     sequence        INTEGER NOT NULL,
     status          TEXT NOT NULL CHECK (status IN ('active','completed')),
-    prompt_version  TEXT,
-    attempt_count   INTEGER NOT NULL DEFAULT 0
-)
+    prompt_version  TEXT)
 
 -- table: _invoice_items
 CREATE TABLE _invoice_items (

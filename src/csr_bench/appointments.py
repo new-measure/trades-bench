@@ -773,6 +773,7 @@ def acknowledge_cancellation(
         "terminal_at = ? WHERE id = ?",
         (now, call_id),
     )
+    calls.record_resolved_attempt(ctx, int(call_id))
 
     appointment_number = str(
         ctx.conn.execute(

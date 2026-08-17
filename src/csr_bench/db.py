@@ -17,7 +17,16 @@ _LEGAL_RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
 }
 
 
+_MIN_SQLITE_VERSION = (3, 35, 0)
+
+
 def connect(path: str | Path) -> sqlite3.Connection:
+    if sqlite3.sqlite_version_info < _MIN_SQLITE_VERSION:
+        raise EngineError(
+            ErrorCode.MIGRATION_FAILED,
+            f"SQLite {'.'.join(map(str, _MIN_SQLITE_VERSION))} or newer is required "
+            f"(found {'.'.join(map(str, sqlite3.sqlite_version_info))})",
+        )
     conn = sqlite3.connect(str(path), isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -150,17 +159,26 @@ def populate_visibility_registry(conn: sqlite3.Connection) -> None:
             ErrorCode.DRAW_OUTSIDE_TXN,
             "populate_visibility_registry is callable only inside an open transaction",
         )
+    expected = sorted(
+        ((field.table, field.column, str(vc)) for field, vc in visibility.FIELD_REGISTRY.items()),
+        key=lambda item: (item[0], item[1]),
+    )
     conn.executemany(
         'INSERT INTO _visibility_registry ("table", "column", visibility_class) '
         "VALUES (?, ?, ?) "
         'ON CONFLICT("table", "column") DO UPDATE SET '
         "visibility_class = excluded.visibility_class",
-        [
-            (field.table, field.column, str(vc))
-            for field, vc in sorted(
-                visibility.FIELD_REGISTRY.items(), key=lambda item: (item[0].table, item[0].column)
-            )
-        ],
+        expected,
+    )
+    registered_pairs = {(item[0], item[1]) for item in expected}
+    stale = sorted(
+        (row["table"], row["column"])
+        for row in conn.execute('SELECT "table", "column" FROM _visibility_registry').fetchall()
+        if (row["table"], row["column"]) not in registered_pairs
+    )
+    conn.executemany(
+        'DELETE FROM _visibility_registry WHERE "table" = ? AND "column" = ?',
+        stale,
     )
 
 

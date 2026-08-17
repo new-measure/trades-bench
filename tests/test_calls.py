@@ -363,9 +363,9 @@ def _arrival_at():
 
 def _open_invocation(conn, now, invocation_type="call"):
     conn.execute(
-        "INSERT INTO _invocations (type, ts_ms, sequence, status, attempt_count) "
+        "INSERT INTO _invocations (type, ts_ms, sequence, status) "
         "VALUES (?, ?, "
-        "(SELECT COALESCE(MAX(sequence), 0) + 1 FROM _invocations), 'active', 0)",
+        "(SELECT COALESCE(MAX(sequence), 0) + 1 FROM _invocations), 'active')",
         (invocation_type, now),
     )
 

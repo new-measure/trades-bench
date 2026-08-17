@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from csr_bench.db import in_memory
+from csr_bench.db import begin, commit, in_memory, populate_visibility_registry
 from csr_bench.enums import VisibilityClass
 from csr_bench.errors import EngineError, ErrorCode
 from csr_bench.migrations import migrate
@@ -23,7 +23,6 @@ def test_classify_returns_expected_class_for_representative_fields():
     assert classify(Field("_clock", "current_time_ms")) is VisibilityClass.PUBLIC_SQL
     assert classify(Field("_clock", "service_date")) is VisibilityClass.PUBLIC_SQL
     assert classify(Field("_invocations", "ts_ms")) is VisibilityClass.POST_RUN_ONLY
-    assert classify(Field("_invocations", "attempt_count")) is VisibilityClass.POST_RUN_ONLY
     assert classify(Field("_run", "status")) is VisibilityClass.PUBLIC_SQL
     assert classify(Field("_run", "model_id")) is VisibilityClass.POST_RUN_ONLY
     assert classify(Field("_run", "master_seed")) is VisibilityClass.POST_RUN_ONLY
@@ -46,6 +45,20 @@ def test_classify_unclassified_table_raises_same_code():
     with pytest.raises(EngineError) as ei:
         classify(Field("no_such_table", "col"))
     assert ei.value.code is ErrorCode.UNCLASSIFIED_FIELD
+
+
+def test_populate_visibility_registry_deletes_rows_absent_from_the_field_registry(conn):
+    begin(conn)
+    populate_visibility_registry(conn)
+    conn.execute(
+        "INSERT INTO _visibility_registry VALUES ('_invocations', 'attempt_count', 'post_run_only')"
+    )
+    populate_visibility_registry(conn)
+    commit(conn)
+    rows = conn.execute('SELECT "table", "column" FROM _visibility_registry').fetchall()
+    assert {(r["table"], r["column"]) for r in rows} == {
+        (f.table, f.column) for f in FIELD_REGISTRY
+    }
 
 
 def test_assert_public_accepts_an_all_public_column_set():

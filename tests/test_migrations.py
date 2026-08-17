@@ -40,12 +40,14 @@ def test_applies_baseline_from_package_and_reapply_is_noop(conn):
         "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
         "0004_day_state", "0005_booking_columns", "0006_call_arrival",
         "0007_idempotency_fingerprint", "0008_job_outcomes",
+        "0009_drop_attempt_count",
     ]
     assert migrate(conn) == []
     assert applied_versions(conn) == [
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
         (7, "idempotency_fingerprint"), (8, "job_outcomes"),
+        (9, "drop_attempt_count"),
     ]
     assert {
         "_run", "_customers", "_ledger_entries", "_clock", "_routing_anchors",
@@ -68,6 +70,7 @@ def test_tampered_checksum_aborts(conn, tmp_path):
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
         (7, "idempotency_fingerprint"), (8, "job_outcomes"),
+        (9, "drop_attempt_count"),
     ]
 
 
@@ -86,13 +89,14 @@ def test_custom_path_applies(conn, tmp_path):
         "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
         "0004_day_state", "0005_booking_columns", "0006_call_arrival",
         "0007_idempotency_fingerprint", "0008_job_outcomes",
+        "0009_drop_attempt_count",
     ]
     assert "_customers" in _table_names(conn)
 
 
 def test_apply_is_atomic_on_failure(conn, tmp_path):
     dst = _copy_schema_dir(tmp_path)
-    (dst / "0009_break.sql").write_text(
+    (dst / "0010_break.sql").write_text(
         "CREATE TABLE _break_table (id INTEGER PRIMARY KEY);\n"
         "THIS IS NOT VALID SQL;\n"
     )
@@ -103,6 +107,7 @@ def test_apply_is_atomic_on_failure(conn, tmp_path):
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
         (7, "idempotency_fingerprint"), (8, "job_outcomes"),
+        (9, "drop_attempt_count"),
     ]
     assert "_break_table" not in _table_names(conn)
 
@@ -122,7 +127,7 @@ def test_migrations_path_missing_raises(conn, tmp_path):
 
 def test_non_utf8_migration_file_raises_structured_error(conn, tmp_path):
     dst = _copy_schema_dir(tmp_path)
-    (dst / "0009_bad.sql").write_bytes(b"CREATE TABLE _t (x);\n-- \xff\xfe latin\n")
+    (dst / "0010_bad.sql").write_bytes(b"CREATE TABLE _t (x);\n-- \xff\xfe latin\n")
     with pytest.raises(EngineError) as ei:
         migrate(conn, migrations_path=dst)
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
@@ -130,6 +135,7 @@ def test_non_utf8_migration_file_raises_structured_error(conn, tmp_path):
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
         (7, "idempotency_fingerprint"), (8, "job_outcomes"),
+        (9, "drop_attempt_count"),
     ]
     assert "_t" not in _table_names(conn)
 
@@ -145,6 +151,7 @@ def test_migrate_refuses_with_open_transaction(conn):
         "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
         "0004_day_state", "0005_booking_columns", "0006_call_arrival",
         "0007_idempotency_fingerprint", "0008_job_outcomes",
+        "0009_drop_attempt_count",
     ]
 
 

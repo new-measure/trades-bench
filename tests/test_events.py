@@ -184,7 +184,7 @@ def test_apply_rejects_when_invocation_active_and_leaves_no_trace():
     assert audit_count(conn) == 0
 
 
-def test_apply_rolls_back_on_handler_failure_and_is_idempotent():
+def test_apply_rolls_back_on_handler_failure_and_retry_re_executes():
     conn, rid, sv, ledger, events, rng = make_services()
     begin(conn)
     rng.enter_txn()
@@ -204,7 +204,7 @@ def test_apply_rolls_back_on_handler_failure_and_is_idempotent():
     r2 = events.apply(eid, handler, services=sv)
     assert r1 == r2
     assert json.loads(r1)["error"]["code"] == "state_illegal"
-    assert runs["n"] == 1
+    assert runs["n"] == 2
     assert events.status(eid) is EventStatus.PENDING
     assert ledger.entry_count() == 0
     assert audit_count(conn) == 0

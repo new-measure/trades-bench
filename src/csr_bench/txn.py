@@ -165,7 +165,7 @@ def _execute(
         if conn.in_transaction:
             rollback(conn)
         response = err.to_response()
-        if err.code not in NON_CACHEABLE_ERRORS:
+        if not privileged and err.code not in NON_CACHEABLE_ERRORS:
             begin(conn)
             _store_response(conn, request_id, namespace, response, now, fingerprint_value)
             commit(conn)

@@ -594,8 +594,8 @@ def test_assign_command_requires_an_active_invocation(tmp_path):
     assert body["error"]["code"] == ErrorCode.INVOCATION_CONFLICT.value
 
     conn.execute(
-        "INSERT INTO _invocations(type, ts_ms, sequence, status, attempt_count) "
-        "VALUES ('call', 0, 1, 'active', 1)"
+        "INSERT INTO _invocations(type, ts_ms, sequence, status) "
+        "VALUES ('call', 0, 1, 'active')"
     )
     response2 = appointments.assign_command(
         controller.services, "dispatch-assign-2", cfg,

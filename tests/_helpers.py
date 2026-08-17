@@ -80,8 +80,8 @@ def make_services(
     inv = Invocations(conn)
     if active_invocation:
         conn.execute(
-            "INSERT INTO _invocations(type, ts_ms, sequence, status, attempt_count) "
-            "VALUES ('call', 0, 1, 'active', 1)"
+            "INSERT INTO _invocations(type, ts_ms, sequence, status) "
+            "VALUES ('call', 0, 1, 'active')"
         )
     sv = Services(conn=conn, rng=rng, ledger=ledger, invocations=inv, events=events)
     return conn, rid, sv, ledger, events, rng

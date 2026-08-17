@@ -67,7 +67,6 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_invocations", "sequence"): V.POST_RUN_ONLY,
     Field("_invocations", "status"): V.POST_RUN_ONLY,
     Field("_invocations", "prompt_version"): V.POST_RUN_ONLY,
-    Field("_invocations", "attempt_count"): V.POST_RUN_ONLY,
 
     Field("_rng_state", "stream_name"): V.PRIVATE_ENGINE,
     Field("_rng_state", "seed"): V.PRIVATE_ENGINE,

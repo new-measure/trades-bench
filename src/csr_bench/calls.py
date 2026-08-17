@@ -464,11 +464,27 @@ def ordinary_rejection(
                 demand.apply_competitor_capture(conn, config, now_ms=now, prospect_id=prospect_id)
 
 
+def record_resolved_attempt(ctx: TxnContext, call_id: int) -> None:
+    row = ctx.conn.execute(
+        "SELECT COUNT(*) c FROM _call_attempts WHERE call_id = ? AND outcome = 'incomplete'",
+        (call_id,),
+    ).fetchone()
+    incomplete_count = int(row["c"])
+    if incomplete_count == 0:
+        return
+    ctx.conn.execute(
+        "INSERT INTO _call_attempts (call_id, attempt_number, prompted_at, outcome, created_at) "
+        "VALUES (?, ?, ?, 'resolved', ?)",
+        (call_id, incomplete_count + 1, ctx.now(), ctx.now()),
+    )
+
+
 def reject(ctx: TxnContext, config: RunConfig, *, call_id: int) -> dict:
     surface.require_id("call_id", call_id)
 
     call = _call_row(ctx.conn, call_id)
     require_current_new_job_call(ctx, call)
+    record_resolved_attempt(ctx, int(call["id"]))
     ordinary_rejection(ctx, config, call, terminal_reason="agent_rejected")
 
     return {"call_id": call_id, "outcome": "rejected", "message": "Call rejected."}
@@ -491,6 +507,7 @@ __all__ = [
     "current_active_call_id",
     "ordinary_rejection",
     "prompt_payload",
+    "record_resolved_attempt",
     "reject",
     "reject_command",
     "require_current_cancellation_call",

@@ -59,8 +59,8 @@ def _services(*, active_invocation=False, status=RunStatus.ACTIVE, with_ledger=T
     inv = FakeInvocations(conn)
     if active_invocation:
         conn.execute(
-            "INSERT INTO _invocations(type, ts_ms, sequence, status, attempt_count) "
-            "VALUES ('call', 0, 1, 'active', 1)"
+            "INSERT INTO _invocations(type, ts_ms, sequence, status) "
+            "VALUES ('call', 0, 1, 'active')"
         )
     sv = Services(conn=conn, rng=rng, ledger=ledger, invocations=inv)
     return conn, rid, sv, ledger, rng
@@ -320,6 +320,47 @@ def test_privileged_settlement_idempotent_via_reserved_id():
     assert r1 == r2 and json.loads(r1)["ok"] is True
     assert n["n"] == 1
     assert ledger.entry_count() == 1
+
+
+def test_privileged_engine_error_is_not_memoized_and_retry_reruns_fn():
+    runs = {"n": 0}
+
+    def fn(ctx):
+        runs["n"] += 1
+        raise EngineError(ErrorCode.INSUFFICIENT_CASH, "not enough")
+
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    ridp = privileged_request_id("settle", "day_3")
+    r1 = privileged(sv, ridp, fn)
+    r2 = privileged(sv, ridp, fn)
+    assert r1 == r2
+    assert json.loads(r1)["error"]["code"] == "insufficient_cash"
+    assert runs["n"] == 2
+    rows = conn.execute(
+        "SELECT * FROM _idempotency WHERE request_id=?", (ridp,)
+    ).fetchall()
+    assert rows == []
+
+
+def test_privileged_error_does_not_poison_later_success_on_same_key():
+    fail = {"on": True}
+
+    def fn(ctx):
+        if fail["on"]:
+            raise EngineError(ErrorCode.STATE_ILLEGAL, "not yet")
+        return {"done": True}
+
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    ridp = privileged_request_id("settle", "day_4")
+    r1 = privileged(sv, ridp, fn)
+    assert json.loads(r1)["error"]["code"] == "state_illegal"
+    fail["on"] = False
+    r2 = privileged(sv, ridp, fn)
+    assert json.loads(r2) == {"ok": True, "result": {"done": True}}
+    rows = conn.execute(
+        "SELECT * FROM _idempotency WHERE request_id=?", (ridp,)
+    ).fetchall()
+    assert len(rows) == 1
 
 
 def test_privileged_id_isolated_from_public_namespace_table():

@@ -60,6 +60,13 @@ def open_run_db(
         migrations.migrate(conn)
         views.create_views(conn)
         views.verify_views(conn)
+        db.begin(conn)
+        try:
+            db.populate_visibility_registry(conn)
+            db.commit(conn)
+        except Exception:
+            db.rollback(conn)
+            raise
         _verify_stored_geography_artifact(conn, artifact_dir)
     except EngineError:
         conn.close()

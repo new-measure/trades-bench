@@ -242,6 +242,7 @@ def book(
     )
 
     if not accepted:
+        calls.record_resolved_attempt(ctx, int(call_id))
         calls.ordinary_rejection(ctx, config, call, terminal_reason="customer_declined")
         return {
             "call_id": call_id,
@@ -270,6 +271,7 @@ def book(
         "terminal_at = ?, created_job_id = ? WHERE id = ?",
         (now, job_id, call_id),
     )
+    calls.record_resolved_attempt(ctx, int(call_id))
 
     creation_date = clock.service_date_for_ms(now)
     u01 = ctx.rng.uniform01(

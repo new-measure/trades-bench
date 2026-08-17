@@ -78,40 +78,6 @@ def test_world_event_cannot_commit_while_invocation_active():
     assert events.status(eid).value == "applied"
 
 
-def test_record_attempt_and_three_attempt_terminal():
-    conn, rid, sv, ledger, events, rng = make_services()
-    i = sv.invocations.open(InvocationType.CALL, 100, services=sv)
-    for expect in (1, 2, 3):
-        r = sv.invocations.record_attempt(i, services=sv)
-        assert json.loads(r)["result"]["attempt_count"] == expect
-    r = sv.invocations.mark_call_unanswered(i, services=sv)
-    result = json.loads(r)["result"]
-    assert result["status"] == "completed"
-    assert result["outcome"] == "unanswered"
-    assert sv.invocations.active() is None
-
-
-def test_mark_unanswered_before_three_attempts_rejected():
-    conn, rid, sv, ledger, events, rng = make_services()
-    i = sv.invocations.open(InvocationType.CALL, 100, services=sv)
-    sv.invocations.record_attempt(i, services=sv)
-    r = sv.invocations.mark_call_unanswered(i, services=sv)
-    assert json.loads(r)["error"]["code"] == "state_illegal"
-    sv.invocations.record_attempt(i, services=sv)
-    sv.invocations.record_attempt(i, services=sv)
-    r2 = sv.invocations.mark_call_unanswered(i, services=sv)
-    assert json.loads(r2)["ok"] is True
-    assert sv.invocations.active() is None
-
-
-def test_mark_unanswered_requires_call_invocation():
-    conn, rid, sv, ledger, events, rng = make_services()
-    i = sv.invocations.open(InvocationType.OPENING, 100, services=sv)
-    r = sv.invocations.mark_call_unanswered(i, services=sv)
-    assert json.loads(r)["error"]["code"] == "state_illegal"
-    sv.invocations.complete(i, services=sv)
-
-
 def _closing_restricted_command(services, request_id, target_ts):
 
     def fn(ctx):
