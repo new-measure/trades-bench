@@ -205,8 +205,8 @@ def _block_lock_handler(ctx: TxnContext, row: sqlite3.Row) -> dict | None:
 
 def _call_invocation_handler(ctx: TxnContext, row: sqlite3.Row) -> dict | None:
     now = _advance_to_event(ctx, row)
-    calls.arrive(ctx.conn, row, now_ms=now)
-    return None
+    result = calls.arrive(ctx.conn, row, now_ms=now)
+    return result if isinstance(result, dict) else None
 
 
 def _closing_invocation_handler(ctx: TxnContext, row: sqlite3.Row) -> dict | None:

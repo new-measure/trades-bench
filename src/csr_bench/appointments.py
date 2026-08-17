@@ -5,7 +5,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date
 
-from . import clock, constants, surface
+from . import calls, clock, constants, surface
 from .config import RunConfig
 from .enums import DayType, EntityType, EventKind
 from .errors import EngineError, ErrorCode
@@ -44,6 +44,13 @@ def _block_window(service_date: str, block_code: str) -> tuple[int, int]:
 
 def _state_illegal(reason: str, message: str, **details: object) -> EngineError:
     return EngineError(ErrorCode.STATE_ILLEGAL, message, details={"reason": reason, **details})
+
+
+def _call_row(conn: sqlite3.Connection, call_id: int) -> sqlite3.Row:
+    row = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
+    if row is None:
+        raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"call {call_id} not found")
+    return row
 
 
 def validate_reservation_shape(scheduled_blocks: int, block_codes: tuple[str, ...]) -> None:
@@ -626,12 +633,200 @@ def assign_command(
     )
 
 
+_CANCELLABLE_PENDING_KINDS: tuple[EventKind, ...] = (
+    EventKind.COMPANY_NO_SHOW,
+    EventKind.OFF_HOURS_ACCRUAL_MARK,
+)
+
+
+def _cancel_pending_event(
+    events: Events, conn: sqlite3.Connection, *, kind: EventKind, appointment_id: int
+) -> None:
+    row = conn.execute(
+        "SELECT event_id FROM _events WHERE kind = ? AND status = 'pending' "
+        "AND entity_type = ? AND entity_id = ?",
+        (kind.value, EntityType.APPOINTMENT.value, appointment_id),
+    ).fetchone()
+    if row is not None:
+        events.cancel(int(row["event_id"]))
+
+
+def cancel_appointment(
+    ctx: TxnContext,
+    config: RunConfig,
+    *,
+    appointment_id: int,
+    effective_at: int,
+    artifact: GeoArtifact | None = None,
+) -> dict:
+    from . import execution
+
+    conn = ctx.conn
+
+    appt = conn.execute(
+        "SELECT job_id, status FROM _appointments WHERE id = ?", (appointment_id,)
+    ).fetchone()
+    if appt is None:
+        raise EngineError(
+            ErrorCode.ENTITY_NOT_FOUND, f"appointment {appointment_id} not found"
+        )
+    if appt["status"] not in ("scheduled", "dispatched"):
+        raise _state_illegal(
+            "appointment_not_active",
+            f"appointment {appointment_id} is {appt['status']} and cannot be cancelled",
+            appointment_id=appointment_id,
+        )
+    job_id = int(appt["job_id"])
+    service_date = execution._appointment_service_date(conn, appointment_id)
+    blocks = execution._appointment_blocks(conn, appointment_id)
+    released_blocks = [
+        {
+            "start": clock.to_iso8601(int(block["block_start"])),
+            "end": clock.to_iso8601(int(block["block_end"])),
+        }
+        for block in blocks
+    ]
+
+    updated = conn.execute(
+        "UPDATE _appointments SET status = 'cancelled', cancelled_at = ?, modified_at = ? "
+        "WHERE id = ? AND status IN ('scheduled', 'dispatched')",
+        (effective_at, effective_at, appointment_id),
+    )
+    if updated.rowcount != 1:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"appointment {appointment_id} was not active at cancellation",
+        )
+
+    conn.execute(
+        "UPDATE _jobs SET status = 'cancelled', outcome = 'cancelled_by_customer', "
+        "modified_at = ? WHERE id = ?",
+        (effective_at, job_id),
+    )
+
+    technician_id = execution._active_technician_id(conn, appointment_id)
+    assignment_updated = conn.execute(
+        "UPDATE _appointment_assignments SET status = 'cancelled', unassigned_at = ? "
+        "WHERE appointment_id = ? AND status = 'active'",
+        (effective_at, appointment_id),
+    )
+    if assignment_updated.rowcount != 1:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"appointment {appointment_id} had no active assignment at cancellation",
+        )
+
+    conn.execute(
+        "DELETE FROM _technician_block_holds WHERE appointment_id = ?", (appointment_id,)
+    )
+
+    execution._write_appointment_event(
+        conn, appointment_id=appointment_id, technician_id=technician_id,
+        event_type="cancelled", occurred_at=effective_at, service_date=service_date,
+    )
+
+    events = Events(conn, ctx.rng)
+    for kind in _CANCELLABLE_PENDING_KINDS:
+        _cancel_pending_event(events, conn, kind=kind, appointment_id=appointment_id)
+
+    if execution.first_trip_dispatch_applied(conn, service_date):
+        execution.handle_outgoing_technician(
+            ctx, config, artifact,
+            appointment_id=appointment_id, technician_id=technician_id,
+            service_date=service_date,
+        )
+        conn.execute(
+            "UPDATE _day_state SET unresolved_execution_count = unresolved_execution_count - 1 "
+            "WHERE service_date = ?",
+            (service_date,),
+        )
+
+    return {
+        "appointment_id": appointment_id,
+        "job_id": job_id,
+        "released_blocks": released_blocks,
+    }
+
+
+def acknowledge_cancellation(
+    ctx: TxnContext,
+    config: RunConfig,
+    *,
+    call_id: int,
+    artifact: GeoArtifact | None = None,
+) -> dict:
+    surface.require_id("call_id", call_id)
+
+    call = _call_row(ctx.conn, call_id)
+    calls.require_current_cancellation_call(ctx, call)
+
+    appointment_id = calls._required_int(
+        call, "target_appointment_id", f"cancellation call {call_id}"
+    )
+    now = ctx.now()
+    result = cancel_appointment(
+        ctx, config, appointment_id=appointment_id, effective_at=now, artifact=artifact,
+    )
+
+    ctx.conn.execute(
+        "UPDATE _calls SET status = 'acknowledged', terminal_reason = 'cancellation_acknowledged', "
+        "terminal_at = ? WHERE id = ?",
+        (now, call_id),
+    )
+
+    appointment_number = str(
+        ctx.conn.execute(
+            "SELECT appointment_number FROM _appointments WHERE id = ?", (appointment_id,)
+        ).fetchone()["appointment_number"]
+    )
+    service_date = clock.service_date_for_ms(now)
+    ctx.conn.execute(
+        "INSERT INTO _notifications (created_at, service_date, notification_type, "
+        "entity_type, entity_id, message) "
+        "VALUES (?, ?, 'customer_cancellation_acknowledged', 'appointment', ?, ?)",
+        (
+            now, service_date, appointment_id,
+            f"Customer cancellation for appointment {appointment_number} was acknowledged "
+            f"and its blocks were released.",
+        ),
+    )
+
+    return {
+        "call_id": call_id,
+        "outcome": "acknowledged",
+        "appointment_id": appointment_id,
+        "released_blocks": result["released_blocks"],
+        "message": "Cancellation acknowledged. The appointment is cancelled and its blocks "
+        "are released.",
+    }
+
+
+def acknowledge_cancellation_command(
+    services: Services,
+    request_id: str,
+    config: RunConfig,
+    *,
+    call_id: int,
+    artifact: GeoArtifact | None = None,
+) -> bytes:
+    return command(
+        services,
+        request_id,
+        lambda ctx: acknowledge_cancellation(ctx, config, call_id=call_id, artifact=artifact),
+        operation="appointments.acknowledge_cancellation",
+        args={"call_id": call_id},
+    )
+
+
 __all__ = [
     "BLOCK_CODES",
     "BookingPlan",
+    "acknowledge_cancellation",
+    "acknowledge_cancellation_command",
     "assign",
     "assign_command",
     "book",
+    "cancel_appointment",
     "create_booking",
     "trip_index_for_appointment",
     "validate_booking",

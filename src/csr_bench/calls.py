@@ -4,7 +4,7 @@ import sqlite3
 
 from . import clock, demand, surface
 from .config import RunConfig
-from .enums import EventKind, KeyedStreamName
+from .enums import EntityType, EventKind, KeyedStreamName
 from .errors import EngineError, ErrorCode
 from .txn import Services, TxnContext, command
 
@@ -15,7 +15,20 @@ _ORDINARY_REJECTION_STATUS_BY_REASON = {
 }
 
 
-def arrive(conn: sqlite3.Connection, event_row: sqlite3.Row, *, now_ms: int) -> int:
+def arrive(conn: sqlite3.Connection, event_row: sqlite3.Row, *, now_ms: int) -> int | dict:
+    entity_type = event_row["entity_type"]
+    if entity_type == EntityType.PENDING_CALL.value:
+        return _pending_call_arrival(conn, event_row, now_ms=now_ms)
+    if entity_type == EntityType.APPOINTMENT.value:
+        return _cancellation_arrival(conn, event_row, now_ms=now_ms)
+    raise EngineError(
+        ErrorCode.INVARIANT_VIOLATED,
+        f"call invocation event {event_row['event_id']} has unknown entity_type "
+        f"{entity_type!r}",
+    )
+
+
+def _pending_call_arrival(conn: sqlite3.Connection, event_row: sqlite3.Row, *, now_ms: int) -> int:
     pending = conn.execute(
         "SELECT * FROM _pending_calls WHERE id = ?", (event_row["entity_id"],)
     ).fetchone()
@@ -72,6 +85,101 @@ def arrive(conn: sqlite3.Connection, event_row: sqlite3.Row, *, now_ms: int) -> 
     return call_id
 
 
+_ALIVE_APPOINTMENT_STATUSES = ("scheduled", "dispatched")
+
+
+def _cancellation_call_hidden_category_id(conn: sqlite3.Connection, job_id: int) -> int:
+    row = conn.execute(
+        "SELECT h.requested_category_id FROM _call_hidden h "
+        "JOIN _jobs j ON j.call_id = h.call_id WHERE j.id = ?",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"job {job_id} has no originating call's hidden requested category",
+        )
+    return int(row["requested_category_id"])
+
+
+def _cancellation_arrival(conn: sqlite3.Connection, event_row: sqlite3.Row, *, now_ms: int) -> int | dict:
+    appointment_id = int(event_row["entity_id"])
+    appt = conn.execute(
+        "SELECT status FROM _appointments WHERE id = ?", (appointment_id,)
+    ).fetchone()
+    if appt is None:
+        raise EngineError(
+            ErrorCode.ENTITY_NOT_FOUND,
+            f"cancellation arrival event {event_row['event_id']} references missing "
+            f"appointment {appointment_id}",
+        )
+    if appt["status"] not in _ALIVE_APPOINTMENT_STATUSES:
+        return {"event_disposition": "cancelled"}
+
+    job = conn.execute(
+        "SELECT j.id AS job_id, j.customer_id, j.location_id, j.requested_service_name "
+        "FROM _appointments a JOIN _jobs j ON j.id = a.job_id WHERE a.id = ?",
+        (appointment_id,),
+    ).fetchone()
+    if job is None:
+        raise EngineError(
+            ErrorCode.ENTITY_NOT_FOUND, f"appointment {appointment_id} has no job"
+        )
+    customer_id = int(job["customer_id"])
+    location_id = int(job["location_id"])
+
+    customer = conn.execute(
+        "SELECT segment FROM _customers WHERE id = ?", (customer_id,)
+    ).fetchone()
+    if customer is None:
+        raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"customer {customer_id} not found")
+
+    location = conn.execute(
+        "SELECT address_catalog_id FROM _locations WHERE id = ?", (location_id,)
+    ).fetchone()
+    if location is None:
+        raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"location {location_id} not found")
+    address_catalog_id = location["address_catalog_id"]
+    if address_catalog_id is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED, f"location {location_id} has no catalog address"
+        )
+
+    caller_name = demand._customer_caller_name(conn, customer_id)
+    caller_phone = demand._customer_caller_phone(conn, customer_id)
+    service_date = clock.service_date_for_ms(now_ms)
+
+    cur = conn.execute(
+        "INSERT INTO _calls (arrived_at, service_date, call_kind, status, caller_name, "
+        "caller_phone, segment, customer_id, location_id, service_street, service_unit, "
+        "service_city, service_state, service_postal_code, requested_service_name, urgent, "
+        "related_job_id, target_appointment_id, target_job_id, address_catalog_id, created_at) "
+        "VALUES (?, ?, 'cancellation', 'active', ?, ?, NULL, ?, ?, NULL, NULL, NULL, NULL, "
+        "NULL, ?, 0, NULL, ?, ?, ?, ?)",
+        (
+            now_ms,
+            service_date,
+            caller_name,
+            caller_phone,
+            customer_id,
+            location_id,
+            job["requested_service_name"],
+            appointment_id,
+            int(job["job_id"]),
+            int(address_catalog_id),
+            now_ms,
+        ),
+    )
+    call_id = int(cur.lastrowid)
+    requested_category_id = _cancellation_call_hidden_category_id(conn, int(job["job_id"]))
+    conn.execute(
+        "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
+        "prospect_id, arrival_event_id, created_at) VALUES (?, ?, ?, NULL, ?, ?)",
+        (call_id, customer["segment"], requested_category_id, int(event_row["event_id"]), now_ms),
+    )
+    return call_id
+
+
 def prompt_payload(conn: sqlite3.Connection, event_row: sqlite3.Row, ts_ms: int) -> dict:
     call = conn.execute(
         "SELECT c.* FROM _calls c JOIN _call_hidden h ON h.call_id = c.id "
@@ -94,7 +202,9 @@ def prompt_payload(conn: sqlite3.Connection, event_row: sqlite3.Row, ts_ms: int)
         payload["customer_id"] = _required_int(call, "customer_id", context)
         payload["location_id"] = _required_int(call, "location_id", context)
         payload["appointment_id"] = appointment_id
-        payload["scheduled"] = clock.to_iso8601(_appointment_start_ms(conn, appointment_id))
+        scheduled_start_ms, scheduled_end_ms = _appointment_window_ms(conn, appointment_id)
+        payload["scheduled"] = clock.to_iso8601(scheduled_start_ms)
+        payload["scheduled_end"] = clock.to_iso8601(scheduled_end_ms)
         return payload
     payload["phone"] = str(call["caller_phone"])
     payload["address"] = _formatted_address(conn, call)
@@ -186,15 +296,16 @@ def _formatted_address(conn: sqlite3.Connection, call: sqlite3.Row) -> str:
     return str(row["formatted_address"])
 
 
-def _appointment_start_ms(conn: sqlite3.Connection, appointment_id: int) -> int:
+def _appointment_window_ms(conn: sqlite3.Connection, appointment_id: int) -> tuple[int, int]:
     row = conn.execute(
-        "SELECT scheduled_start FROM _appointments WHERE id = ?", (appointment_id,)
+        "SELECT scheduled_start, scheduled_end FROM _appointments WHERE id = ?",
+        (appointment_id,),
     ).fetchone()
     if row is None:
         raise EngineError(
             ErrorCode.ENTITY_NOT_FOUND, f"appointment {appointment_id} not found"
         )
-    return int(row["scheduled_start"])
+    return int(row["scheduled_start"]), int(row["scheduled_end"])
 
 
 def _job_completed_date(conn: sqlite3.Connection, job_id: int) -> str:
@@ -250,6 +361,25 @@ def require_current_new_job_call(ctx: TxnContext, call: sqlite3.Row) -> None:
         )
     if call["call_kind"] != "new_job":
         raise _state_illegal("cancellation_call", f"call {call_id} is a cancellation call")
+    if current_active_call_id(ctx.conn) != call_id:
+        raise _state_illegal(
+            "call_not_active", f"call {call_id} is not the currently active call"
+        )
+
+
+def require_current_cancellation_call(ctx: TxnContext, call: sqlite3.Row) -> None:
+    call_id = int(call["id"])
+    if ctx.invocation is not None and ctx.invocation["type"] != "call":
+        raise _state_illegal(
+            "call_not_active",
+            f"call {call_id} is reachable only inside an active call invocation",
+        )
+    if call["status"] != "active":
+        raise _state_illegal(
+            "call_not_active", f"call {call_id} is not active (status {call['status']})"
+        )
+    if call["call_kind"] != "cancellation":
+        raise _state_illegal("new_job_call", f"call {call_id} is a new-job call")
     if current_active_call_id(ctx.conn) != call_id:
         raise _state_illegal(
             "call_not_active", f"call {call_id} is not the currently active call"
@@ -363,5 +493,6 @@ __all__ = [
     "prompt_payload",
     "reject",
     "reject_command",
+    "require_current_cancellation_call",
     "require_current_new_job_call",
 ]

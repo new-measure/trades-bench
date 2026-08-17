@@ -42,6 +42,7 @@ _COVERED_COMMANDS = frozenset({
     "crm.create_customer_command",
     "crm.create_location_command",
     "appointments.assign_command",
+    "appointments.acknowledge_cancellation_command",
 })
 
 _WATCHED_TABLES = (
@@ -296,6 +297,10 @@ def _assign_kwargs(world):
     return {"appointment_id": 1, "technician_id": 1}
 
 
+def _acknowledge_cancellation_kwargs(world):
+    return {"call_id": world.call_id}
+
+
 _ID_CASES = (
     ("booking.book_command", booking.book_command, _book_kwargs, "call_id"),
     ("booking.book_command", booking.book_command, _book_kwargs, "customer_id"),
@@ -322,6 +327,11 @@ _ID_CASES = (
     (
         "appointments.assign_command", appointments.assign_command,
         _assign_kwargs, "technician_id",
+    ),
+    (
+        "appointments.acknowledge_cancellation_command",
+        appointments.acknowledge_cancellation_command,
+        _acknowledge_cancellation_kwargs, "call_id",
     ),
 )
 

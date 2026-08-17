@@ -150,7 +150,13 @@ class Events:
                     else ErrorCode.STATE_ILLEGAL,
                     f"event {event_id} not re-applicable (status={status})",
                 )
-            handler(ctx, row)
+            result = handler(ctx, row)
+            if isinstance(result, dict) and result.get("event_disposition") == "cancelled":
+                ctx.conn.execute(
+                    "UPDATE _events SET status='cancelled' WHERE event_id=?",
+                    (event_id,),
+                )
+                return {"event_id": event_id, "status": "cancelled"}
             now = clock.now(ctx.conn)
             ctx.conn.execute(
                 "UPDATE _events SET status='applied', applied_at_ms=? "
