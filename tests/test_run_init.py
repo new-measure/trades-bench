@@ -24,7 +24,7 @@ def test_open_run_db_twice_is_idempotent(tmp_path):
     assert applied_versions(conn1) == [
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
-        (7, "idempotency_fingerprint"),
+        (7, "idempotency_fingerprint"), (8, "job_outcomes"),
     ]
     conn1.close()
     conn2 = open_run_db(path)

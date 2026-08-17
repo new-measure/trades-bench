@@ -72,6 +72,14 @@ SUPPORTED_CATEGORIES: tuple[str, ...] = (
     "Electrical",
 )
 
+JOB_TYPE_CODES: tuple[str, ...] = (
+    "hvac_service",
+    "hvac_installation",
+    "plumbing",
+    "electrical",
+    "other",
+)
+
 
 CONSTANT_ENTRIES: list[ConstantEntry] = [
     ("constants.timezone", "string", PHOENIX_TIMEZONE, {}),
@@ -126,6 +134,7 @@ __all__ = [
     "GRACE_MINUTES",
     "INSTALL_BLOCKS",
     "INSTALL_MAX_START_MIN",
+    "JOB_TYPE_CODES",
     "OFFICE_BLOCK_COUNT",
     "OPENING_HOUR",
     "OPENING_MINUTE",

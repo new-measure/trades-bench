@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from datetime import date
 
 from . import clock, constants
@@ -102,7 +103,7 @@ def _derive_reservation_blocks(scheduled_blocks: int, first_block_code: str) -> 
 
 def _job_type_row(conn: sqlite3.Connection, job_type_id: int) -> sqlite3.Row:
     row = conn.execute(
-        "SELECT id, scheduled_blocks, business_unit_id FROM _job_types WHERE id = ?",
+        "SELECT id, code, scheduled_blocks, business_unit_id FROM _job_types WHERE id = ?",
         (job_type_id,),
     ).fetchone()
     if row is None:
@@ -216,24 +217,28 @@ def _check_overlap(
             )
 
 
-def book(
+@dataclass(frozen=True)
+class BookingPlan:
+
+    job_type_id: int
+    job_type_code: str
+    business_unit_id: int | None
+    scheduled_blocks: int
+    technician_id: int
+    service_date: str
+    block_codes: tuple[str, ...]
+    windows: tuple[tuple[int, int], ...]
+
+
+def validate_booking(
     ctx: TxnContext,
     config: RunConfig,
     *,
-    call_id: int,
-    customer_id: int,
-    location_id: int,
     job_type_id: int,
-    requested_service_name: str,
-    priority: str,
-    summary: str,
     technician_id: int,
     service_date: str,
     first_block_code: str,
-    artifact: GeoArtifact | None = None,
-) -> dict:
-    from . import execution
-
+) -> BookingPlan:
     conn = ctx.conn
     now = ctx.now()
 
@@ -261,14 +266,51 @@ def book(
         exclude_appointment_id=None,
     )
 
+    return BookingPlan(
+        job_type_id=int(job_type["id"]),
+        job_type_code=job_type["code"],
+        business_unit_id=job_type["business_unit_id"],
+        scheduled_blocks=scheduled_blocks,
+        technician_id=technician_id,
+        service_date=service_date,
+        block_codes=block_codes,
+        windows=tuple(windows),
+    )
+
+
+def create_booking(
+    ctx: TxnContext,
+    config: RunConfig,
+    plan: BookingPlan,
+    *,
+    call_id: int,
+    customer_id: int,
+    location_id: int,
+    requested_service_name: str,
+    priority: str,
+    summary: str,
+    recall_for_job_id: int | None = None,
+    artifact: GeoArtifact | None = None,
+) -> dict:
+    from . import execution
+
+    conn = ctx.conn
+    now = ctx.now()
+
+    technician_id = plan.technician_id
+    service_date = plan.service_date
+    block_codes = plan.block_codes
+    windows = plan.windows
+    scheduled_blocks = plan.scheduled_blocks
+
     job_cur = conn.execute(
         "INSERT INTO _jobs (job_number, call_id, customer_id, location_id, job_type_id, "
-        "business_unit_id, requested_service_name, status, priority, no_charge, summary, "
-        "created_at, modified_at) "
-        "VALUES ('', ?, ?, ?, ?, ?, ?, 'scheduled', ?, 0, ?, ?, ?)",
+        "business_unit_id, requested_service_name, status, priority, no_charge, "
+        "recall_for_job_id, summary, created_at, modified_at) "
+        "VALUES ('', ?, ?, ?, ?, ?, ?, 'scheduled', ?, 0, ?, ?, ?, ?)",
         (
-            call_id, customer_id, location_id, job_type_id, job_type["business_unit_id"],
-            requested_service_name, priority, summary, now, now,
+            call_id, customer_id, location_id, plan.job_type_id, plan.business_unit_id,
+            requested_service_name, priority, recall_for_job_id, summary, now, now,
         ),
     )
     job_id = int(job_cur.lastrowid)
@@ -304,12 +346,13 @@ def book(
             (appointment_id, ordinal, block_code, block_start, block_end, now),
         )
 
-    conn.execute(
+    assignment_cur = conn.execute(
         "INSERT INTO _appointment_assignments (appointment_id, job_id, technician_id, status, "
         "assigned_at, unassigned_at, assigned_by, created_at) "
         "VALUES (?, ?, ?, 'active', ?, NULL, 'agent', ?)",
         (appointment_id, job_id, technician_id, now, now),
     )
+    assignment_id = int(assignment_cur.lastrowid)
 
     for _block_code, (block_start, _block_end) in zip(block_codes, windows, strict=True):
         conn.execute(
@@ -361,8 +404,39 @@ def book(
         "appointment_id": appointment_id,
         "appointment_number": appointment_number,
         "technician_id": technician_id,
+        "assignment_id": assignment_id,
         "block_codes": list(block_codes),
     }
+
+
+def book(
+    ctx: TxnContext,
+    config: RunConfig,
+    *,
+    call_id: int,
+    customer_id: int,
+    location_id: int,
+    job_type_id: int,
+    requested_service_name: str,
+    priority: str,
+    summary: str,
+    technician_id: int,
+    service_date: str,
+    first_block_code: str,
+    recall_for_job_id: int | None = None,
+    artifact: GeoArtifact | None = None,
+) -> dict:
+    plan = validate_booking(
+        ctx, config,
+        job_type_id=job_type_id, technician_id=technician_id,
+        service_date=service_date, first_block_code=first_block_code,
+    )
+    return create_booking(
+        ctx, config, plan,
+        call_id=call_id, customer_id=customer_id, location_id=location_id,
+        requested_service_name=requested_service_name, priority=priority, summary=summary,
+        recall_for_job_id=recall_for_job_id, artifact=artifact,
+    )
 
 
 def trip_index_for_appointment(conn: sqlite3.Connection, appointment_id: int) -> int:
@@ -551,9 +625,12 @@ def assign_command(
 
 __all__ = [
     "BLOCK_CODES",
+    "BookingPlan",
     "assign",
     "assign_command",
     "book",
+    "create_booking",
     "trip_index_for_appointment",
+    "validate_booking",
     "validate_reservation_shape",
 ]

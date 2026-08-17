@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_FLOOR, Decimal, localcontext
 from typing import Any
 
-from .constants import CONSTANT_ENTRIES, SUPPORTED_CATEGORIES
+from .constants import CONSTANT_ENTRIES, JOB_TYPE_CODES, SUPPORTED_CATEGORIES
 from .enums import ConditionCode
 from .errors import EngineError, ErrorCode
 
@@ -383,6 +383,22 @@ _DOMAIN_ENTRIES: list[Any] = [
             "description": "Weight applied to the complexity term of the execution duration "
             "multiplier. The complexity input is fixed at zero until the hidden quality "
             "model ships.",
+        },
+    ),
+    (
+        "quality.complexity_distribution",
+        "decimal_map_map",
+        {
+            "hvac_service": {"min": Decimal("0.30"), "max": Decimal("0.70")},
+            "hvac_installation": {"min": Decimal("0.50"), "max": Decimal("0.90")},
+            "plumbing": {"min": Decimal("0.30"), "max": Decimal("0.70")},
+            "electrical": {"min": Decimal("0.30"), "max": Decimal("0.70")},
+            "other": {"min": Decimal("0.20"), "max": Decimal("0.60")},
+        },
+        {
+            "deferred": "provisional",
+            "description": "Per-job-type uniform range for the hidden complexity draw made "
+            "once at job creation; installations skew higher.",
         },
     ),
     (
@@ -1850,6 +1866,7 @@ def _validate_run_window(base: dict[str, Any]) -> None:
 _SEGMENTS = frozenset({"residential", "commercial", "apartment"})
 _URGENCY_CLASSES = frozenset({"standard", "urgent"})
 _SUPPORTED_CATEGORY_SET = frozenset(SUPPORTED_CATEGORIES)
+_JOB_TYPE_CODE_SET = frozenset(JOB_TYPE_CODES)
 _CONDITION_THRESHOLD_KEYS = frozenset(
     {"extreme_heat_high_f", "hot_high_f", "cool_high_f", "windy_wind_mph", "rain_precipitation_mm"}
 )
@@ -2031,6 +2048,28 @@ def _validate_category_sensitivity_key_sets(base: dict[str, Any]) -> None:
             raise _bad(
                 f"{path} keys must be exactly {sorted(_SUPPORTED_CATEGORY_SET)}, got "
                 f"{sorted(keys)}"
+            )
+
+
+def _validate_complexity_distribution(base: dict[str, Any]) -> None:
+    dist = base["quality.complexity_distribution"]
+    keys = set(dist.keys())
+    if keys != _JOB_TYPE_CODE_SET:
+        raise _bad(
+            f"quality.complexity_distribution keys must be exactly "
+            f"{sorted(_JOB_TYPE_CODE_SET)}, got {sorted(keys)}"
+        )
+    for job_type, inner in dist.items():
+        if set(inner.keys()) != {"min", "max"}:
+            raise _bad(
+                f"quality.complexity_distribution[{job_type!r}] keys must be exactly "
+                f"{{'min', 'max'}}, got {sorted(inner.keys())}"
+            )
+        lo, hi = inner["min"], inner["max"]
+        if not (0 <= lo <= hi <= 1):
+            raise _bad(
+                f"quality.complexity_distribution[{job_type!r}] must satisfy "
+                f"0 <= min <= max <= 1, got min={lo} max={hi}"
             )
 
 
@@ -2236,6 +2275,10 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
             }
         ),
         _validate_category_sensitivity_key_sets,
+    ),
+    (
+        frozenset({"quality.complexity_distribution"}),
+        _validate_complexity_distribution,
     ),
     (
         frozenset(

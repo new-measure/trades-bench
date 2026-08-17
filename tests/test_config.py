@@ -64,7 +64,7 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
     assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    assert len(rc.resolved) == 143
+    assert len(rc.resolved) == 144
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     with pytest.raises(TypeError):
         rc.resolved["constants.opening_hour"] = 9  # type: ignore[index]
@@ -776,6 +776,61 @@ def test_reject_served_well_repeat_multiplier_at_boundary():
 def test_reject_segment_weights_missing_a_segment():
     _bad(
         '{"keys": {"demand.segment_weights": {"residential": 0.5, "commercial": 0.5}}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+_VALID_COMPLEXITY_DISTRIBUTION = {
+    "hvac_service": {"min": 0.30, "max": 0.70},
+    "hvac_installation": {"min": 0.50, "max": 0.90},
+    "plumbing": {"min": 0.30, "max": 0.70},
+    "electrical": {"min": 0.30, "max": 0.70},
+    "other": {"min": 0.20, "max": 0.60},
+}
+
+
+def test_reject_complexity_distribution_missing_job_type():
+    dist = json.loads(json.dumps(_VALID_COMPLEXITY_DISTRIBUTION))
+    del dist["other"]
+    _bad(
+        json.dumps({"keys": {"quality.complexity_distribution": dist}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_complexity_distribution_extra_job_type():
+    dist = json.loads(json.dumps(_VALID_COMPLEXITY_DISTRIBUTION))
+    dist["hvac_extra"] = {"min": 0.1, "max": 0.2}
+    _bad(
+        json.dumps({"keys": {"quality.complexity_distribution": dist}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_complexity_distribution_wrong_inner_keys():
+    dist = json.loads(json.dumps(_VALID_COMPLEXITY_DISTRIBUTION))
+    dist["other"] = {"min": 0.2, "max": 0.6, "mode": 0.4}
+    _bad(
+        json.dumps({"keys": {"quality.complexity_distribution": dist}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+    dist["other"] = {"min": 0.2}
+    _bad(
+        json.dumps({"keys": {"quality.complexity_distribution": dist}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_complexity_distribution_min_greater_than_max_or_out_of_range():
+    dist = json.loads(json.dumps(_VALID_COMPLEXITY_DISTRIBUTION))
+    dist["other"] = {"min": 0.7, "max": 0.6}
+    _bad(
+        json.dumps({"keys": {"quality.complexity_distribution": dist}}),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+    dist["other"] = {"min": 0.2, "max": 1.5}
+    _bad(
+        json.dumps({"keys": {"quality.complexity_distribution": dist}}),
         ErrorCode.CONFIG_VALUE_INVALID,
     )
 

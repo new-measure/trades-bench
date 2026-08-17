@@ -147,6 +147,7 @@ WHOLLY_PRIVATE_TABLES = frozenset(
         "_competitor_state",
         "_acceptance_parameters",
         "_cancellation_schedule",
+        "_job_outcomes",
         "_day_state",
         "_block_locks",
     }

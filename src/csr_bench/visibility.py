@@ -281,6 +281,10 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_cancellation_schedule", "event_id"): V.PRIVATE_ENGINE,
     Field("_cancellation_schedule", "created_at"): V.PRIVATE_ENGINE,
 
+    Field("_job_outcomes", "job_id"): V.PRIVATE_ENGINE,
+    Field("_job_outcomes", "complexity_micros"): V.PRIVATE_ENGINE,
+    Field("_job_outcomes", "created_at"): V.PRIVATE_ENGINE,
+
 
     Field("_customers", "id"): V.PUBLIC_SQL,
     Field("_customers", "name"): V.PUBLIC_SQL,

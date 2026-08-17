@@ -52,6 +52,7 @@ CORE_TABLES: tuple[_Table, ...] = (
     _Table("_competitor_state", "singleton"),
     _Table("_acceptance_parameters", "urgency_class"),
     _Table("_cancellation_schedule", "appointment_id"),
+    _Table("_job_outcomes", "job_id"),
     _Table("_customers", "id"),
     _Table("_customer_contacts", "id"),
     _Table("_locations", "id"),
