@@ -4,13 +4,13 @@ import sqlite3
 
 import pytest
 
-from csr_bench.db import connect, insert_run
-from csr_bench.enums import RunStatus
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.migrations import migrate
-from csr_bench.sql_gate import execute_gated, open_agent_session
-from csr_bench.views import VIEWS, create_views
 from test_visibility import WHOLLY_PRIVATE_TABLES
+from trades_bench.db import connect, insert_run
+from trades_bench.enums import RunStatus
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.migrations import migrate
+from trades_bench.sql_gate import execute_gated, open_agent_session
+from trades_bench.views import VIEWS, create_views
 
 _UNAUTHORIZED_RESPONSE = EngineError.unauthorized().to_response()
 

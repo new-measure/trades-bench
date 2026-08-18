@@ -35,7 +35,7 @@ class NormalizedAddress:
 
 def load_default_abbreviation_table() -> dict[str, dict[str, str]]:
     text = (
-        importlib.resources.files("csr_bench")
+        importlib.resources.files("trades_bench")
         .joinpath(_ABBREVIATIONS_RESOURCE)
         .read_text(encoding="utf-8")
     )

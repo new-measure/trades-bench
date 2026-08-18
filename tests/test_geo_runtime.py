@@ -15,12 +15,12 @@ from _helpers import (
     register_conn,
 )
 from _no_network import block_network
-from csr_bench import geo_reader
-from csr_bench.config import load_run_config
-from csr_bench.db import connect
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.geo_artifact import canonical_artifact_sha256
-from csr_bench.run_init import initialize_run, open_run_db
+from trades_bench import geo_reader
+from trades_bench.config import load_run_config
+from trades_bench.db import connect
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.geo_artifact import canonical_artifact_sha256
+from trades_bench.run_init import initialize_run, open_run_db
 
 GEO_ARTIFACT_SHA256 = geo_artifact_sha256()
 

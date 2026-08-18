@@ -10,18 +10,18 @@ from decimal import Decimal
 from functools import partial
 from pathlib import Path
 
-from csr_bench import SPEC_VERSION, clock
-from csr_bench._dump import dump_hash
-from csr_bench.clock import phoenix_instant
-from csr_bench.config import load_run_config, probability_threshold
-from csr_bench.db import (
+from trades_bench import SPEC_VERSION, clock
+from trades_bench._dump import dump_hash
+from trades_bench.clock import phoenix_instant
+from trades_bench.config import load_run_config, probability_threshold
+from trades_bench.db import (
     begin,
     commit,
     connect,
     insert_run,
     set_run_status,
 )
-from csr_bench.enums import (
+from trades_bench.enums import (
     EntityType,
     EventKind,
     InvocationType,
@@ -30,12 +30,12 @@ from csr_bench.enums import (
     RunStatus,
     SequentialStreamName,
 )
-from csr_bench.events import Events
-from csr_bench.invocations import Invocations
-from csr_bench.ledger import Ledger, LedgerEntry
-from csr_bench.migrations import migrate
-from csr_bench.rng import Rng, chance, sqlite_audit_recorder
-from csr_bench.txn import Services, TxnContext, command, privileged, privileged_request_id
+from trades_bench.events import Events
+from trades_bench.invocations import Invocations
+from trades_bench.ledger import Ledger, LedgerEntry
+from trades_bench.migrations import migrate
+from trades_bench.rng import Rng, chance, sqlite_audit_recorder
+from trades_bench.txn import Services, TxnContext, command, privileged, privileged_request_id
 
 MASTER_SEED = 20261001
 RUN_ID = "contract-test-run"

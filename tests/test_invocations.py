@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 
 from _helpers import make_services
-from csr_bench import clock
-from csr_bench.enums import EventKind, InvocationType, LedgerCategory
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.ledger import LedgerEntry
-from csr_bench.txn import command
+from trades_bench import clock
+from trades_bench.enums import EventKind, InvocationType, LedgerCategory
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.ledger import LedgerEntry
+from trades_bench.txn import command
 
 
 def test_open_and_sequence_and_active():

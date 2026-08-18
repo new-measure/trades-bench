@@ -14,13 +14,13 @@ from _helpers import (
     geo_artifact_sha256,
     register_conn,
 )
-from csr_bench import booking, calls, clock, crm, db, geo_reader
-from csr_bench.config import load_run_config
-from csr_bench.controller import Controller
-from csr_bench.enums import EventKind
-from csr_bench.errors import ErrorCode
-from csr_bench.events import Events
-from csr_bench.run_init import initialize_run, open_run_db
+from trades_bench import booking, calls, clock, crm, db, geo_reader
+from trades_bench.config import load_run_config
+from trades_bench.controller import Controller
+from trades_bench.enums import EventKind
+from trades_bench.errors import ErrorCode
+from trades_bench.events import Events
+from trades_bench.run_init import initialize_run, open_run_db
 
 SEED = 17
 START_DATE = "2026-10-01"
@@ -768,7 +768,7 @@ def test_acceptance_probability_default_config_sweep_stays_bounded_and_monotone(
         assert values[-1] == floor
 
         above_floor_seen = False
-        for prev, curr, raw_curr in zip(values, values[1:], raw_values[1:]):
+        for prev, curr, raw_curr in zip(values, values[1:], raw_values[1:], strict=False):
             if raw_curr > floor:
                 assert curr < prev, f"{urgency_class}: {curr} >= {prev} before the floor is reached"
                 above_floor_seen = True

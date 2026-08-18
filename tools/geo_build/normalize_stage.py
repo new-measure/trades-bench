@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from csr_bench.address import NormalizedAddress, normalize
-from csr_bench.errors import EngineError, ErrorCode
+from trades_bench.address import NormalizedAddress, normalize
+from trades_bench.errors import EngineError, ErrorCode
 
 from .models import Candidate, RejectedCandidate
 

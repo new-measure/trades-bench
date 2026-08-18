@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from csr_bench.db import in_memory
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.migrations import MIGRATIONS_PACKAGE_DIR, applied_versions, migrate
+from trades_bench.db import in_memory
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.migrations import MIGRATIONS_PACKAGE_DIR, applied_versions, migrate
 
 
 @pytest.fixture

@@ -10,13 +10,13 @@ pytest.importorskip("shapely")
 
 from _geo_fixture import FIXTURE  # noqa: E402
 from _geo_fixture import run_fixture_pipeline as _run
-from csr_bench.address import load_default_abbreviation_table  # noqa: E402
-from csr_bench.geo_artifact import canonical_artifact_sha256  # noqa: E402
 from geo_build import crop, zones  # noqa: E402
 from geo_build.errors import GateFailure, GeoBuildError  # noqa: E402
 from geo_build.osm_reader import read_elements  # noqa: E402
 from geo_build.pipeline import BuildParameters, write_artifact  # noqa: E402
 from geo_build.routing import FakeBackend  # noqa: E402
+from trades_bench.address import load_default_abbreviation_table  # noqa: E402
+from trades_bench.geo_artifact import canonical_artifact_sha256  # noqa: E402
 
 
 def _count_addr_tagged_elements_in_crop(osm_path: str, buffer_km: Decimal = Decimal("15.0")) -> int:
@@ -333,7 +333,7 @@ def test_scenario_json_overrides_the_outlying_buffer(tmp_path):
 
 
 def test_default_config_values_are_read_from_the_registry_not_hardcoded():
-    from csr_bench.config import assemble_registry
+    from trades_bench.config import assemble_registry
 
     registry = assemble_registry()
     assert registry["geography.duplicate_coordinate_meters"].default == Decimal("10.0")

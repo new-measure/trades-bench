@@ -10,10 +10,10 @@ import json
 import pathlib
 import sys
 
-from csr_bench import geo_artifact
+from trades_bench import geo_artifact
 
 artifact_dir = pathlib.Path(sys.argv[1])
-defaults = json.loads(pathlib.Path("src/csr_bench/defaults.json").read_text())["keys"]
+defaults = json.loads(pathlib.Path("src/trades_bench/defaults.json").read_text())["keys"]
 expected = defaults["geography.artifact_sha256"]
 computed = geo_artifact.canonical_artifact_sha256(artifact_dir)
 if computed != expected:

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from csr_bench.db import in_memory
-from csr_bench.migrations import migrate
+from trades_bench.db import in_memory
+from trades_bench.migrations import migrate
 
 APPEND_ONLY_TABLES: tuple[str, ...] = (
     "_ledger_entries",
@@ -22,7 +22,7 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
 )
 
 _SOURCE_FILES: tuple[Path, ...] = tuple(
-    sorted(Path(__file__).resolve().parents[1].joinpath("src", "csr_bench").glob("*.py"))
+    sorted(Path(__file__).resolve().parents[1].joinpath("src", "trades_bench").glob("*.py"))
 ) + (Path(__file__).resolve().parent / "_driver.py",)
 
 _DML_TARGET = re.compile(

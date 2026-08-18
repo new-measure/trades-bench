@@ -5,13 +5,13 @@ import json
 import pytest
 
 from _helpers import register_conn
-from csr_bench.db import in_memory, insert_run, new_run_id
-from csr_bench.enums import LedgerCategory, RunStatus
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.ledger import Ledger, LedgerEntry
-from csr_bench.migrations import migrate
-from csr_bench.rng import Rng, sqlite_audit_recorder
-from csr_bench.txn import (
+from trades_bench.db import in_memory, insert_run, new_run_id
+from trades_bench.enums import LedgerCategory, RunStatus
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.ledger import Ledger, LedgerEntry
+from trades_bench.migrations import migrate
+from trades_bench.rng import Rng, sqlite_audit_recorder
+from trades_bench.txn import (
     PRIVILEGED_NAMESPACE,
     PUBLIC_NAMESPACE,
     Services,

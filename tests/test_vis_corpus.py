@@ -5,17 +5,17 @@ import sqlite3
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
-from csr_bench import SPEC_VERSION, clock, db, demand, views
-from csr_bench.clock import phoenix_instant
-from csr_bench.enums import VisibilityClass
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.rng import Rng
-from csr_bench.run_init import initialize_run
-from csr_bench.sql_gate import execute_gated, open_agent_session
-from csr_bench.visibility import FIELD_REGISTRY, classify
 from test_geography import assert_maps_distance_schema_is_closed
 from test_schema_contract import assert_no_view_row_past_the_clock
 from test_supportedness import assert_supportedness_privacy
+from trades_bench import SPEC_VERSION, clock, db, demand, views
+from trades_bench.clock import phoenix_instant
+from trades_bench.enums import VisibilityClass
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.rng import Rng
+from trades_bench.run_init import initialize_run
+from trades_bench.sql_gate import execute_gated, open_agent_session
+from trades_bench.visibility import FIELD_REGISTRY, classify
 
 _UNAUTHORIZED_RESPONSE = EngineError.unauthorized().to_response()
 

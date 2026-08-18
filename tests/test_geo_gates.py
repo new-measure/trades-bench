@@ -6,7 +6,6 @@ import pytest
 
 pytest.importorskip("shapely")
 
-from csr_bench.config import load_run_config  # noqa: E402
 from geo_build.errors import GateFailure  # noqa: E402
 from geo_build.gates import (  # noqa: E402
     SEGMENT_CLASSES,
@@ -19,6 +18,7 @@ from geo_build.gates import (  # noqa: E402
     sample_pairs,
 )
 from geo_build.routing import FakeBackend  # noqa: E402
+from trades_bench.config import load_run_config  # noqa: E402
 
 ZONE_IDS = list(range(1, 11))
 

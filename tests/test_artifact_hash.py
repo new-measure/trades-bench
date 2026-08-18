@@ -4,8 +4,8 @@ import hashlib
 
 import pytest
 
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.geo_artifact import (
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.geo_artifact import (
     MANIFEST_FILENAME,
     artifact_file_paths,
     canonical_artifact_sha256,

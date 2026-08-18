@@ -13,7 +13,7 @@ from .errors import ErrorCode
 
 SPEC_VERSION = "1.0.0"
 
-_incident_logger = logging.getLogger("csr_bench.engine.incidents")
+_incident_logger = logging.getLogger("trades_bench.engine.incidents")
 
 
 class WireCode(StrEnum):

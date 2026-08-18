@@ -9,14 +9,14 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from csr_bench import travel
-from csr_bench.config import load_run_config
-from csr_bench.enums import ConditionCode, KeyedStreamName
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.rng import Rng
-from csr_bench.rng import keyed_draw as rng_keyed_draw
-from csr_bench.rng import stream_seed as rng_stream_seed
-from csr_bench.rng import uniform01 as rng_uniform01
+from trades_bench import travel
+from trades_bench.config import load_run_config
+from trades_bench.enums import ConditionCode, KeyedStreamName
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.rng import Rng
+from trades_bench.rng import keyed_draw as rng_keyed_draw
+from trades_bench.rng import stream_seed as rng_stream_seed
+from trades_bench.rng import uniform01 as rng_uniform01
 
 MASTER_SEED = 42
 SPEC_VERSION = "1.0.0"

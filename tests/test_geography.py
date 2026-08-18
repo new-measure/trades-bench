@@ -9,9 +9,9 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from _helpers import GEO_ARTIFACT_DIR, GEO_ARTIFACT_ID, geo_run_config, register_conn
-from csr_bench import geo_reader, geography
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.run_init import initialize_run, open_run_db
+from trades_bench import geo_reader, geography
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.run_init import initialize_run, open_run_db
 
 ARTIFACT = geo_reader.load_artifact(GEO_ARTIFACT_DIR)
 CONFIG = geo_run_config()

@@ -5,22 +5,22 @@ import sqlite3
 
 import pytest
 
-from csr_bench.db import connect, insert_run
-from csr_bench.enums import RunStatus
-from csr_bench.errors import EngineError
-from csr_bench.migrations import migrate
-from csr_bench.sql_gate import _authorize_function, _authorize_read, open_agent_session
-from csr_bench.sql_static import (
+from test_http_engine import _build_engine, _open_call_session, _request
+from test_sql_gate import DENIED_SQL
+from test_vis_corpus import NEW_DENIED_SQL
+from trades_bench.db import connect, insert_run
+from trades_bench.enums import RunStatus
+from trades_bench.errors import EngineError
+from trades_bench.migrations import migrate
+from trades_bench.sql_gate import _authorize_function, _authorize_read, open_agent_session
+from trades_bench.sql_static import (
     SqlRejected,
     check_static,
     open_shadow_connection,
     validate_relations,
 )
-from csr_bench.views import VIEWS, create_views
-from csr_bench.wire import WireCode
-from test_http_engine import _build_engine, _open_call_session, _request
-from test_sql_gate import DENIED_SQL
-from test_vis_corpus import NEW_DENIED_SQL
+from trades_bench.views import VIEWS, create_views
+from trades_bench.wire import WireCode
 
 CEO_BENCH_BYPASSES: tuple[tuple[str, str], ...] = (
     ("replace-into", "REPLACE INTO customers (id) VALUES (1)"),

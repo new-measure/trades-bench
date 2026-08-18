@@ -8,7 +8,7 @@ from typing import Literal
 
 from .constants import PHOENIX_SQLITE_UTC_OFFSET
 from .enums import VisibilityClass
-from .views import VIEWS, VIEW_WHITELIST
+from .views import VIEW_WHITELIST, VIEWS
 
 ArgType = Literal["int", "str", "date", "list", "object", "bool"]
 OpKind = Literal["read", "mutation"]

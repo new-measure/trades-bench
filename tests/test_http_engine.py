@@ -13,20 +13,20 @@ from pathlib import Path
 
 import pytest
 
-import csr_bench.http_engine as http_engine
-from csr_bench import clock
-from csr_bench.config import load_run_config
-from csr_bench.db import insert_run
-from csr_bench.enums import InvocationType, RunStatus
-from csr_bench.events import Events
-from csr_bench.http_engine import Engine, open_engine_connection
-from csr_bench.invocations import Invocations
-from csr_bench.ledger import Ledger
-from csr_bench.migrations import migrate
-from csr_bench.rng import Rng, sqlite_audit_recorder
-from csr_bench.txn import Services
-from csr_bench.views import create_views
-from csr_bench.wire import parse_engine_response
+import trades_bench.http_engine as http_engine
+from trades_bench import clock
+from trades_bench.config import load_run_config
+from trades_bench.db import insert_run
+from trades_bench.enums import InvocationType, RunStatus
+from trades_bench.events import Events
+from trades_bench.http_engine import Engine, open_engine_connection
+from trades_bench.invocations import Invocations
+from trades_bench.ledger import Ledger
+from trades_bench.migrations import migrate
+from trades_bench.rng import Rng, sqlite_audit_recorder
+from trades_bench.txn import Services
+from trades_bench.views import create_views
+from trades_bench.wire import parse_engine_response
 
 _SLOW_CUSTOMER_COUNT = 80
 _SLOW_SQL = "SELECT COUNT(*) FROM customers a, customers b, customers c, customers d"
@@ -1260,7 +1260,7 @@ def test_maps_read_installs_a_watchdog(engine, monkeypatch):
 
 
 def test_pre_lock_as_of_reflects_committed_state_not_a_mid_transaction_write(tmp_path):
-    from csr_bench import db as db_module
+    from trades_bench import db as db_module
 
     eng, conn = _build_engine(tmp_path / "prelock-asof")
     eng.start()

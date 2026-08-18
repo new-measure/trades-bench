@@ -7,10 +7,10 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from csr_bench import clock
-from csr_bench.clock import phoenix_instant
-from csr_bench.db import in_memory
-from csr_bench.migrations import migrate
+from trades_bench import clock
+from trades_bench.clock import phoenix_instant
+from trades_bench.db import in_memory
+from trades_bench.migrations import migrate
 
 GRID_START_MINUTES = tuple(b[0] for b in clock.BLOCK_GRID_MINUTES)
 BLOCK_CODE_BY_MINUTE = {

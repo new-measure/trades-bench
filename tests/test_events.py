@@ -5,11 +5,11 @@ import json
 import pytest
 
 from _helpers import audit_count, make_services
-from csr_bench.db import begin, commit
-from csr_bench.enums import EventKind, EventStatus, LedgerCategory
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.ledger import LedgerEntry
-from csr_bench.txn import privileged, privileged_request_id
+from trades_bench.db import begin, commit
+from trades_bench.enums import EventKind, EventStatus, LedgerCategory
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.ledger import LedgerEntry
+from trades_bench.txn import privileged, privileged_request_id
 
 
 def test_schedule_requires_open_txn():

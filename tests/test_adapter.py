@@ -5,8 +5,8 @@ import dataclasses
 import pytest
 
 from _adapters import ScriptedNoOpAdapter
-from csr_bench.adapter import AdapterPrompt, AdapterResponse, HarnessAdapter
-from csr_bench.enums import PromptKind
+from trades_bench.adapter import AdapterPrompt, AdapterResponse, HarnessAdapter
+from trades_bench.enums import PromptKind
 
 
 def test_no_op_adapter_conforms_to_the_protocol():

@@ -10,9 +10,9 @@ from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import split, unary_union
 
-from csr_bench import constants
-from csr_bench.db import in_memory
-from csr_bench.migrations import migrate
+from trades_bench import constants
+from trades_bench.db import in_memory
+from trades_bench.migrations import migrate
 
 from . import geometry
 

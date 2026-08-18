@@ -13,11 +13,11 @@ import pytest
 
 from _driver import N_COMMITS, RUN_ID, SCRIPT, create_run, open_run, run_steps
 from _helpers import register_conn
-from csr_bench._dump import RUN_ID_PLACEHOLDER, dump, dump_hash
-from csr_bench.db import connect, in_memory, insert_run
-from csr_bench.enums import RunStatus
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.migrations import migrate
+from trades_bench._dump import RUN_ID_PLACEHOLDER, dump, dump_hash
+from trades_bench.db import connect, in_memory, insert_run
+from trades_bench.enums import RunStatus
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.migrations import migrate
 
 DRIVER = str(Path(__file__).resolve().with_name("_driver.py"))
 REPO_ROOT = str(Path(__file__).resolve().parents[1])

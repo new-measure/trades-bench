@@ -4,8 +4,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from csr_bench.address import NormalizedAddress, load_default_abbreviation_table, normalize
-from csr_bench.errors import EngineError, ErrorCode
+from trades_bench.address import NormalizedAddress, load_default_abbreviation_table, normalize
+from trades_bench.errors import EngineError, ErrorCode
 
 TABLE = load_default_abbreviation_table()
 

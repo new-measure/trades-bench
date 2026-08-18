@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from csr_bench.adapter import AdapterPrompt, AdapterResponse
+from trades_bench.adapter import AdapterPrompt, AdapterResponse
 
 
 class ScriptedNoOpAdapter:

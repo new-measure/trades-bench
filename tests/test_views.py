@@ -4,13 +4,13 @@ import dataclasses
 
 import pytest
 
-from csr_bench import views
-from csr_bench.clock import phoenix_instant
-from csr_bench.db import in_memory, insert_run
-from csr_bench.enums import RunStatus, VisibilityClass
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.migrations import migrate
-from csr_bench.views import (
+from trades_bench import views
+from trades_bench.clock import phoenix_instant
+from trades_bench.db import in_memory, insert_run
+from trades_bench.enums import RunStatus, VisibilityClass
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.migrations import migrate
+from trades_bench.views import (
     VIEW_REGISTRY_HASH,
     VIEW_WHITELIST,
     VIEWS,
@@ -18,7 +18,7 @@ from csr_bench.views import (
     create_views,
     verify_views,
 )
-from csr_bench.visibility import classify
+from trades_bench.visibility import classify
 
 
 @pytest.fixture

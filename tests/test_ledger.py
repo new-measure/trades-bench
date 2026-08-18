@@ -4,12 +4,12 @@ import sqlite3
 
 import pytest
 
-from csr_bench import clock
-from csr_bench.db import begin, commit, in_memory, insert_run, new_run_id, rollback
-from csr_bench.enums import LedgerCategory, RunStatus
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.ledger import Ledger, LedgerEntry
-from csr_bench.migrations import migrate
+from trades_bench import clock
+from trades_bench.db import begin, commit, in_memory, insert_run, new_run_id, rollback
+from trades_bench.enums import LedgerCategory, RunStatus
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.ledger import Ledger, LedgerEntry
+from trades_bench.migrations import migrate
 
 TS = clock.phoenix_instant(2026, 10, 1, 6, 45)
 

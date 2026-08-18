@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.rng import (
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.rng import (
     Rng,
     bounded_int,
     chance,

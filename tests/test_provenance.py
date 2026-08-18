@@ -3,8 +3,8 @@ from __future__ import annotations
 import sqlite3
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
-from csr_bench.run_init import initialize_run
-from csr_bench.views import VIEWS
+from trades_bench.run_init import initialize_run
+from trades_bench.views import VIEWS
 
 
 def _warm_run(tmp_path):

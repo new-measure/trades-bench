@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from csr_bench.errors import EngineError, ErrorCode, ok_response
+from trades_bench.errors import EngineError, ErrorCode, ok_response
 
 
 def test_codes_are_stable_strings():

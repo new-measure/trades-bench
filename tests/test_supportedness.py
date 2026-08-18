@@ -5,10 +5,10 @@ import sqlite3
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.run_init import initialize_run
-from csr_bench.sql_gate import execute_gated, open_agent_session
-from csr_bench.views import VIEWS
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.run_init import initialize_run
+from trades_bench.sql_gate import execute_gated, open_agent_session
+from trades_bench.views import VIEWS
 
 _UNAUTHORIZED_RESPONSE = EngineError.unauthorized().to_response()
 

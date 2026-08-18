@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from csr_bench.errors import EngineError, ErrorCode, ok_response
-from csr_bench.wire import (
+from trades_bench.errors import EngineError, ErrorCode, ok_response
+from trades_bench.wire import (
     ENGINE_ERROR_TRANSLATION,
     SPEC_VERSION,
     WIRE_MESSAGE_TEMPLATES,

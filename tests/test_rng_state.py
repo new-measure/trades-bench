@@ -5,11 +5,11 @@ import sqlite3
 import pytest
 
 from _helpers import make_services, register_conn
-from csr_bench.db import begin, commit, connect, insert_run, new_run_id, rollback
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.migrations import migrate
-from csr_bench.rng import Rng, sequential_draw, stream_seed
-from csr_bench.txn import command
+from trades_bench.db import begin, commit, connect, insert_run, new_run_id, rollback
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.migrations import migrate
+from trades_bench.rng import Rng, sequential_draw, stream_seed
+from trades_bench.txn import command
 
 MASTER = 0x0123456789ABCDEF
 SPEC = "1.0.0"

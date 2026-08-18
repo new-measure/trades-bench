@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
-from csr_bench.address import load_default_abbreviation_table
-from csr_bench.config import load_run_config
-from csr_bench.geo_artifact import canonical_artifact_sha256, file_sha256
+from trades_bench.address import load_default_abbreviation_table
+from trades_bench.config import load_run_config
+from trades_bench.geo_artifact import canonical_artifact_sha256, file_sha256
 
 from . import (
     crop,

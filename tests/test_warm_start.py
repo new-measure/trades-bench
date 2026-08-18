@@ -7,16 +7,16 @@ from datetime import date, timedelta
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config, geo_scenario_json, register_conn
-from csr_bench import _dump, clock, db, geography, warm_start
-from csr_bench.config import load_run_config
-from csr_bench.db import get_run, in_memory
-from csr_bench.enums import RunStatus
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.ledger import Ledger
-from csr_bench.migrations import migrate
-from csr_bench.run_init import boundary_check, initialize_run, open_run_db
-from csr_bench.sql_gate import execute_gated, open_agent_session
-from csr_bench.views import VIEWS
+from trades_bench import _dump, clock, db, geography, warm_start
+from trades_bench.config import load_run_config
+from trades_bench.db import get_run, in_memory
+from trades_bench.enums import RunStatus
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.ledger import Ledger
+from trades_bench.migrations import migrate
+from trades_bench.run_init import boundary_check, initialize_run, open_run_db
+from trades_bench.sql_gate import execute_gated, open_agent_session
+from trades_bench.views import VIEWS
 
 _UNAUTHORIZED_RESPONSE = EngineError.unauthorized().to_response()
 

@@ -4,16 +4,16 @@ import functools
 import json
 from pathlib import Path
 
-from csr_bench.config import RunConfig, load_run_config
-from csr_bench.db import in_memory, insert_run, new_run_id
-from csr_bench.enums import RunStatus
-from csr_bench.events import Events
-from csr_bench.geo_artifact import canonical_artifact_sha256
-from csr_bench.invocations import Invocations
-from csr_bench.ledger import Ledger
-from csr_bench.migrations import migrate
-from csr_bench.rng import Rng, sqlite_audit_recorder
-from csr_bench.txn import Services
+from trades_bench.config import RunConfig, load_run_config
+from trades_bench.db import in_memory, insert_run, new_run_id
+from trades_bench.enums import RunStatus
+from trades_bench.events import Events
+from trades_bench.geo_artifact import canonical_artifact_sha256
+from trades_bench.invocations import Invocations
+from trades_bench.ledger import Ledger
+from trades_bench.migrations import migrate
+from trades_bench.rng import Rng, sqlite_audit_recorder
+from trades_bench.txn import Services
 
 _OPEN_CONNS: list = []
 

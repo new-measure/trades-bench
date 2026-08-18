@@ -16,31 +16,34 @@ from _helpers import (
     GEO_FIXTURE_ZONE_WEIGHTS,
     geo_artifact_sha256,
     geo_run_config,
-    register_conn,
 )
-from csr_bench import clock, db, geo_reader
-from csr_bench.config import load_run_config
-from csr_bench.db import insert_run
-from csr_bench.enums import EventKind, RunStatus
-from csr_bench.events import Events
-from csr_bench._dump import dump_hash
-from csr_bench.http_engine import Engine, _MUTATION_DISPATCH, _mutation_fingerprint_args, open_engine_connection
-from csr_bench.invocations import Invocations
-from csr_bench.ledger import Ledger
-from csr_bench.migrations import migrate
-from csr_bench.ops_read import build_view_list_sql, encode_cursor
-from csr_bench.registry import (
+from trades_bench import clock, db, geo_reader
+from trades_bench._dump import dump_hash
+from trades_bench.config import load_run_config
+from trades_bench.db import insert_run
+from trades_bench.enums import EventKind, RunStatus
+from trades_bench.events import Events
+from trades_bench.http_engine import (
+    _MUTATION_DISPATCH,
+    Engine,
+    _mutation_fingerprint_args,
+    open_engine_connection,
+)
+from trades_bench.invocations import Invocations
+from trades_bench.ledger import Ledger
+from trades_bench.migrations import migrate
+from trades_bench.ops_read import build_view_list_sql, encode_cursor
+from trades_bench.registry import (
     OPERATIONS,
     OPERATIONS_BY_NAME,
     FilterOp,
     OperationSpec,
     validate_operation_identity,
 )
-from csr_bench.rng import Rng, sqlite_audit_recorder
-from csr_bench.run_init import initialize_run, open_run_db
-from csr_bench.txn import Services
-from csr_bench.views import VIEWS, create_views
-from csr_bench.wire import WireCode
+from trades_bench.rng import Rng, sqlite_audit_recorder
+from trades_bench.run_init import initialize_run
+from trades_bench.txn import Services
+from trades_bench.views import VIEWS, create_views
 
 _FROZEN_OPERATION_NAMES = frozenset(
     {
@@ -243,7 +246,6 @@ def _build_empty_engine(
 def _seed_ops_surface(conn) -> None:
     now = conn.execute("SELECT current_time_ms FROM _clock").fetchone()[0]
     past = now - 3_600_000
-    day_before = now - 86_400_000
     future = now + 7_200_000
     future_plus_day = future + 86_400_000
     conn.execute(
@@ -505,7 +507,7 @@ def _insert_pending_call(conn, now, arrival_at, *, catalog):
 
 
 def _arrive_call(conn, rng, pending_id, arrival_at):
-    from csr_bench import calls, db
+    from trades_bench import calls, db
 
     db.begin(conn)
     rng.enter_txn()
@@ -1036,7 +1038,7 @@ def test_pagination_rejects_out_of_range_cursor_values(tmp_path):
     eng.start()
     try:
         _open_call_session(eng.port, eng.tokens.control, 1_000_000)
-        overflow_cursor = encode_cursor((1 << 63))
+        overflow_cursor = encode_cursor(1 << 63)
         huge_cursor = encode_cursor(10**38)
         for cursor in (overflow_cursor, huge_cursor, encode_cursor(-1)):
             status, body, _, _ = _request(
@@ -1298,7 +1300,7 @@ def test_list_read_matches_equivalent_sql(warm_engine, spec):
         f"SELECT {', '.join(columns)} FROM {spec.read.view} ORDER BY {pk_column} ASC"
     ).fetchall()
     all_dicts = [
-        {name: (value.hex() if isinstance(value, bytes) else value) for name, value in zip(columns, row)}
+        {name: (value.hex() if isinstance(value, bytes) else value) for name, value in zip(columns, row, strict=True)}
         for row in all_rows
     ]
     for flt in spec.read.filters:
@@ -1324,7 +1326,7 @@ def _inline_sql_params(sql: str, params: list[object]) -> str:
     parts = sql.split("?")
     assert len(parts) - 1 == len(params)
     out = parts[0]
-    for value, tail in zip(params, parts[1:]):
+    for value, tail in zip(params, parts[1:], strict=True):
         out += _sql_literal(value) + tail
     return out
 
@@ -1359,7 +1361,7 @@ def test_list_read_matches_query_sql_endpoint(warm_engine, spec):
     assert sql_status == 200, sql_body
     columns = sql_body["data"]["columns"]
     rows = sql_body["data"]["rows"]
-    expected = [dict(zip(columns, row)) for row in rows]
+    expected = [dict(zip(columns, row, strict=True)) for row in rows]
     if limit is not None:
         expected = expected[:default_limit]
     assert parsed["data"] == expected
@@ -1687,7 +1689,7 @@ def test_ops_mutation_checks_run_status_before_argument_validation(tmp_path):
 def test_maps_distance_hidden_unusable_address_matches_nonexistent_address_byte_for_byte(
     warm_engine,
 ):
-    from csr_bench import address as address_module
+    from trades_bench import address as address_module
 
     eng, conn = warm_engine
     base = conn.execute(
@@ -2046,6 +2048,6 @@ def test_sunridge_surface_has_no_bench_leaks(warm_engine):
         )
         assert headers.get("Server") == "sunridge"
         serialized = raw.decode("utf-8").lower()
-        assert "csr_bench" not in serialized
+        assert "trades_bench" not in serialized
         assert "bench" not in serialized
         assert status in {200, 404, 422}

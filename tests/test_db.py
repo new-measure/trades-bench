@@ -4,9 +4,9 @@ import sqlite3
 
 import pytest
 
-from csr_bench import db as db_mod
-from csr_bench.clock import phoenix_instant
-from csr_bench.db import (
+from trades_bench import db as db_mod
+from trades_bench.clock import phoenix_instant
+from trades_bench.db import (
     begin,
     commit,
     get_run,
@@ -14,10 +14,10 @@ from csr_bench.db import (
     insert_run,
     rollback,
 )
-from csr_bench.enums import RunStatus
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.migrations import migrate
-from csr_bench.visibility import FIELD_REGISTRY
+from trades_bench.enums import RunStatus
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.migrations import migrate
+from trades_bench.visibility import FIELD_REGISTRY
 
 START_AT_MS = phoenix_instant(2026, 10, 1, 6, 45)
 
@@ -60,7 +60,7 @@ def test_migrate_produces_the_baseline_schema(conn):
 
 
 def test_rollback_journal_not_wal_for_file_copy_resume(tmp_path):
-    from csr_bench.db import connect
+    from trades_bench.db import connect
 
     path = tmp_path / "run.db"
     conn = connect(path)

@@ -7,12 +7,12 @@ from decimal import ROUND_HALF_UP, Decimal
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
-from csr_bench import SPEC_VERSION
-from csr_bench._dump import dump_hash
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.rng import Rng
-from csr_bench.run_init import initialize_run, open_run_db
-from csr_bench.weather import _band_name, _bands_milli, get_weather
+from trades_bench import SPEC_VERSION
+from trades_bench._dump import dump_hash
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.rng import Rng
+from trades_bench.run_init import initialize_run, open_run_db
+from trades_bench.weather import _band_name, _bands_milli, get_weather
 
 _ALLOWED_KEYS_WITH_STORM = frozenset(
     {

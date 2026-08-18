@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from csr_bench.db import begin, commit, in_memory, populate_visibility_registry
-from csr_bench.enums import VisibilityClass
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.migrations import migrate
-from csr_bench.visibility import FIELD_REGISTRY, Field, assert_public, classify
+from trades_bench.db import begin, commit, in_memory, populate_visibility_registry
+from trades_bench.enums import VisibilityClass
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.migrations import migrate
+from trades_bench.visibility import FIELD_REGISTRY, Field, assert_public, classify
 
 
 @pytest.fixture

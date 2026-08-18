@@ -9,7 +9,7 @@ from pathlib import Path
 from .db import rollback
 from .errors import EngineError, ErrorCode
 
-MIGRATIONS_PACKAGE_DIR = Path(str(importlib.resources.files("csr_bench") / "schema"))
+MIGRATIONS_PACKAGE_DIR = Path(str(importlib.resources.files("trades_bench") / "schema"))
 
 _MIGRATION_FILE = re.compile(r"^(\d{4})_(.+)\.sql$")
 

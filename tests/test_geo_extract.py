@@ -8,9 +8,9 @@ import pytest
 pytest.importorskip("osmium")
 pytest.importorskip("shapely")
 
-from csr_bench.address import load_default_abbreviation_table  # noqa: E402
 from geo_build import crop, extract, normalize_stage, zones  # noqa: E402
 from geo_build.osm_reader import read_elements  # noqa: E402
+from trades_bench.address import load_default_abbreviation_table  # noqa: E402
 
 FIXTURE = str(Path(__file__).parent / "fixtures" / "geo" / "pipeline_fixture.osm")
 ZONES_ONLY_FIXTURE = str(Path(__file__).parent / "fixtures" / "geo" / "zones_basic.osm")

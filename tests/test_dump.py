@@ -5,10 +5,10 @@ import sqlite3
 import struct
 
 from _helpers import register_conn
-from csr_bench._dump import dump_bytes
-from csr_bench.db import in_memory, insert_run
-from csr_bench.enums import RunStatus
-from csr_bench.migrations import migrate
+from trades_bench._dump import dump_bytes
+from trades_bench.db import in_memory, insert_run
+from trades_bench.enums import RunStatus
+from trades_bench.migrations import migrate
 
 RUN_ID = "run-reals"
 

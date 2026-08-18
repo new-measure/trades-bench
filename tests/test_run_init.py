@@ -6,14 +6,14 @@ import sqlite3
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
-from csr_bench import db, views, warm_start
-from csr_bench._dump import dump_hash
-from csr_bench.db import read_config
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.migrations import MIGRATIONS_PACKAGE_DIR, applied_versions, migrate
-from csr_bench.run_init import initialize_run, open_run_db
-from csr_bench.views import VIEWS, verify_views
-from csr_bench.visibility import FIELD_REGISTRY
+from trades_bench import db, views, warm_start
+from trades_bench._dump import dump_hash
+from trades_bench.db import read_config
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.migrations import MIGRATIONS_PACKAGE_DIR, applied_versions, migrate
+from trades_bench.run_init import initialize_run, open_run_db
+from trades_bench.views import VIEWS, verify_views
+from trades_bench.visibility import FIELD_REGISTRY
 
 
 def _cfg():
@@ -199,7 +199,7 @@ def test_initialize_run_failure_at_boundary_check_marks_failed(tmp_path, monkeyp
         raise EngineError(ErrorCode.INVARIANT_VIOLATED, "clean-boundary violation")
 
     with monkeypatch.context() as m:
-        m.setattr("csr_bench.run_init.boundary_check", _boom)
+        m.setattr("trades_bench.run_init.boundary_check", _boom)
         with pytest.raises(EngineError) as ei:
             initialize_run(path, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
     assert ei.value.code is ErrorCode.INVARIANT_VIOLATED
@@ -216,7 +216,7 @@ def test_initialize_run_failure_before_run_record_leaves_no_failed_row(tmp_path,
         raise RuntimeError("open exploded")
 
     with monkeypatch.context() as m:
-        m.setattr("csr_bench.run_init.open_run_db", _boom)
+        m.setattr("trades_bench.run_init.open_run_db", _boom)
         with pytest.raises(RuntimeError, match="open exploded"):
             initialize_run(path, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
     conn = open_run_db(path)

@@ -8,11 +8,10 @@ from . import clock, geography, weather
 from .config import RunConfig
 from .errors import EngineError, ErrorCode
 from .geo_reader import GeoArtifact
-from .constants import PHOENIX_SQLITE_UTC_OFFSET
-from .registry import FilterOp, OperationSpec, _VIEW_COLUMNS, _filter_predicate
+from .registry import _VIEW_COLUMNS, OperationSpec, _filter_predicate
+from .rng import Rng
 
 _CURSOR_PK_MAX = (1 << 63) - 1
-from .rng import Rng
 
 
 def _validation_error(message: str, *, rule: str | None = None, field: str | None = None) -> EngineError:

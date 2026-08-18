@@ -8,7 +8,6 @@ pytest.importorskip("osmium")
 pytest.importorskip("shapely")
 
 from _geo_fixture import FIXTURE, scenario_json  # noqa: E402
-from csr_bench.geo_artifact import canonical_artifact_sha256  # noqa: E402
 from geo_build.manifest import missing_required_fields  # noqa: E402
 from geo_build.matrix import build_anchor_matrix, symmetrize  # noqa: E402
 from geo_build.osrm import (  # noqa: E402
@@ -20,6 +19,7 @@ from geo_build.osrm import (  # noqa: E402
     write_pbf,
 )
 from geo_build.pipeline import BuildParameters, run_pipeline, write_artifact  # noqa: E402
+from trades_bench.geo_artifact import canonical_artifact_sha256  # noqa: E402
 
 pytestmark = [
     pytest.mark.docker,

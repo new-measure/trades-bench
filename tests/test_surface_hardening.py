@@ -15,13 +15,13 @@ from _helpers import (
     audit_count,
     geo_artifact_sha256,
 )
-from csr_bench import appointments, booking, calls, clock, crm, db
-from csr_bench.config import load_run_config
-from csr_bench.controller import Controller
-from csr_bench.enums import EventKind
-from csr_bench.errors import ErrorCode
-from csr_bench.events import Events
-from csr_bench.run_init import initialize_run, open_run_db
+from trades_bench import appointments, booking, calls, clock, crm, db
+from trades_bench.config import load_run_config
+from trades_bench.controller import Controller
+from trades_bench.enums import EventKind
+from trades_bench.errors import ErrorCode
+from trades_bench.events import Events
+from trades_bench.run_init import initialize_run, open_run_db
 
 SEED = 29
 END_DATE = "2026-10-05"

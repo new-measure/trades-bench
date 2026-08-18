@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from csr_bench import clock
-from csr_bench import constants as const_mod
+from trades_bench import clock
+from trades_bench import constants as const_mod
 
 
 def test_ten_phoenix_zones():
@@ -46,7 +46,7 @@ def test_calendars():
 
 
 def test_constant_entries_all_marked_constant_in_config():
-    from csr_bench.config import assemble_registry
+    from trades_bench.config import assemble_registry
 
     reg = assemble_registry()
     expected_constant_keys = {p for p in reg if p.startswith("constants.")} | {

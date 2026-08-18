@@ -5,7 +5,7 @@ import csv
 import json
 from pathlib import Path
 
-from csr_bench.geo_artifact import canonical_artifact_sha256
+from trades_bench.geo_artifact import canonical_artifact_sha256
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "geo"
 ARTIFACT_DIR = FIXTURE_DIR / "geography-tempe-fixture"

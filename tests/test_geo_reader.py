@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.geo_reader import _polygon_centroid, read_anchors, verify_artifact_sha256
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.geo_reader import _polygon_centroid, read_anchors, verify_artifact_sha256
 
 
 def test_polygon_centroid_multipolygon_with_opposite_wound_parts():

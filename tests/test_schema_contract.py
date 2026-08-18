@@ -7,12 +7,12 @@ from pathlib import Path
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config
-from csr_bench import clock, db, views
-from csr_bench.clock import phoenix_instant
-from csr_bench.db import in_memory
-from csr_bench.migrations import migrate
-from csr_bench.run_init import initialize_run
-from csr_bench.views import VIEW_WHITELIST, VIEWS
+from trades_bench import clock, db, views
+from trades_bench.clock import phoenix_instant
+from trades_bench.db import in_memory
+from trades_bench.migrations import migrate
+from trades_bench.run_init import initialize_run
+from trades_bench.views import VIEW_WHITELIST, VIEWS
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 GOLDEN_SCHEMA = GOLDEN_DIR / "schema_0001.sql"

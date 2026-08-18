@@ -6,10 +6,10 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from _helpers import audit_count, make_services
-from csr_bench.enums import EntityType, EventKind, KeyedStreamName, LedgerCategory, RunStatus
-from csr_bench.ledger import LedgerEntry
-from csr_bench.money import Money
-from csr_bench.txn import command, privileged, privileged_request_id
+from trades_bench.enums import EntityType, EventKind, KeyedStreamName, LedgerCategory, RunStatus
+from trades_bench.ledger import LedgerEntry
+from trades_bench.money import Money
+from trades_bench.txn import command, privileged, privileged_request_id
 
 OPENING_CASH_CENTS = 15_000
 

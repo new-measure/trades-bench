@@ -4,7 +4,7 @@ import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from csr_bench.config import RunConfig
+from trades_bench.config import RunConfig
 
 from .errors import GateFailure
 from .routing import RoutingBackend, assert_finite_km

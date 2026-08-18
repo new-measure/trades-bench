@@ -4,9 +4,9 @@ import pytest
 
 pytest.importorskip("shapely")
 
-from csr_bench.address import load_default_abbreviation_table  # noqa: E402
 from geo_build import normalize_stage  # noqa: E402
 from geo_build.models import Candidate  # noqa: E402
+from trades_bench.address import load_default_abbreviation_table  # noqa: E402
 
 TABLE = load_default_abbreviation_table()
 

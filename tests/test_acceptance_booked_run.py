@@ -15,13 +15,13 @@ from _helpers import (
     geo_artifact_sha256,
     register_conn,
 )
-from csr_bench import appointments, clock, constants, demand, geo_reader
-from csr_bench._dump import dump_hash
-from csr_bench.config import load_run_config
-from csr_bench.controller import Controller
-from csr_bench.enums import RunStatus
-from csr_bench.run_init import initialize_run, open_run_db
-from csr_bench.txn import privileged, privileged_request_id
+from trades_bench import appointments, clock, constants, demand, geo_reader
+from trades_bench._dump import dump_hash
+from trades_bench.config import load_run_config
+from trades_bench.controller import Controller
+from trades_bench.enums import RunStatus
+from trades_bench.run_init import initialize_run, open_run_db
+from trades_bench.txn import privileged, privileged_request_id
 
 SEED = 5
 DAY_ONE = "2026-10-01"

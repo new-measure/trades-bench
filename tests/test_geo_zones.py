@@ -7,10 +7,10 @@ import pytest
 pytest.importorskip("osmium")
 pytest.importorskip("shapely")
 
-from csr_bench import constants  # noqa: E402
-from csr_bench.db import in_memory  # noqa: E402
-from csr_bench.migrations import migrate  # noqa: E402
 from geo_build import geometry, zones  # noqa: E402
+from trades_bench import constants  # noqa: E402
+from trades_bench.db import in_memory  # noqa: E402
+from trades_bench.migrations import migrate  # noqa: E402
 
 FIXTURE = str(Path(__file__).parent / "fixtures" / "geo" / "zones_basic.osm")
 REAL_ZONES_GEOJSON = str(Path(__file__).parent / "fixtures" / "geo" / "zone_definitions.geojson")

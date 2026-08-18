@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from csr_bench.money import FloatMoneyError, Money
+from trades_bench.money import FloatMoneyError, Money
 
 
 def test_construct_int_cents():

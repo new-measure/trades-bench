@@ -9,14 +9,14 @@ from pathlib import Path
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config
-from csr_bench import clock
-from csr_bench.events import Events
-from csr_bench.http_engine import Engine, open_engine_connection
-from csr_bench.invocations import Invocations
-from csr_bench.ledger import Ledger
-from csr_bench.rng import Rng, sqlite_audit_recorder
-from csr_bench.run_init import initialize_run
-from csr_bench.txn import Services
+from trades_bench import clock
+from trades_bench.events import Events
+from trades_bench.http_engine import Engine, open_engine_connection
+from trades_bench.invocations import Invocations
+from trades_bench.ledger import Ledger
+from trades_bench.rng import Rng, sqlite_audit_recorder
+from trades_bench.run_init import initialize_run
+from trades_bench.txn import Services
 
 _CORPUS_PATH = Path(__file__).parent / "fixtures" / "sql_attack_corpus.json"
 _CORPUS = json.loads(_CORPUS_PATH.read_text())["entries"]
@@ -149,7 +149,7 @@ def test_corpus_entry_is_rejected_with_expected_wire_code(warm_engine, entry):
         body={"sql": entry["sql"], "request_id": str(uuid.uuid4())},
     )
     assert body["error"]["code"] == entry["expect_code"], entry
-    from csr_bench.wire import WIRE_STATUS, WireCode
+    from trades_bench.wire import WIRE_STATUS, WireCode
 
     assert status == WIRE_STATUS[WireCode(entry["expect_code"])], entry
     assert "data" not in body

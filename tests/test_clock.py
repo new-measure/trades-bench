@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from csr_bench.clock import (
+from trades_bench.clock import (
     AFTER_HOURS,
     CALL_WINDOW_END,
     CALL_WINDOW_START,
@@ -22,10 +22,10 @@ from csr_bench.clock import (
     service_date_for_ms,
     to_iso8601,
 )
-from csr_bench.clock import (
+from trades_bench.clock import (
     AFTER_HOURS as AH,
 )
-from csr_bench.db import (
+from trades_bench.db import (
     begin,
     commit,
     in_memory,
@@ -33,8 +33,8 @@ from csr_bench.db import (
     new_run_id,
     rollback,
 )
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.migrations import migrate
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.migrations import migrate
 
 
 def test_phoenix_is_fixed_offset_no_dst():

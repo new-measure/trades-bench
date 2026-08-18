@@ -11,10 +11,10 @@ from _geo_real_fixture import (  # noqa: E402
     TEMPE_SOURCE,
     run_tempe_fixture_pipeline,
 )
-from csr_bench.geo_artifact import canonical_artifact_sha256  # noqa: E402
 from geo_build.manifest import missing_required_fields  # noqa: E402
 from geo_build.osrm import OsrmService, docker_available  # noqa: E402
 from geo_build.pipeline import write_artifact  # noqa: E402
+from trades_bench.geo_artifact import canonical_artifact_sha256  # noqa: E402
 
 pytestmark = [
     pytest.mark.docker,

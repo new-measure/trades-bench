@@ -5,8 +5,8 @@ from datetime import date, timedelta
 
 import pytest
 
-from csr_bench import enums
-from csr_bench.enums import (
+from trades_bench import enums
+from trades_bench.enums import (
     EVENT_PRIORITY,
     ConditionCode,
     DayType,

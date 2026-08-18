@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from csr_bench import config as cfg
-from csr_bench.config import (
+from trades_bench import config as cfg
+from trades_bench.config import (
     DEFAULT_CONFIG_VERSION,
     KeySpec,
     RunConfig,
@@ -19,11 +19,11 @@ from csr_bench.config import (
     resolve_deferred_manifest,
     validate_value,
 )
-from csr_bench.errors import EngineError, ErrorCode
+from trades_bench.errors import EngineError, ErrorCode
 
-DEFAULTS_PATH = Path(__file__).resolve().parents[1] / "src" / "csr_bench" / "defaults.json"
+DEFAULTS_PATH = Path(__file__).resolve().parents[1] / "src" / "trades_bench" / "defaults.json"
 DEFERRED_MANIFEST_PATH = (
-    Path(__file__).resolve().parents[1] / "src" / "csr_bench" / "deferred_manifest.json"
+    Path(__file__).resolve().parents[1] / "src" / "trades_bench" / "deferred_manifest.json"
 )
 
 SYNTH = [
@@ -217,7 +217,7 @@ def test_bool_type_accepts_bool_and_rejects_int_int_type_rejects_bool():
 
 
 def test_reject_bad_date_string():
-    from csr_bench.config import KeySpec, validate_value
+    from trades_bench.config import KeySpec, validate_value
 
     with pytest.raises(EngineError) as ei:
         validate_value(KeySpec("x", "date_string", ""), "2026-13-99")
@@ -225,7 +225,7 @@ def test_reject_bad_date_string():
 
 
 def test_reject_non_canonical_date_string():
-    from csr_bench.config import KeySpec, validate_value
+    from trades_bench.config import KeySpec, validate_value
 
     with pytest.raises(EngineError) as ei:
         validate_value(KeySpec("x", "date_string", ""), "20261001")
@@ -322,7 +322,7 @@ def test_geography_and_travel_defaults_resolve():
     assert rc.get_int("geography.min_address_catalog_size") == 30_000
     assert rc.resolved["travel.time_of_day_bands"][0] == ("night", 0, 360)
     assert rc.resolved["travel.speed_by_time_band"]["weekday"]["night"] == Decimal("62")
-    from csr_bench.enums import ConditionCode
+    from trades_bench.enums import ConditionCode
 
     assert set(rc.resolved["travel.weather_travel_multipliers"]) == {c.value for c in ConditionCode}
     assert rc.get_int("appointments.min_actual_duration_minutes") == 30
@@ -542,12 +542,12 @@ def test_uniform01_output_identical_before_and_after_importing_config():
     import sys
 
     without_import = (
-        "from csr_bench.rng import uniform01; import sys; "
+        "from trades_bench.rng import uniform01; import sys; "
         "sys.stdout.write(str(uniform01(123456789)))"
     )
     with_import = (
-        "import csr_bench.config; "
-        "from csr_bench.rng import uniform01; import sys; "
+        "import trades_bench.config; "
+        "from trades_bench.rng import uniform01; import sys; "
         "sys.stdout.write(str(uniform01(123456789)))"
     )
     proc_a = subprocess.run([sys.executable, "-c", without_import], capture_output=True, text=True)
@@ -560,7 +560,7 @@ def test_uniform01_output_identical_before_and_after_importing_config():
 def test_uniform01_is_independent_of_the_ambient_decimal_context():
     from decimal import getcontext
 
-    from csr_bench.rng import uniform01
+    from trades_bench.rng import uniform01
 
     expected = uniform01(123456789)
     ctx = getcontext()

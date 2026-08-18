@@ -13,16 +13,16 @@ from _helpers import (
     geo_artifact_sha256,
     register_conn,
 )
-from csr_bench import SPEC_VERSION, clock, db, demand, pools
-from csr_bench._dump import dump_hash
-from csr_bench.config import load_run_config, probability_threshold
-from csr_bench.enums import EventKind
-from csr_bench.errors import EngineError, ErrorCode
-from csr_bench.events import Events
-from csr_bench.ledger import Ledger
-from csr_bench.rng import Rng, chance
-from csr_bench.run_init import initialize_run, open_run_db
-from csr_bench.txn import Services
+from trades_bench import SPEC_VERSION, clock, db, demand, pools
+from trades_bench._dump import dump_hash
+from trades_bench.config import load_run_config, probability_threshold
+from trades_bench.enums import EventKind
+from trades_bench.errors import EngineError, ErrorCode
+from trades_bench.events import Events
+from trades_bench.ledger import Ledger
+from trades_bench.rng import Rng, chance
+from trades_bench.run_init import initialize_run, open_run_db
+from trades_bench.txn import Services
 
 ZONE4_ONLY = [0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
 SERVICE_DATE = "2026-10-01"
@@ -228,7 +228,7 @@ def test_draw_key_independence_across_prior_days(tmp_path):
 
 
 def test_weather_get_queries_do_not_perturb_generation(tmp_path):
-    from csr_bench.weather import get_weather
+    from trades_bench.weather import get_weather
 
     config = _zone4_scenario(**{"demand.base_new_caller_rate_per_day": 15})
     conn_a, _rid_a = _init(tmp_path, 9, config, "a.db")
@@ -250,7 +250,7 @@ def test_weather_get_queries_do_not_perturb_generation(tmp_path):
 
 
 def test_weather_state_is_unaffected_by_extra_activity_on_one_run(tmp_path):
-    from csr_bench.weather import get_weather
+    from trades_bench.weather import get_weather
 
     config = _zone4_scenario(**{"demand.base_new_caller_rate_per_day": 15})
     conn_a, _rid_a = _init(tmp_path, 9, config, "a.db")
@@ -541,7 +541,7 @@ def test_zone_independent_storms(tmp_path):
 
 def test_timestamps_within_call_window_and_after_hours_urgent_share_higher(many_seed_dataset):
     rows = many_seed_dataset["rows"]
-    from csr_bench import clock
+    from trades_bench import clock
 
     assert rows
     for row in rows:
