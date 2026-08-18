@@ -7,7 +7,7 @@ from typing import Any
 from . import clock
 from .enums import InvocationStatus, InvocationType
 from .errors import EngineError, ErrorCode
-from .txn import privileged, privileged_request_id
+from .txn import fingerprint, privileged_request_id, privileged_with_replay
 
 
 class Invocations:
@@ -33,29 +33,42 @@ class Invocations:
         ).fetchone()
         return int(row["s"]) + 1
 
-    def _pre_state_key(self, invocation_id: int) -> str:
-        row = self.get(invocation_id)
-        if row is None:
-            return f"{invocation_id}:missing"
-        return f"{invocation_id}:{row['status']}"
-
     def open(
         self,
         kind: InvocationType,
         ts_ms: int,
         *,
+        request_id: str,
         prompt_version: str | None = None,
         services: Any,
     ) -> int | bytes:
+        result, _replayed = self.open_with_replay(
+            kind,
+            ts_ms,
+            request_id=request_id,
+            prompt_version=prompt_version,
+            services=services,
+        )
+        return result
 
-        seq = self._next_sequence()
+    def open_with_replay(
+        self,
+        kind: InvocationType,
+        ts_ms: int,
+        *,
+        request_id: str,
+        prompt_version: str | None = None,
+        services: Any,
+    ) -> tuple[int | bytes, bool]:
 
         def inner(ctx) -> dict:
             if services.invocations.active() is not None:
                 raise EngineError(
                     ErrorCode.INVOCATION_CONFLICT,
                     "an invocation is already active; cannot open a second",
+                    details={"reason": "invocation_already_active"},
                 )
+            seq = self._next_sequence()
             cur = ctx.conn.execute(
                 """INSERT INTO _invocations
                    (type, ts_ms, sequence, status, prompt_version)
@@ -65,20 +78,28 @@ class Invocations:
             clock.advance(ctx.conn, int(ts_ms))
             return {"invocation_id": int(cur.lastrowid), "sequence": seq}
 
-        resp = privileged(
+        args = {"kind": kind.value, "ts_ms": int(ts_ms), "prompt_version": prompt_version}
+        resp, replayed = privileged_with_replay(
             services,
-            privileged_request_id("open_inv", seq),
+            privileged_request_id("open_inv", request_id),
             inner,
             require_active_invocation=False,
+            fingerprint_value=fingerprint("invocations.open", args),
         )
         body = json.loads(resp)
         if not body.get("ok"):
-            return resp
-        return int(body["result"]["invocation_id"])
+            return resp, replayed
+        return int(body["result"]["invocation_id"]), replayed
 
-    def complete(self, invocation_id: int, *, services: Any) -> bytes:
+    def complete(self, invocation_id: int, *, request_id: str, services: Any) -> bytes:
+        response, _replayed = self.complete_with_replay(
+            invocation_id, request_id=request_id, services=services
+        )
+        return response
 
-        key = self._pre_state_key(invocation_id)
+    def complete_with_replay(
+        self, invocation_id: int, *, request_id: str, services: Any
+    ) -> tuple[bytes, bool]:
 
         def inner(ctx) -> dict:
             row = self.get(invocation_id)
@@ -99,11 +120,13 @@ class Invocations:
             )
             return {"invocation_id": invocation_id, "status": "completed"}
 
-        return privileged(
+        args = {"invocation_id": int(invocation_id)}
+        return privileged_with_replay(
             services,
-            privileged_request_id("complete_inv", key),
+            privileged_request_id("complete_inv", request_id),
             inner,
             require_active_invocation=False,
+            fingerprint_value=fingerprint("invocations.complete", args),
         )
 
 

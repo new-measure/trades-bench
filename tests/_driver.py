@@ -373,7 +373,11 @@ def _run_command(run: RunContext, name: str, fn: Callable[[TxnContext], dict]) -
 
 def _step_open_opening(run: RunContext, name: str) -> None:
     result = run.invocations.open(
-        InvocationType.OPENING, T_OPEN, prompt_version="contract-test", services=run.services
+        InvocationType.OPENING,
+        T_OPEN,
+        request_id=f"script:{name}",
+        prompt_version="contract-test",
+        services=run.services,
     )
     if not isinstance(result, int):
         raise DriverError(f"{name}: {json.loads(result)}")
@@ -381,7 +385,11 @@ def _step_open_opening(run: RunContext, name: str) -> None:
 
 def _step_open_call(run: RunContext, name: str) -> None:
     result = run.invocations.open(
-        InvocationType.CALL, T_CALL, prompt_version="contract-test", services=run.services
+        InvocationType.CALL,
+        T_CALL,
+        request_id=f"script:{name}",
+        prompt_version="contract-test",
+        services=run.services,
     )
     if not isinstance(result, int):
         raise DriverError(f"{name}: {json.loads(result)}")
@@ -391,7 +399,12 @@ def _step_complete_invocation(run: RunContext, name: str) -> None:
     active = run.invocations.active()
     if active is None:
         raise DriverError(f"{name}: no active invocation to complete")
-    _require_ok(name, run.invocations.complete(int(active["invocation_id"]), services=run.services))
+    _require_ok(
+        name,
+        run.invocations.complete(
+            int(active["invocation_id"]), request_id=f"script:{name}", services=run.services
+        ),
+    )
 
 
 def _step_apply_next_event(run: RunContext, name: str) -> None:

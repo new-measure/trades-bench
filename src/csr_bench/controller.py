@@ -499,14 +499,21 @@ class Controller:
     def _issue_invocation(self, row: sqlite3.Row) -> None:
         invocation_type = _INVOCATION_TYPE_BY_KIND[EventKind(row["kind"])]
         ts = max(clock.now(self.conn), int(row["scheduled_at_ms"]))
-        opened = self.invocations.open(invocation_type, ts, services=self.services)
+        event_id = int(row["event_id"])
+        opened = self.invocations.open(
+            invocation_type, ts, request_id=f"invocation-open-{event_id}", services=self.services
+        )
         if isinstance(opened, bytes):
             _require_ok(opened)
             raise EngineError(
                 ErrorCode.INVARIANT_VIOLATED, "invocation open failed without an error response"
             )
         self.adapter.send(self._build_prompt(invocation_type, ts, row))
-        _require_ok(self.invocations.complete(int(opened), services=self.services))
+        _require_ok(
+            self.invocations.complete(
+                int(opened), request_id=f"invocation-complete-{event_id}", services=self.services
+            )
+        )
 
     def _resume_active_invocation(self, active: sqlite3.Row) -> None:
         row = self._last_applied_invocation_event()
@@ -522,8 +529,13 @@ class Controller:
                 "active invocation type does not match the last applied invocation event",
             )
         self.adapter.send(self._build_prompt(invocation_type, int(active["ts_ms"]), row))
+        event_id = int(row["event_id"])
         _require_ok(
-            self.invocations.complete(int(active["invocation_id"]), services=self.services)
+            self.invocations.complete(
+                int(active["invocation_id"]),
+                request_id=f"invocation-complete-{event_id}",
+                services=self.services,
+            )
         )
 
     def _build_prompt(

@@ -98,6 +98,20 @@ def _store_response(
 Fn = Callable[[TxnContext], dict | None]
 
 
+def _recover_from_sqlite_fault(conn: sqlite3.Connection, exc: sqlite3.Error) -> EngineError:
+    conn.set_progress_handler(None, 0)
+    try:
+        if conn.in_transaction:
+            rollback(conn)
+    except sqlite3.Error:
+        pass
+    return EngineError(
+        ErrorCode.UNEXPECTED_FAILURE,
+        "an unexpected internal error occurred",
+        details={"exception_type": type(exc).__name__},
+    )
+
+
 def _execute(
     services: Services,
     request_id: str,
@@ -108,25 +122,35 @@ def _execute(
     require_active_invocation: bool,
     privileged: bool,
     fingerprint_value: str,
-) -> bytes:
+) -> tuple[bytes, bool]:
     conn = services.conn
     rng = services.rng
 
-    existing = _existing_entry(conn, request_id, namespace)
+    try:
+        existing = _existing_entry(conn, request_id, namespace)
+    except sqlite3.Error as exc:
+        return _recover_from_sqlite_fault(conn, exc).to_response(), False
+
     if existing is not None:
         existing_fingerprint, existing_response = existing
         if existing_fingerprint == fingerprint_value:
-            return existing_response
-        return EngineError(
-            ErrorCode.REQUEST_ID_CONFLICT,
-            f"request_id {request_id!r} was already used with different arguments",
-        ).to_response()
+            return existing_response, True
+        return (
+            EngineError(
+                ErrorCode.REQUEST_ID_CONFLICT,
+                f"request_id {request_id!r} was already used with different arguments",
+            ).to_response(),
+            False,
+        )
 
-    now = clock.now(conn)
-    ctx = TxnContext(conn, rng, now, services, privileged=privileged)
+    try:
+        now = clock.now(conn)
+        ctx = TxnContext(conn, rng, now, services, privileged=privileged)
+        begin(conn)
+        rng.enter_txn()
+    except sqlite3.Error as exc:
+        return _recover_from_sqlite_fault(conn, exc).to_response(), False
 
-    begin(conn)
-    rng.enter_txn()
     payload: dict | None = None
     response: bytes | None = None
     err: EngineError | None = None
@@ -141,7 +165,9 @@ def _execute(
             active = services.invocations.active() if services.invocations is not None else None
             if active is None:
                 raise EngineError(
-                    ErrorCode.INVOCATION_CONFLICT, "command requires an active invocation"
+                    ErrorCode.INVOCATION_CONFLICT,
+                    "command requires an active invocation",
+                    details={"reason": "no_active_invocation"},
                 )
             ctx.invocation = active
         payload = fn(ctx)
@@ -162,17 +188,20 @@ def _execute(
         rng.exit_txn()
 
     if err is not None:
-        if conn.in_transaction:
-            rollback(conn)
-        response = err.to_response()
-        if not privileged and err.code not in NON_CACHEABLE_ERRORS:
-            begin(conn)
-            _store_response(conn, request_id, namespace, response, now, fingerprint_value)
-            commit(conn)
-        return response
+        try:
+            if conn.in_transaction:
+                rollback(conn)
+            response = err.to_response()
+            if not privileged and err.code not in NON_CACHEABLE_ERRORS:
+                begin(conn)
+                _store_response(conn, request_id, namespace, response, now, fingerprint_value)
+                commit(conn)
+        except sqlite3.Error as exc:
+            response = _recover_from_sqlite_fault(conn, exc).to_response()
+        return response, False
 
     assert response is not None
-    return response
+    return response, False
 
 
 def command(
@@ -183,6 +212,20 @@ def command(
     operation: str,
     args: Mapping[str, object],
 ) -> bytes:
+    response, _replayed = command_with_replay(
+        services, request_id, fn, operation=operation, args=args
+    )
+    return response
+
+
+def command_with_replay(
+    services: Services,
+    request_id: str,
+    fn: Fn,
+    *,
+    operation: str,
+    args: Mapping[str, object],
+) -> tuple[bytes, bool]:
     if is_reserved(request_id):
         raise EngineError.unauthorized()
     return _execute(
@@ -197,14 +240,15 @@ def command(
     )
 
 
-def privileged(
+def privileged_with_replay(
     services: Services,
     request_id: str,
     fn: Fn,
     *,
     require_status: RunStatus = RunStatus.ACTIVE,
     require_active_invocation: bool = False,
-) -> bytes:
+    fingerprint_value: str = "",
+) -> tuple[bytes, bool]:
     if not is_reserved(request_id):
         raise EngineError(
             ErrorCode.INVARIANT_VIOLATED,
@@ -218,8 +262,28 @@ def privileged(
         require_status=require_status,
         require_active_invocation=require_active_invocation,
         privileged=True,
-        fingerprint_value="",
+        fingerprint_value=fingerprint_value,
     )
+
+
+def privileged(
+    services: Services,
+    request_id: str,
+    fn: Fn,
+    *,
+    require_status: RunStatus = RunStatus.ACTIVE,
+    require_active_invocation: bool = False,
+    fingerprint_value: str = "",
+) -> bytes:
+    response, _replayed = privileged_with_replay(
+        services,
+        request_id,
+        fn,
+        require_status=require_status,
+        require_active_invocation=require_active_invocation,
+        fingerprint_value=fingerprint_value,
+    )
+    return response
 
 
 __all__ = [
@@ -230,8 +294,10 @@ __all__ = [
     "Services",
     "TxnContext",
     "command",
+    "command_with_replay",
     "fingerprint",
     "is_reserved",
     "privileged",
     "privileged_request_id",
+    "privileged_with_replay",
 ]

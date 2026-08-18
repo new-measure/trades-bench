@@ -1362,6 +1362,83 @@ _DOMAIN_ENTRIES: list[Any] = [
             "description": "Reserved fictional phone-number prefixes callers are drawn from.",
         },
     ),
+    (
+        "interface.lock_acquire_timeout_seconds",
+        "int",
+        5,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Wall-clock seconds a request waits to acquire the single global "
+            "engine lock before it fails busy rather than change anything.",
+        },
+    ),
+    (
+        "interface.max_inflight_requests",
+        "int",
+        16,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "description": "Cap on requests accepted but not yet started; requests beyond "
+            "the cap fail busy instead of buffering without bound.",
+        },
+    ),
+    (
+        "interface.request_deadline_seconds",
+        "int",
+        30,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "description": "Wall-clock seconds a single request may run before the engine "
+            "aborts the work, rolls back, and reports the deadline as expired.",
+        },
+    ),
+    (
+        "interface.sql_statement_timeout_seconds",
+        "int",
+        10,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "description": "Wall-clock seconds an agent SQL statement may run before an "
+            "interrupt handler aborts it mid-execution.",
+        },
+    ),
+    (
+        "interface.sql_max_rows",
+        "int",
+        5000,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "description": "Row cap on a single query result; a caller-supplied max_rows "
+            "argument may only lower it.",
+        },
+    ),
+    (
+        "interface.sql_max_response_bytes",
+        "int",
+        2_000_000,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "description": "Byte cap on a single query response body; a response over the "
+            "cap is truncated on a row boundary.",
+        },
+    ),
+    (
+        "interface.error_echo_max_chars",
+        "int",
+        200,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "description": "Maximum length of an agent-supplied value echoed back inside a "
+            "structured error's details.",
+        },
+    ),
 ]
 
 

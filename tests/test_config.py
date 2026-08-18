@@ -64,7 +64,7 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
     assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    assert len(rc.resolved) == 144
+    assert len(rc.resolved) == 151
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     with pytest.raises(TypeError):
         rc.resolved["constants.opening_hour"] = 9  # type: ignore[index]

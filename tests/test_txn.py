@@ -16,9 +16,12 @@ from csr_bench.txn import (
     PUBLIC_NAMESPACE,
     Services,
     command,
+    command_with_replay,
+    fingerprint,
     is_reserved,
     privileged,
     privileged_request_id,
+    privileged_with_replay,
 )
 
 
@@ -435,3 +438,145 @@ def test_conflict_after_cached_error_preserves_original_error_replay():
 
     r3 = command(sv, "req.errfp", fn, operation="test.op", args={"id": 1})
     assert r3 == r1
+
+
+def test_command_with_replay_reports_fresh_then_replayed():
+    calls = {"n": 0}
+
+    def fn(ctx):
+        calls["n"] += 1
+        return {"ok": True}
+
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    r1, replayed1 = command_with_replay(sv, "req.replay", fn, operation="test.op", args={})
+    r2, replayed2 = command_with_replay(sv, "req.replay", fn, operation="test.op", args={})
+    assert replayed1 is False
+    assert replayed2 is True
+    assert r1 == r2
+    assert calls["n"] == 1
+
+
+def test_command_with_replay_reports_fresh_for_a_cached_error_replay():
+    def fn(ctx):
+        raise EngineError(ErrorCode.INSUFFICIENT_CASH, "not enough")
+
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    r1, replayed1 = command_with_replay(sv, "req.replayerr", fn, operation="test.op", args={})
+    r2, replayed2 = command_with_replay(sv, "req.replayerr", fn, operation="test.op", args={})
+    assert replayed1 is False
+    assert replayed2 is True
+    assert r1 == r2
+    assert json.loads(r1)["error"]["code"] == "insufficient_cash"
+
+
+def test_command_with_replay_request_id_conflict_is_not_a_replay():
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    r1, replayed1 = command_with_replay(
+        sv, "req.replayconflict", lambda ctx: {"x": 1}, operation="test.a", args={"id": 5}
+    )
+    r2, replayed2 = command_with_replay(
+        sv, "req.replayconflict", lambda ctx: {"x": 1}, operation="test.b", args={"id": 5}
+    )
+    assert replayed1 is False
+    assert replayed2 is False
+    assert json.loads(r2)["error"]["code"] == "request_id_conflict"
+
+
+def test_command_unwraps_command_with_replay_bytes_unchanged():
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    r_command = command(sv, "req.parity", lambda ctx: {"x": 1}, operation="test.op", args={})
+    r_replay, replayed = command_with_replay(
+        sv, "req.parity", lambda ctx: {"x": 1}, operation="test.op", args={}
+    )
+    assert r_command == r_replay
+    assert replayed is True
+
+
+def test_invocation_conflict_details_reason_is_no_active_invocation():
+    conn, rid, sv, _, _ = _services(active_invocation=False)
+    r = command(sv, "req.noinv", lambda ctx: {}, operation="test.op", args={})
+    body = json.loads(r)
+    assert body["error"]["code"] == "invocation_conflict"
+    assert body["error"]["details"]["reason"] == "no_active_invocation"
+
+
+def test_privileged_with_replay_reports_fresh_then_replayed():
+    calls = {"n": 0}
+
+    def fn(ctx):
+        calls["n"] += 1
+        return {"note": True}
+
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    ridp = privileged_request_id("guard", "replay")
+    fp = fingerprint("invocations.guard", {"x": 1})
+    r1, replayed1 = privileged_with_replay(sv, ridp, fn, fingerprint_value=fp)
+    r2, replayed2 = privileged_with_replay(sv, ridp, fn, fingerprint_value=fp)
+    assert replayed1 is False
+    assert replayed2 is True
+    assert r1 == r2
+    assert calls["n"] == 1
+
+
+def test_privileged_with_replay_different_fingerprint_conflicts():
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    ridp = privileged_request_id("guard", "conflict")
+    r1, replayed1 = privileged_with_replay(
+        sv, ridp, lambda ctx: {"x": 1},
+        fingerprint_value=fingerprint("invocations.guard", {"x": 1}),
+    )
+    r2, replayed2 = privileged_with_replay(
+        sv, ridp, lambda ctx: {"x": 1},
+        fingerprint_value=fingerprint("invocations.guard", {"x": 2}),
+    )
+    assert replayed1 is False
+    assert replayed2 is False
+    assert json.loads(r2)["error"]["code"] == "request_id_conflict"
+
+
+def test_privileged_unwraps_privileged_with_replay_bytes_unchanged():
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    ridp = privileged_request_id("guard", "parity")
+    r_privileged = privileged(sv, ridp, lambda ctx: {"x": 1})
+    r_replay, replayed = privileged_with_replay(sv, ridp, lambda ctx: {"x": 1})
+    assert r_privileged == r_replay
+    assert replayed is True
+
+
+def test_privileged_tail_guard_survives_watchdog_interrupted_rollback():
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+
+    def fn(ctx):
+        ctx.conn.set_progress_handler(lambda: 1, 1)
+        raise EngineError(ErrorCode.STATE_ILLEGAL, "not yet")
+
+    ridp = privileged_request_id("guard", "tail")
+    try:
+        r = privileged(sv, ridp, fn)
+    finally:
+        conn.set_progress_handler(None, 0)
+
+    body = json.loads(r)
+    assert body["ok"] is False
+    assert body["error"]["code"] == "unexpected_failure"
+    assert conn.in_transaction is False
+
+    r2 = privileged(sv, privileged_request_id("guard", "recover"), lambda ctx: {"ok": True})
+    assert json.loads(r2) == {"ok": True, "result": {"ok": True}}
+
+
+def test_privileged_pre_try_guard_survives_watchdog_interrupted_begin():
+    conn, rid, sv, _, _ = _services(active_invocation=True)
+    conn.set_progress_handler(lambda: 1, 1)
+    try:
+        r = privileged(sv, privileged_request_id("guard", "pretry"), lambda ctx: {"x": 1})
+    finally:
+        conn.set_progress_handler(None, 0)
+
+    body = json.loads(r)
+    assert body["ok"] is False
+    assert body["error"]["code"] == "unexpected_failure"
+    assert conn.in_transaction is False
+
+    r2 = privileged(sv, privileged_request_id("guard", "pretry_recover"), lambda ctx: {"ok": True})
+    assert json.loads(r2) == {"ok": True, "result": {"ok": True}}

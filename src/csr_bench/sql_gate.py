@@ -4,9 +4,7 @@ import sqlite3
 from pathlib import Path
 
 from . import views
-from .enums import VisibilityClass
 from .errors import EngineError, ErrorCode
-from .visibility import classify
 
 _ALLOWED_ACTIONS: frozenset[int] = frozenset(
     {
@@ -22,22 +20,72 @@ _VIEW_COLUMNS: dict[str, frozenset[str]] = {
     for spec in views.VIEWS
 }
 
+_ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
+    {
+        "count", "sum", "avg", "min", "max", "total", "group_concat",
+        "abs", "round", "sign", "ceil", "ceiling", "floor", "power", "sqrt",
+        "exp", "ln", "log", "log2", "log10", "mod", "pi",
+        "length", "lower", "upper", "substr", "substring", "trim", "ltrim",
+        "rtrim", "replace", "instr", "printf", "format", "hex", "quote",
+        "char", "unicode", "like", "glob",
+        "date", "time", "datetime", "julianday", "strftime", "unixepoch",
+        "timediff",
+        "coalesce", "ifnull", "nullif", "iif", "typeof",
+    }
+)
+
+_VIEW_INTERNAL_FUNCTIONS: frozenset[str] = frozenset({"json_extract"})
+
+_SPECIAL_CASE_VIEW_NAMES: frozenset[str] = frozenset({"technician_locations", "company_state"})
+
+
+def _standard_view_reads(spec: views.ViewSpec) -> frozenset[tuple[str, str]]:
+    pairs = {
+        (column.source.table, column.source.column)
+        for column in spec.columns
+        if column.source is not None
+    }
+    clock_column = "service_date" if "k.service_date" in spec.sql else "current_time_ms"
+    pairs.add(("_clock", clock_column))
+    return frozenset(pairs)
+
+
 _VIEW_INTERNAL_PRIVATE_READS: dict[str, frozenset[tuple[str, str]]] = {
-    "technician_locations": frozenset(
-        {
-            ("_technician_locations", "trip_origin_latitude"),
-            ("_technician_locations", "trip_origin_longitude"),
-            ("_technician_locations", "trip_destination_latitude"),
-            ("_technician_locations", "trip_destination_longitude"),
-            ("_technician_locations", "trip_departed_at"),
-            ("_technician_locations", "trip_travel_minutes"),
-            ("_config", "canonical_json"),
-        }
-    ),
+    spec.name: _standard_view_reads(spec)
+    for spec in views.VIEWS
+    if spec.name not in _SPECIAL_CASE_VIEW_NAMES
 }
 
+_VIEW_INTERNAL_PRIVATE_READS["technician_locations"] = frozenset(
+    {
+        ("_clock", "current_time_ms"),
+        ("_config", "canonical_json"),
+        ("_technician_locations", "technician_id"),
+        ("_technician_locations", "location_state"),
+        ("_technician_locations", "latitude"),
+        ("_technician_locations", "longitude"),
+        ("_technician_locations", "coordinates_updated_at"),
+        ("_technician_locations", "trip_origin_latitude"),
+        ("_technician_locations", "trip_origin_longitude"),
+        ("_technician_locations", "trip_destination_latitude"),
+        ("_technician_locations", "trip_destination_longitude"),
+        ("_technician_locations", "trip_departed_at"),
+        ("_technician_locations", "trip_travel_minutes"),
+    }
+)
+
+_VIEW_INTERNAL_PRIVATE_READS["company_state"] = frozenset(
+    {
+        ("_clock", "current_time_ms"),
+        ("_clock", "service_date"),
+        ("_ledger_entries", "amount_cents"),
+        ("_ledger_entries", "occurred_at"),
+        ("_run", "status"),
+    }
+)
+
 _PROTECTED_VIEW_NAMES: frozenset[str] = frozenset(
-    name.lower() for name in _VIEW_INTERNAL_PRIVATE_READS
+    name.lower() for name in views.VIEW_WHITELIST
 )
 
 
@@ -47,16 +95,23 @@ def _authorize_read(
     if not table or not column:
         return sqlite3.SQLITE_DENY
     if table.startswith("_"):
-        try:
-            if classify((table, column)) in VisibilityClass.public():
+        if trigger_name in views.VIEW_WHITELIST:
+            allowed = _VIEW_INTERNAL_PRIVATE_READS.get(trigger_name)
+            if allowed is not None and (table, column) in allowed:
                 return sqlite3.SQLITE_OK
-        except Exception:
-            pass
-        allowed = _VIEW_INTERNAL_PRIVATE_READS.get(trigger_name or "")
-        if allowed is not None and (table, column) in allowed:
-            return sqlite3.SQLITE_OK
         return sqlite3.SQLITE_DENY
     if column in _VIEW_COLUMNS.get(table, ()):
+        return sqlite3.SQLITE_OK
+    return sqlite3.SQLITE_DENY
+
+
+def _authorize_function(name: str | None, trigger_name: str | None) -> int:
+    if not name:
+        return sqlite3.SQLITE_DENY
+    lowered = name.lower()
+    if lowered in _ALLOWED_FUNCTIONS:
+        return sqlite3.SQLITE_OK
+    if trigger_name in views.VIEW_WHITELIST and lowered in _VIEW_INTERNAL_FUNCTIONS:
         return sqlite3.SQLITE_OK
     return sqlite3.SQLITE_DENY
 
@@ -66,11 +121,27 @@ def _authorizer(action: int, arg1: str | None, arg2: str | None, db_name: str | 
         return sqlite3.SQLITE_DENY
     if action == sqlite3.SQLITE_READ:
         return _authorize_read(arg1, arg2, trigger_name)
+    if action == sqlite3.SQLITE_FUNCTION:
+        return _authorize_function(arg2, trigger_name)
     return sqlite3.SQLITE_OK
 
 
+class _AgentConnection(sqlite3.Connection):
+
+    def execute(self, sql: str, parameters=()) -> sqlite3.Cursor:
+        _reject_cte_name_collisions(sql)
+        return super().execute(sql, parameters)
+
+
 def open_agent_session(db_path: str | Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path), isolation_level=None)
+    uri = Path(db_path).resolve().as_uri() + "?mode=ro"
+    conn = sqlite3.connect(
+        uri,
+        uri=True,
+        isolation_level=None,
+        check_same_thread=False,
+        factory=_AgentConnection,
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA query_only = ON")
     conn.set_authorizer(_authorizer)

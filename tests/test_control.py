@@ -227,7 +227,10 @@ def _book_via_call(
     )
     body = json.loads(response)
     result = _ok(body)
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
     return call_id, result
 
 
@@ -909,7 +912,10 @@ def test_mark_call_unanswered_cancellation_cancels_and_frees_with_zero_deltas(tm
         controller.services, cfg, call_id=cancellation_call_id, artifact=controller.artifact,
     )
     result = _ok(body)
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
 
     assert result["call_id"] == cancellation_call_id
     assert result["outcome"] == "unanswered"

@@ -1,0 +1,634 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "hidden-unqualified",
+      "sql": "SELECT * FROM _technician_true_skill",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-quoted",
+      "sql": "SELECT * FROM \"_customer_repeat_state\"",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-case",
+      "sql": "SELECT * FROM _TECHNICIAN_TRUE_SKILL",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-schema-qualified",
+      "sql": "SELECT * FROM main._skills",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-weather-process-state",
+      "sql": "SELECT * FROM _weather_process_state",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-zone-weather-daily",
+      "sql": "SELECT * FROM _zone_weather_daily",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-weather-forecast-cache",
+      "sql": "SELECT * FROM _weather_forecast_cache",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-pending-calls",
+      "sql": "SELECT * FROM _pending_calls",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-call-table",
+      "sql": "SELECT * FROM _call_hidden",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-customer-repeat-state",
+      "sql": "SELECT * FROM _customer_repeat_state",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-prospect-state",
+      "sql": "SELECT * FROM _prospect_state",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-word-of-mouth-state",
+      "sql": "SELECT * FROM _word_of_mouth_state",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-competitor-state",
+      "sql": "SELECT * FROM _competitor_state",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-acceptance-parameters",
+      "sql": "SELECT * FROM _acceptance_parameters",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-cancellation-schedule",
+      "sql": "SELECT * FROM _cancellation_schedule",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "join-hidden-table",
+      "sql": "SELECT * FROM customers c JOIN _pending_calls p ON 1=1",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "hidden-sqlite-schema-probe",
+      "sql": "SELECT name FROM sqlite_schema WHERE name = '_call_hidden'",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "smuggle-count",
+      "sql": "SELECT COUNT(*) FROM (SELECT * FROM _technician_true_skill)",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "cte-shadow-trip-fields",
+      "sql": "WITH technician_locations AS (SELECT trip_origin_latitude AS latitude FROM _technician_locations) SELECT latitude FROM technician_locations",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "cte-shadow-config-json",
+      "sql": "WITH technician_locations AS (SELECT canonical_json FROM _config) SELECT canonical_json FROM technician_locations",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "cte-shadow-quoted-name",
+      "sql": "WITH \"technician_locations\" AS (SELECT canonical_json FROM _config) SELECT canonical_json FROM technician_locations",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "cte-shadow-second-clause",
+      "sql": "WITH a AS (SELECT 1 AS x), technician_locations AS (SELECT canonical_json FROM _config) SELECT canonical_json FROM technician_locations",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "cte-shadow-nested",
+      "sql": "SELECT * FROM (WITH technician_locations AS (SELECT canonical_json FROM _config) SELECT canonical_json FROM technician_locations)",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "smuggle-union",
+      "sql": "SELECT * FROM customers UNION SELECT * FROM _technician_true_skill",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "smuggle-exists",
+      "sql": "SELECT * FROM customers WHERE EXISTS (SELECT 1 FROM _skills)",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "smuggle-where",
+      "sql": "SELECT * FROM customers WHERE id IN (SELECT technician_id FROM _technician_true_skill)",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "smuggle-orderby",
+      "sql": "SELECT * FROM customers ORDER BY (SELECT code FROM _skills LIMIT 1)",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "groupby-hidden",
+      "sql": "SELECT segment, COUNT(*) FROM customers GROUP BY (SELECT code FROM _skills LIMIT 1)",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "pragma",
+      "sql": "PRAGMA table_info(customers)",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "pragma-tvf",
+      "sql": "SELECT * FROM pragma_table_info('customers')",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "sqlite-master",
+      "sql": "SELECT * FROM sqlite_master",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "sqlite-schema",
+      "sql": "SELECT sql FROM sqlite_schema",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "ddl-create",
+      "sql": "CREATE TABLE x(a)",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "ddl-create-temp",
+      "sql": "CREATE TEMP TABLE t(x)",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "ddl-drop",
+      "sql": "DROP TABLE customers",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "ddl-alter",
+      "sql": "ALTER TABLE customers ADD COLUMN y",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "ddl-alter-rename",
+      "sql": "ALTER TABLE customers RENAME TO c2",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "ddl-index-on-view",
+      "sql": "CREATE INDEX ix ON customers(id)",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "ddl-trigger-on-view",
+      "sql": "CREATE TRIGGER trg AFTER INSERT ON customers BEGIN SELECT 1 END",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "ddl-trigger-on-base",
+      "sql": "CREATE TRIGGER trg AFTER INSERT ON _customers BEGIN SELECT 1 END",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "dml-insert-view",
+      "sql": "INSERT INTO customers (id, name) VALUES (9, 'x')",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "dml-insert-base",
+      "sql": "INSERT INTO _customers (id, name, segment, status, created_at, modified_at) VALUES (9, 'x', 'commercial', 'active', 0, 0)",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "dml-update-view",
+      "sql": "UPDATE customers SET name = 'x'",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "dml-update-base",
+      "sql": "UPDATE _customers SET name = 'x'",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "dml-delete-view",
+      "sql": "DELETE FROM customers",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "attach",
+      "sql": "ATTACH DATABASE ':memory:' AS x",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "detach",
+      "sql": "DETACH DATABASE x",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "analyze",
+      "sql": "ANALYZE",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "explain",
+      "sql": "EXPLAIN SELECT * FROM customers",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "explain-query-plan",
+      "sql": "EXPLAIN QUERY PLAN SELECT * FROM customers",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "explain-comment-line",
+      "sql": "EXPLAIN--c\nSELECT * FROM customers",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "explain-comment-block",
+      "sql": "EXPLAIN/*c*/SELECT * FROM customers",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "multi-statement",
+      "sql": "SELECT * FROM customers; SELECT * FROM _skills",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "multi-statement-comment",
+      "sql": "SELECT * FROM customers; -- sneak\nSELECT * FROM _skills",
+      "expect_code": "sql_not_permitted",
+      "note": "In-process gate corpus (tests/test_sql_gate.py DENIED_SQL), replayed over real HTTP.",
+      "source": "test_sql_gate.DENIED_SQL"
+    },
+    {
+      "id": "smuggle-intersect",
+      "sql": "SELECT id FROM customers INTERSECT SELECT id FROM _technician_true_skill",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_vis_corpus.py NEW_DENIED_SQL), replayed over real HTTP.",
+      "source": "test_vis_corpus.NEW_DENIED_SQL"
+    },
+    {
+      "id": "smuggle-except",
+      "sql": "SELECT id FROM customers EXCEPT SELECT id FROM _technician_true_skill",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_vis_corpus.py NEW_DENIED_SQL), replayed over real HTTP.",
+      "source": "test_vis_corpus.NEW_DENIED_SQL"
+    },
+    {
+      "id": "smuggle-correlated",
+      "sql": "SELECT id FROM customers c WHERE EXISTS (SELECT 1 FROM _technician_true_skill t WHERE t.technician_id = c.id)",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_vis_corpus.py NEW_DENIED_SQL), replayed over real HTTP.",
+      "source": "test_vis_corpus.NEW_DENIED_SQL"
+    },
+    {
+      "id": "join-hidden",
+      "sql": "SELECT * FROM customers c JOIN _skills s ON 1=1",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_vis_corpus.py NEW_DENIED_SQL), replayed over real HTTP.",
+      "source": "test_vis_corpus.NEW_DENIED_SQL"
+    },
+    {
+      "id": "having-hidden",
+      "sql": "SELECT segment, COUNT(*) FROM customers GROUP BY segment HAVING COUNT(*) > (SELECT COUNT(*) FROM _technician_true_skill)",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_vis_corpus.py NEW_DENIED_SQL), replayed over real HTTP.",
+      "source": "test_vis_corpus.NEW_DENIED_SQL"
+    },
+    {
+      "id": "orderby-hidden-aggregate",
+      "sql": "SELECT id FROM customers ORDER BY (SELECT max(base_skill) FROM _technician_true_skill)",
+      "expect_code": "unknown_relation",
+      "note": "In-process gate corpus (tests/test_vis_corpus.py NEW_DENIED_SQL), replayed over real HTTP.",
+      "source": "test_vis_corpus.NEW_DENIED_SQL"
+    },
+    {
+      "id": "ceo-replace-into",
+      "sql": "REPLACE INTO customers (id) VALUES (1)",
+      "expect_code": "sql_not_permitted",
+      "note": "CEO-Bench's substring blocklist checked only INSERT/UPDATE/DELETE/DROP/ALTER/CREATE; REPLACE executed unblocked (ceo-sql.md verified bypass).",
+      "source": "ceo-sql.md verified bypass battery"
+    },
+    {
+      "id": "ceo-comment-drop",
+      "sql": "/* x */ DROP TABLE customers",
+      "expect_code": "sql_not_permitted",
+      "note": "CEO-Bench's .lstrip() blocklist check does not see past a leading comment; this DROP executed unblocked.",
+      "source": "ceo-sql.md verified bypass battery"
+    },
+    {
+      "id": "ceo-comment-delete",
+      "sql": "-- comment\nDELETE FROM customers",
+      "expect_code": "sql_not_permitted",
+      "note": "Same leading-comment bypass as ceo-comment-drop, verified for a line comment before DELETE.",
+      "source": "ceo-sql.md verified bypass battery"
+    },
+    {
+      "id": "ceo-cte-update",
+      "sql": "WITH x AS (SELECT 1) UPDATE customers SET id=id",
+      "expect_code": "sql_not_permitted",
+      "note": "CEO-Bench's blocklist only checked the statement's first token; a leading WITH let an UPDATE through.",
+      "source": "ceo-sql.md verified bypass battery"
+    },
+    {
+      "id": "ceo-attach",
+      "sql": "ATTACH DATABASE '/tmp/evil.db' AS evildb",
+      "expect_code": "sql_not_permitted",
+      "note": "ATTACH was never in CEO-Bench's blocked-verb tuple; verified live against their gate expression.",
+      "source": "ceo-sql.md verified bypass battery"
+    },
+    {
+      "id": "oracle-hidden-real",
+      "sql": "SELECT * FROM _technician_true_skill",
+      "expect_code": "unknown_relation",
+      "note": "A real private table, name-gated by the leading-underscore rule.",
+      "source": "VIS-05 oracle-probing pair (B1 stage 4)",
+      "pair": "unknown-relation-crosses-the-underscore-boundary"
+    },
+    {
+      "id": "oracle-hidden-fake",
+      "sql": "SELECT * FROM _totally_bogus_hidden_table_xyz",
+      "expect_code": "unknown_relation",
+      "note": "A made-up underscore-prefixed name that never existed; must be indistinguishable from the real one above.",
+      "source": "VIS-05 oracle-probing pair (B1 stage 4)",
+      "pair": "unknown-relation-crosses-the-underscore-boundary"
+    },
+    {
+      "id": "oracle-relation-fake",
+      "sql": "SELECT * FROM totally_bogus_view_xyz",
+      "expect_code": "unknown_relation",
+      "note": "A relation name with no underscore that simply does not exist anywhere in the schema.",
+      "source": "VIS-05 oracle-probing pair (B1 stage 4)",
+      "pair": "unknown-relation-crosses-the-underscore-boundary"
+    },
+    {
+      "id": "oracle-relation-misspelled",
+      "sql": "SELECT * FROM customerss",
+      "expect_code": "unknown_relation",
+      "note": "A one-letter typo of the real 'customers' view; must be indistinguishable from a wholly made-up name.",
+      "source": "VIS-05 oracle-probing pair (B1 stage 4)",
+      "pair": "unknown-relation-crosses-the-underscore-boundary"
+    },
+    {
+      "id": "oracle-column-typo",
+      "sql": "SELECT nam FROM customers",
+      "expect_code": "unknown_column",
+      "note": "A one-letter typo of the real 'name' column on the whitelisted 'customers' view.",
+      "source": "VIS-05 oracle-probing pair (B1 stage 4)",
+      "pair": "column-typo-vs-madeup"
+    },
+    {
+      "id": "oracle-column-madeup",
+      "sql": "SELECT willingness_to_pay FROM customers",
+      "expect_code": "unknown_column",
+      "note": "CEO-Bench's own hidden-column name (ceo-sql.md _HIDDEN_COLUMNS); does not exist on our 'customers' view at all \u2014 probes whether a real-elsewhere-hidden name reads differently from a plain typo.",
+      "source": "VIS-05 oracle-probing pair (B1 stage 4)",
+      "pair": "column-typo-vs-madeup"
+    },
+    {
+      "id": "quote-bypass-calls",
+      "sql": "SELECT id FROM '_calls'",
+      "expect_code": "unknown_relation",
+      "note": "A single-quoted string literal in a relation position resolves to an identifier in SQLite; the leading-underscore ban must still catch it.",
+      "source": "quote-bypass regression battery"
+    },
+    {
+      "id": "quote-bypass-clock",
+      "sql": "SELECT current_time_ms FROM '_clock'",
+      "expect_code": "unknown_relation",
+      "note": "Same quote-bypass technique against the private clock row that the view time filter is bound to.",
+      "source": "quote-bypass regression battery"
+    },
+    {
+      "id": "quote-bypass-schema-qualified",
+      "sql": "SELECT id, name FROM main.'_customers'",
+      "expect_code": "unknown_relation",
+      "note": "Schema-qualifying the quote-bypass does not change the underlying identifier being read.",
+      "source": "quote-bypass regression battery"
+    },
+    {
+      "id": "quote-bypass-time-filter",
+      "sql": "SELECT id, name FROM '_customers' WHERE created_at > 1000000",
+      "expect_code": "unknown_relation",
+      "note": "Reading the base table directly would skip the view's created_at time filter and let the agent filter on raw created_at.",
+      "source": "quote-bypass regression battery"
+    },
+    {
+      "id": "quote-bypass-blob",
+      "sql": "SELECT id FROM x'5f63616c6c73'",
+      "expect_code": "unknown_relation",
+      "note": "A hex blob literal decodes to the private table name; the underscore ban applies to blob tokens too, before any real parse is attempted.",
+      "source": "quote-bypass regression battery"
+    },
+    {
+      "id": "wall-clock-date-now",
+      "sql": "SELECT date('now')",
+      "expect_code": "sql_not_permitted",
+      "note": "The 'now' modifier reads the real host wall clock, breaking the same-seed-and-actions repeatability promise.",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "wall-clock-datetime-now",
+      "sql": "SELECT datetime('now')",
+      "expect_code": "sql_not_permitted",
+      "note": "Same wall-clock concern as wall-clock-date-now, via datetime().",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "wall-clock-julianday-now",
+      "sql": "SELECT julianday('now')",
+      "expect_code": "sql_not_permitted",
+      "note": "Same wall-clock concern as wall-clock-date-now, via julianday().",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "wall-clock-strftime-now",
+      "sql": "SELECT strftime('%s','now')",
+      "expect_code": "sql_not_permitted",
+      "note": "Same wall-clock concern as wall-clock-date-now, via strftime() with a format argument alongside 'now'.",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "wall-clock-unixepoch-now",
+      "sql": "SELECT unixepoch('now')",
+      "expect_code": "sql_not_permitted",
+      "note": "Same wall-clock concern as wall-clock-date-now, via unixepoch() called directly rather than as a modifier.",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "wall-clock-date-empty",
+      "sql": "SELECT date()",
+      "expect_code": "sql_not_permitted",
+      "note": "date() with no timevalue argument defaults to 'now' in SQLite, reading the host wall clock.",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "wall-clock-datetime-empty",
+      "sql": "SELECT datetime()",
+      "expect_code": "sql_not_permitted",
+      "note": "Same wall-clock concern as wall-clock-date-empty, via datetime() called with zero arguments.",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "wall-clock-unixepoch-empty",
+      "sql": "SELECT unixepoch()",
+      "expect_code": "sql_not_permitted",
+      "note": "Same wall-clock concern as wall-clock-date-empty, via unixepoch() called with zero arguments.",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "wall-clock-strftime-format-only",
+      "sql": "SELECT strftime('%s')",
+      "expect_code": "sql_not_permitted",
+      "note": "strftime() with only a format string and no timevalue argument defaults the timevalue to 'now'.",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "wall-clock-timediff-now",
+      "sql": "SELECT timediff('now', '2000-01-01')",
+      "expect_code": "sql_not_permitted",
+      "note": "timediff() is agent-callable and was missing from the wall-clock function set, letting 'now' through as a literal argument.",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "wall-clock-concat-bypass",
+      "sql": "SELECT datetime('no'||'w')",
+      "expect_code": "sql_not_permitted",
+      "note": "String concatenation builds the literal 'now' at runtime, bypassing a check that only inspects string-literal argument tokens.",
+      "source": "wall-clock modifier regression battery"
+    },
+    {
+      "id": "random-via-cte",
+      "sql": "WITH foo AS (SELECT random() AS r) SELECT * FROM foo",
+      "expect_code": "sql_not_permitted",
+      "note": "random() is banned as an entropy source; wrapping the call in an agent-named CTE must not grant it a trigger_name that bypasses the function allow-list.",
+      "source": "M1 trigger_name-trust function regression"
+    },
+    {
+      "id": "randomblob-via-cte",
+      "sql": "WITH foo AS (SELECT randomblob(4) AS r) SELECT hex(r) FROM foo",
+      "expect_code": "sql_not_permitted",
+      "note": "Same trigger_name-trust concern as random-via-cte, via randomblob() instead of random().",
+      "source": "M1 trigger_name-trust function regression"
+    }
+  ]
+}

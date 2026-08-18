@@ -246,7 +246,10 @@ def _book_via_call(
     )
     body = json.loads(response)
     result = _ok(body)
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
     return call_id, result
 
 
@@ -647,7 +650,10 @@ def test_acknowledge_cancellation_cancels_frees_and_sets_job_status(tmp_path):
     )
     body = json.loads(response)
     result = _ok(body)
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
 
     assert result["call_id"] == cancellation_call_id
     assert result["outcome"] == "acknowledged"
@@ -713,7 +719,10 @@ def test_freed_block_is_immediately_rebookable(tmp_path):
         call_id=cancellation_call_id, artifact=controller.artifact,
     )
     _ok(json.loads(response))
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
 
     second_customer_id = _insert_customer(conn, _now_ms(conn))
     second_location_id = _insert_location(conn, _now_ms(conn), second_customer_id, catalog)
@@ -757,7 +766,10 @@ def test_acknowledge_cancellation_has_zero_propensity_competitor_and_rng_deltas(
         call_id=cancellation_call_id, artifact=controller.artifact,
     )
     _ok(json.loads(response))
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
 
     repeat_after = dict(
         conn.execute(
@@ -801,7 +813,10 @@ def test_acknowledge_cancellation_replay_is_byte_identical(tmp_path):
         call_id=cancellation_call_id, artifact=controller.artifact,
     )
     assert first == second
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
 
 
 def test_acknowledge_cancellation_rejects_a_new_job_call(tmp_path):
@@ -824,7 +839,10 @@ def test_acknowledge_cancellation_rejects_a_new_job_call(tmp_path):
     error = _err(json.loads(response))
     assert error["code"] == ErrorCode.STATE_ILLEGAL.value
     assert error["details"]["reason"] == "new_job_call"
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
 
 
 def test_acknowledge_cancellation_rejects_a_stale_call(tmp_path):
@@ -868,7 +886,10 @@ def test_acknowledge_cancellation_rejects_a_stale_call(tmp_path):
     error = _err(json.loads(response))
     assert error["code"] == ErrorCode.STATE_ILLEGAL.value
     assert error["details"]["reason"] == "call_not_active"
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
 
 
 def test_acknowledge_cancellation_rejects_an_already_terminal_call(tmp_path):
@@ -898,7 +919,10 @@ def test_acknowledge_cancellation_rejects_an_already_terminal_call(tmp_path):
     error = _err(json.loads(response))
     assert error["code"] == ErrorCode.STATE_ILLEGAL.value
     assert error["details"]["reason"] == "call_not_active"
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
 
 
 def test_post_dispatch_same_day_cancellation_replans_the_technician(tmp_path):
@@ -946,7 +970,10 @@ def test_post_dispatch_same_day_cancellation_replans_the_technician(tmp_path):
         call_id=cancellation_call_id, artifact=controller.artifact,
     )
     _ok(json.loads(response))
-    controller.invocations.complete(invocation_id, services=controller.services)
+    controller.invocations.complete(
+        invocation_id, request_id=_next_request_id("complete_invocation"),
+        services=controller.services,
+    )
 
     assert conn.execute(
         "SELECT status FROM _events WHERE kind = ? AND entity_id = ?",
