@@ -1,8 +1,13 @@
+<!-- prettier-ignore -->
+<div align="center">
+
 # Trades Bench
 
 *How good are LLMs at running a simulated home-services business?*
 
 [Quick start](#quick-start) • [Architecture](#architecture) • [Development](#development)
+
+</div>
 
 Trades Bench is a Python simulation engine for evaluating how AI agents operate a
 Phoenix-area HVAC, plumbing, and electrical home-services company. Agents handle structured
