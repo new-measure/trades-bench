@@ -325,7 +325,7 @@ def test_sql_after_open_session_returns_shaped_result(engine):
         "row_count": 1,
         "truncated": False,
     }
-    assert body["meta"].keys() == {"as_of", "invocation_id", "request_id", "spec_version"}
+    assert body["meta"].keys() == {"as_of", "invocation_id", "spec_version"}
 
 
 def test_sql_denied_statement_is_sql_error_shape(engine):
@@ -893,7 +893,7 @@ def test_health_server_header_has_no_interpreter_version(engine):
     status1, _, headers1 = _request(engine.port, "GET", "/v1/health")
     status2, _, headers2 = _request(engine.port, "GET", "/v1/health")
     assert status1 == status2 == 200
-    assert headers1["Server"] == "csr-bench-engine"
+    assert headers1["Server"] == "sunridge"
     assert "Python" not in headers1["Server"]
     assert not any(c.isdigit() for c in headers1["Server"])
     assert headers1["Server"] == headers2["Server"]
@@ -1092,7 +1092,10 @@ def test_stop_waits_for_in_flight_request_then_returns(tmp_path):
 
     t = threading.Thread(target=worker)
     t.start()
-    time.sleep(0.5)
+    gate_deadline = time.monotonic() + 5.0
+    while eng._gate.count() < 1 and time.monotonic() < gate_deadline:
+        time.sleep(0.01)
+    assert eng._gate.count() >= 1
 
     stop_start = time.monotonic()
     eng.stop()
@@ -1168,6 +1171,117 @@ def test_engine_rejects_non_loopback_host(tmp_path):
     try:
         with pytest.raises(ValueError):
             Engine(services=eng.services, config=eng.config, db_path=eng.db_path, host="0.0.0.0")
+    finally:
+        eng.stop()
+        conn.close()
+
+
+class _InterruptingConn:
+    def __init__(self, real):
+        self._real = real
+        self._handler = None
+
+    def set_progress_handler(self, handler, n):
+        self._handler = handler
+        self._real.set_progress_handler(handler, n)
+
+    def execute(self, *args, **kwargs):
+        if self._handler is not None:
+            self._handler()
+        raise sqlite3.OperationalError("interrupted")
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def test_interrupted_view_read_maps_to_deadline_exceeded_not_internal_error(engine, monkeypatch):
+    _open_call_session(engine.port, engine.tokens.control)
+
+    def force_fired(self):
+        self.fired = "deadline"
+        return 1
+
+    monkeypatch.setattr(http_engine._Watchdog, "progress_handler", force_fired)
+    monkeypatch.setattr(engine, "sql_conn", _InterruptingConn(engine.sql_conn))
+
+    status, body, _ = _request(
+        engine.port, "POST", "/v1/ops/crm.list_customers", token=engine.tokens.agent, body={}
+    )
+    assert status == 504
+    assert body["error"]["code"] == "deadline_exceeded"
+
+
+class _ProgressHandlerSpy:
+    def __init__(self, real):
+        self._real = real
+        self.installed_count = 0
+
+    def set_progress_handler(self, handler, n):
+        if handler is not None:
+            self.installed_count += 1
+        self._real.set_progress_handler(handler, n)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def test_weather_read_installs_a_watchdog(engine, monkeypatch):
+    _open_call_session(engine.port, engine.tokens.control, ts_ms=1_000_000)
+    today = clock.now_service_date(engine.services.conn)
+    spy = _ProgressHandlerSpy(engine.services.conn)
+    monkeypatch.setattr(engine.services, "conn", spy)
+
+    status, body, _ = _request(
+        engine.port,
+        "POST",
+        "/v1/ops/weather.get",
+        token=engine.tokens.agent,
+        body={"zone_id": 1, "date": today},
+    )
+    assert "meta" in body, body
+    assert spy.installed_count >= 1
+
+
+def test_maps_read_installs_a_watchdog(engine, monkeypatch):
+    _open_call_session(engine.port, engine.tokens.control, ts_ms=1_000_000)
+    spy = _ProgressHandlerSpy(engine.services.conn)
+    monkeypatch.setattr(engine.services, "conn", spy)
+
+    status, body, _ = _request(
+        engine.port,
+        "POST",
+        "/v1/ops/maps.distance",
+        token=engine.tokens.agent,
+        body={"origin_address": "123 Main St", "destination_address": "456 Oak Ave"},
+    )
+    assert status == 500
+    assert body["error"]["code"] == "internal_error"
+    assert spy.installed_count >= 1
+
+
+def test_pre_lock_as_of_reflects_committed_state_not_a_mid_transaction_write(tmp_path):
+    from csr_bench import db as db_module
+
+    eng, conn = _build_engine(tmp_path / "prelock-asof")
+    eng.start()
+    try:
+        _open_call_session(eng.port, eng.tokens.control, ts_ms=2_000_000)
+        committed = clock.to_iso8601(clock.now(eng.services.conn))
+
+        db_module.begin(eng.services.conn)
+        clock.advance(eng.services.conn, 9_000_000)
+        try:
+            status, body, _ = _request(eng.port, "POST", "/v1/does-not-exist")
+            assert status == 404
+            assert body["meta"]["as_of"] == committed
+
+            status, body, _ = _request(
+                eng.port, "POST", "/v1/sql", token="not-a-real-token", body={"sql": "SELECT 1"}
+            )
+            assert status == 401
+            assert body["meta"]["as_of"] == committed
+        finally:
+            db_module.rollback(eng.services.conn)
     finally:
         eng.stop()
         conn.close()

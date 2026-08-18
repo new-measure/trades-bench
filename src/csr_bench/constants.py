@@ -5,6 +5,7 @@ from typing import Any
 ConstantEntry = tuple[str, str, Any, dict[str, Any]]
 
 PHOENIX_TIMEZONE: str = "America/Phoenix"
+PHOENIX_SQLITE_UTC_OFFSET: str = "-7 hours"
 
 ZONE_NAMES: tuple[str, ...] = (
     "Central Phoenix",

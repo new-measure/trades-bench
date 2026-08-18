@@ -61,6 +61,10 @@ def _run_status(conn: sqlite3.Connection) -> RunStatus:
     return RunStatus(row["status"])
 
 
+def run_status(conn: sqlite3.Connection) -> RunStatus:
+    return _run_status(conn)
+
+
 def fingerprint(operation: str, args: Mapping[str, object]) -> str:
     canonical = json.dumps(
         {"operation": operation, "args": args}, sort_keys=True, separators=(",", ":")
@@ -300,4 +304,5 @@ __all__ = [
     "privileged",
     "privileged_request_id",
     "privileged_with_replay",
+    "run_status",
 ]

@@ -46,6 +46,10 @@ def _state_illegal(reason: str, message: str, **details: object) -> EngineError:
     return EngineError(ErrorCode.STATE_ILLEGAL, message, details={"reason": reason, **details})
 
 
+def _validation_error(rule: str, field: str, message: str) -> EngineError:
+    return EngineError(ErrorCode.INVALID_ARGUMENT, message, details={"field": field, "rule": rule})
+
+
 def _call_row(conn: sqlite3.Connection, call_id: int) -> sqlite3.Row:
     row = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
     if row is None:
@@ -62,8 +66,8 @@ def validate_reservation_shape(scheduled_blocks: int, block_codes: tuple[str, ..
         )
     for code in block_codes:
         if code not in BLOCK_CODES:
-            raise _state_illegal(
-                "grid_violation", f"unknown block_code {code!r}", block_code=code
+            raise _validation_error(
+                "block_alignment", "block_start", f"unknown block_code {code!r}"
             )
     if scheduled_blocks == 1:
         return
@@ -91,10 +95,8 @@ def validate_reservation_shape(scheduled_blocks: int, block_codes: tuple[str, ..
 
 def _derive_reservation_blocks(scheduled_blocks: int, first_block_code: str) -> tuple[str, ...]:
     if first_block_code not in BLOCK_CODES:
-        raise _state_illegal(
-            "grid_violation",
-            f"unknown block_code {first_block_code!r}",
-            block_code=first_block_code,
+        raise _validation_error(
+            "block_alignment", "block_start", f"unknown block_code {first_block_code!r}"
         )
     start_index = BLOCK_CODES.index(first_block_code)
     end_index = start_index + scheduled_blocks
@@ -183,6 +185,7 @@ def _check_not_locked(
     block_code: str,
     *,
     appointment_id: int | None,
+    reason: str = "locked_appointment",
 ) -> None:
     locked = conn.execute(
         "SELECT 1 FROM _block_locks WHERE service_date = ? AND block_code = ?",
@@ -198,7 +201,7 @@ def _check_not_locked(
                 "and cannot be reassigned"
             )
             detail["appointment_id"] = appointment_id
-        raise _state_illegal("locked_appointment", message, **detail)
+        raise _state_illegal(reason, message, **detail)
 
 
 def _check_overlap(
@@ -505,7 +508,8 @@ def assign(
     service_date = clock.service_date_for_ms(int(first_block["block_start"]))
 
     _check_not_locked(
-        conn, service_date, first_block["block_code"], appointment_id=appointment_id
+        conn, service_date, first_block["block_code"],
+        appointment_id=appointment_id, reason="appointment_locked",
     )
 
     job_type_id = int(

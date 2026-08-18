@@ -723,8 +723,9 @@ def test_failed_terminal_action_writes_no_resolved_row(tmp_path):
         job_type_id=1, service_date=START_DATE, block_start="99:99", technician_id=1,
     )
     err = _err(json.loads(response))
-    assert err["code"] == "state_illegal"
-    assert err["details"]["reason"] == "grid_violation"
+    assert err["code"] == "invalid_argument"
+    assert err["details"]["rule"] == "block_alignment"
+    assert err["details"]["field"] == "block_start"
 
     rows = _attempt_rows(conn, call_id)
     assert [(r["attempt_number"], r["outcome"]) for r in rows] == [(1, "incomplete")]

@@ -25,6 +25,10 @@ def _state_illegal(reason: str, message: str, **details: object) -> EngineError:
     return EngineError(ErrorCode.STATE_ILLEGAL, message, details={"reason": reason, **details})
 
 
+def _validation_error(rule: str, field: str, message: str) -> EngineError:
+    return EngineError(ErrorCode.INVALID_ARGUMENT, message, details={"field": field, "rule": rule})
+
+
 def _call_row(conn: sqlite3.Connection, call_id: int) -> sqlite3.Row:
     row = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
     if row is None:
@@ -200,8 +204,9 @@ def book(
 
     first_block_code = _BLOCK_START_BY_LABEL.get(block_start)
     if first_block_code is None:
-        raise _state_illegal(
-            "grid_violation", f"block_start {block_start!r} is not a valid grid start"
+        raise _validation_error(
+            "block_alignment", "block_start",
+            f"block_start {block_start!r} is not a valid grid start",
         )
 
     plan = appointments.validate_booking(

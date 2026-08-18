@@ -14,13 +14,24 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import clock
+from . import appointments, booking, calls, clock, crm, db
 from .config import RunConfig
-from .enums import InvocationType
+from .enums import InvocationType, RunStatus
 from .errors import EngineError, ErrorCode, ok_response
+from .geo_reader import GeoArtifact
+from .ops_read import (
+    execute_maps,
+    execute_view_get,
+    execute_view_list,
+    execute_view_singleton,
+    execute_weather,
+    validate_operation_args,
+)
+from .registry import OPERATIONS_BY_NAME, OperationSpec
 from .sql_gate import open_agent_session
 from .sql_static import SqlRejected, check_static, open_shadow_connection, validate_relations
-from .txn import Services, is_reserved
+from .txn import Services, command_with_replay, is_reserved
+from .txn import run_status as _txn_run_status
 from .wire import (
     WireCode,
     build_failure_envelope,
@@ -32,8 +43,13 @@ from .wire import (
 
 _HEALTH_PATH = "/v1/health"
 _SQL_PATH = "/v1/sql"
+_OPS_PREFIX = "/v1/ops/"
 _CONTROL_PREFIX = "/v1/control/"
 _HEALTH_BODY = json.dumps({"ok": True}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+SUNRIDGE_API_PORT_ENV = "SUNRIDGE_API_PORT"
+SUNRIDGE_API_TOKEN_ENV = "SUNRIDGE_API_TOKEN"
+SUNRIDGE_WORKSPACE_ENV = "SUNRIDGE_WORKSPACE"
 
 _MAX_BODY_BYTES = 1_000_000
 _WATCHDOG_OPCODE_INTERVAL = 2000
@@ -45,6 +61,170 @@ _LOOPBACK_HOST = "127.0.0.1"
 
 _CONTROL_OPERATIONS = frozenset({"next_invocation", "complete_invocation"})
 _INVOCATION_TYPES = {member.value: member for member in InvocationType}
+
+
+def _mutation_fingerprint_args(args: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in args.items() if key != "request_id"}
+
+
+def _dispatch_mutation(
+    engine: Engine,
+    request_id: str,
+    args: dict[str, object],
+    *,
+    spec: OperationSpec,
+    run: object,
+) -> tuple[bytes, bool]:
+    return command_with_replay(
+        engine.services,
+        request_id,
+        lambda ctx: run(ctx, engine, args),
+        operation=spec.name,
+        args=_mutation_fingerprint_args(args),
+    )
+
+
+_CRM_CREATE_CUSTOMER_SPEC = OPERATIONS_BY_NAME["crm.create_customer"]
+_CRM_CREATE_LOCATION_SPEC = OPERATIONS_BY_NAME["crm.create_location"]
+_CALLS_REJECT_SPEC = OPERATIONS_BY_NAME["calls.reject"]
+_JOBS_BOOK_SPEC = OPERATIONS_BY_NAME["jobs.book"]
+_DISPATCH_ASSIGN_SPEC = OPERATIONS_BY_NAME["dispatch.assign"]
+_APPOINTMENTS_ACKNOWLEDGE_CANCELLATION_SPEC = OPERATIONS_BY_NAME[
+    "appointments.acknowledge_cancellation"
+]
+
+
+def _dispatch_crm_create_customer(
+    engine: Engine, request_id: str, args: dict[str, object]
+) -> tuple[bytes, bool]:
+    return _dispatch_mutation(
+        engine,
+        request_id,
+        args,
+        spec=_CRM_CREATE_CUSTOMER_SPEC,
+        run=lambda ctx, engine, args: crm.create_customer(
+            ctx,
+            engine.config,
+            call_id=int(args["call_id"]),
+            name=str(args["name"]),
+            segment=str(args["segment"]),
+            contacts=args["contacts"],
+        ),
+    )
+
+
+def _dispatch_crm_create_location(
+    engine: Engine, request_id: str, args: dict[str, object]
+) -> tuple[bytes, bool]:
+    return _dispatch_mutation(
+        engine,
+        request_id,
+        args,
+        spec=_CRM_CREATE_LOCATION_SPEC,
+        run=lambda ctx, engine, args: crm.create_location(
+            ctx,
+            engine.config,
+            call_id=int(args["call_id"]),
+            customer_id=int(args["customer_id"]),
+            address=str(args["address"]),
+            contacts=args.get("contacts"),
+            artifact=engine.artifact,
+        ),
+    )
+
+
+def _dispatch_calls_reject(
+    engine: Engine, request_id: str, args: dict[str, object]
+) -> tuple[bytes, bool]:
+    return _dispatch_mutation(
+        engine,
+        request_id,
+        args,
+        spec=_CALLS_REJECT_SPEC,
+        run=lambda ctx, engine, args: calls.reject(
+            ctx, engine.config, call_id=int(args["call_id"])
+        ),
+    )
+
+
+def _dispatch_jobs_book(
+    engine: Engine, request_id: str, args: dict[str, object]
+) -> tuple[bytes, bool]:
+    return _dispatch_mutation(
+        engine,
+        request_id,
+        args,
+        spec=_JOBS_BOOK_SPEC,
+        run=lambda ctx, engine, args: booking.book(
+            ctx,
+            engine.config,
+            call_id=int(args["call_id"]),
+            customer_id=int(args["customer_id"]),
+            location_id=int(args["location_id"]),
+            job_type_id=int(args["job_type_id"]),
+            service_date=str(args["service_date"]),
+            block_start=str(args["block_start"]),
+            technician_id=int(args["technician_id"]),
+            artifact=engine.artifact,
+        ),
+    )
+
+
+def _dispatch_dispatch_assign(
+    engine: Engine, request_id: str, args: dict[str, object]
+) -> tuple[bytes, bool]:
+    return _dispatch_mutation(
+        engine,
+        request_id,
+        args,
+        spec=_DISPATCH_ASSIGN_SPEC,
+        run=lambda ctx, engine, args: appointments.assign(
+            ctx,
+            engine.config,
+            appointment_id=int(args["appointment_id"]),
+            technician_id=int(args["technician_id"]),
+            artifact=engine.artifact,
+        ),
+    )
+
+
+def _dispatch_appointments_acknowledge_cancellation(
+    engine: Engine, request_id: str, args: dict[str, object]
+) -> tuple[bytes, bool]:
+    return _dispatch_mutation(
+        engine,
+        request_id,
+        args,
+        spec=_APPOINTMENTS_ACKNOWLEDGE_CANCELLATION_SPEC,
+        run=lambda ctx, engine, args: appointments.acknowledge_cancellation(
+            ctx,
+            engine.config,
+            call_id=int(args["call_id"]),
+            artifact=engine.artifact,
+        ),
+    )
+
+
+_MUTATION_DISPATCH: dict[str, object] = {
+    _CRM_CREATE_CUSTOMER_SPEC.name: _dispatch_crm_create_customer,
+    _CRM_CREATE_LOCATION_SPEC.name: _dispatch_crm_create_location,
+    _CALLS_REJECT_SPEC.name: _dispatch_calls_reject,
+    _JOBS_BOOK_SPEC.name: _dispatch_jobs_book,
+    _DISPATCH_ASSIGN_SPEC.name: _dispatch_dispatch_assign,
+    _APPOINTMENTS_ACKNOWLEDGE_CANCELLATION_SPEC.name: (
+        _dispatch_appointments_acknowledge_cancellation
+    ),
+}
+
+_REGISTRY_MUTATION_NAMES = frozenset(
+    spec.name for spec in OPERATIONS_BY_NAME.values() if spec.mutation
+)
+if set(_MUTATION_DISPATCH) != _REGISTRY_MUTATION_NAMES:
+    raise AssertionError(
+        "mutation dispatch table does not match the registry's mutation operations: "
+        f"missing={sorted(_REGISTRY_MUTATION_NAMES - set(_MUTATION_DISPATCH))} "
+        f"extra={sorted(set(_MUTATION_DISPATCH) - _REGISTRY_MUTATION_NAMES)}"
+    )
 
 
 def open_engine_connection(path: str | Path) -> sqlite3.Connection:
@@ -222,6 +402,7 @@ class Engine:
         config: RunConfig,
         db_path: str | Path,
         host: str = "127.0.0.1",
+        artifact: GeoArtifact | None = None,
     ) -> None:
         if host != _LOOPBACK_HOST:
             raise ValueError(f"engine must bind to {_LOOPBACK_HOST} only, got {host!r}")
@@ -229,6 +410,7 @@ class Engine:
         self.config = config
         self.db_path = str(db_path)
         self.host = host
+        self.artifact = artifact
         self.tokens = Tokens.generate()
         self.request_deadline_seconds = config.get_int("interface.request_deadline_seconds")
         self.lock_acquire_timeout_seconds = config.get_int("interface.lock_acquire_timeout_seconds")
@@ -253,9 +435,12 @@ class Engine:
         self._as_of_fallback = value
         return value
 
+    def committed_as_of(self) -> str:
+        return self._as_of_fallback
+
     def _native_response(self, wire_code: WireCode, *, details: dict | None = None) -> tuple[int, bytes]:
         translated = native_failure(wire_code, details=details)
-        return translated.status, build_failure_envelope(translated, as_of=self.current_as_of())
+        return translated.status, build_failure_envelope(translated, as_of=self.committed_as_of())
 
     @property
     def port(self) -> int:
@@ -311,7 +496,7 @@ class Engine:
 class _Handler(BaseHTTPRequestHandler):
 
     protocol_version = "HTTP/1.1"
-    server_version = "csr-bench-engine"
+    server_version = "sunridge"
     timeout = _HANDLER_SOCKET_TIMEOUT_SECONDS
 
     def log_message(self, format: str, *args: object) -> None:
@@ -376,6 +561,9 @@ class _Handler(BaseHTTPRequestHandler):
         if path == _SQL_PATH:
             route_kind: str | None = "sql"
             operation = None
+        elif path.startswith(_OPS_PREFIX) and len(path) > len(_OPS_PREFIX):
+            route_kind = "ops"
+            operation = path[len(_OPS_PREFIX):]
         elif path.startswith(_CONTROL_PREFIX) and len(path) > len(_CONTROL_PREFIX):
             route_kind = "control"
             operation = path[len(_CONTROL_PREFIX):]
@@ -416,6 +604,8 @@ class _Handler(BaseHTTPRequestHandler):
 
         if route_kind == "control":
             self._handle_control(operation, body, deadline_at)
+        elif route_kind == "ops":
+            self._handle_ops(operation, body, deadline_at)
         else:
             self._handle_sql(body, deadline_at)
 
@@ -476,10 +666,14 @@ class _Handler(BaseHTTPRequestHandler):
             engine._gate.leave()
         self._write(status, payload, replay=replayed)
 
-    def _extract_request_id(self, body: dict) -> tuple[str | None, bool]:
+    def _extract_request_id(
+        self, body: dict, *, mint_if_absent: bool = True
+    ) -> tuple[str | None, bool]:
         raw = body.get("request_id")
         if raw is None:
-            return uuid.uuid4().hex, True
+            if mint_if_absent:
+                return uuid.uuid4().hex, True
+            return None, True
         if not isinstance(raw, str):
             return None, False
         max_chars = self.engine.config.get_int("interface.error_echo_max_chars")
@@ -575,6 +769,225 @@ class _Handler(BaseHTTPRequestHandler):
             conn.set_progress_handler(None, 0)
         return response, invocation_id, watchdog.fired, replayed
 
+    def _resolve_operation(self, operation_path: str) -> OperationSpec | None:
+        if "." not in operation_path:
+            return None
+        namespace, _, operation = operation_path.partition(".")
+        if not namespace or not operation:
+            return None
+        spec = OPERATIONS_BY_NAME.get(operation_path)
+        if spec is None:
+            return None
+        if spec.namespace != namespace or spec.operation != operation:
+            return None
+        return spec
+
+    def _handle_ops(self, operation_path: str, body: dict, deadline_at: float) -> None:
+        engine = self.engine
+        spec = self._resolve_operation(operation_path)
+        if spec is None:
+            self._respond_unknown_route()
+            return
+        if engine._shutting_down:
+            self._respond_native(WireCode.ENGINE_BUSY)
+            return
+        if not engine._gate.try_enter():
+            self._respond_native(WireCode.ENGINE_BUSY)
+            return
+        if not engine._lock.acquire(engine.lock_acquire_timeout_seconds):
+            engine._gate.leave()
+            self._respond_native(WireCode.ENGINE_BUSY)
+            return
+        try:
+            status, payload, replay = self._compute_ops_result(spec, body, deadline_at)
+        finally:
+            engine._lock.release()
+            engine._gate.leave()
+        self._write(status, payload, replay=replay)
+
+    def _compute_ops_result(
+        self, spec: OperationSpec, body: dict, deadline_at: float
+    ) -> tuple[int, bytes, bool]:
+        engine = self.engine
+        if time.monotonic() >= deadline_at:
+            translated = native_failure(WireCode.DEADLINE_EXCEEDED)
+            return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of()), False
+
+        if _txn_run_status(engine.services.conn) is not RunStatus.ACTIVE:
+            translated = native_failure(WireCode.RUN_NOT_ACTIVE)
+            return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of()), False
+
+        active = engine.services.invocations.active()
+        if active is None:
+            translated = native_failure(WireCode.NO_ACTIVE_SESSION)
+            return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of()), False
+        invocation_id = int(active["invocation_id"])
+
+        if spec.kind == "mutation":
+            request_id, request_id_ok = self._extract_request_id(body, mint_if_absent=True)
+        else:
+            request_id, request_id_ok = self._extract_request_id(body, mint_if_absent=False)
+        if not request_id_ok:
+            translated = native_failure(WireCode.INVALID_REQUEST, details={"field": "request_id"})
+            return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of()), False
+
+        as_of = engine.current_as_of()
+        arg_body = body
+        if spec.kind == "read":
+            arg_body = {key: value for key, value in body.items() if key != "request_id"}
+        try:
+            if spec.kind == "mutation":
+                engine_bytes, replayed = self._execute_mutation(
+                    spec, arg_body, request_id, deadline_at
+                )
+                envelope, status = wire_response_for(
+                    engine_bytes,
+                    as_of=as_of,
+                    invocation_id=invocation_id,
+                    request_id=request_id,
+                    operation=spec.name,
+                )
+                return status, envelope, replayed
+            data, next_cursor = self._execute_read(spec, arg_body, deadline_at)
+        except EngineError as exc:
+            translated = translate_error(
+                exc.code,
+                exc.details,
+                request_id=request_id or "",
+                operation=spec.name,
+            )
+            return translated.status, build_failure_envelope(translated, as_of=as_of), False
+        except SqlRejected as exc:
+            translated = native_failure(exc.wire_code)
+            return translated.status, build_failure_envelope(translated, as_of=as_of), False
+        except _DeadlineHit:
+            translated = native_failure(WireCode.DEADLINE_EXCEEDED)
+            return translated.status, build_failure_envelope(translated, as_of=as_of), False
+        except _SqlTimeout:
+            translated = native_failure(WireCode.SQL_TIMEOUT)
+            return translated.status, build_failure_envelope(translated, as_of=as_of), False
+        except _ClientGone:
+            translated = native_failure(WireCode.DEADLINE_EXCEEDED)
+            return translated.status, build_failure_envelope(translated, as_of=as_of), False
+
+        envelope = build_success_envelope(
+            data,
+            as_of=as_of,
+            invocation_id=invocation_id,
+            request_id=request_id,
+            next_cursor=next_cursor,
+        )
+        return 200, envelope, False
+
+    def _execute_read(
+        self, spec: OperationSpec, body: dict, deadline_at: float
+    ) -> tuple[object, str | None]:
+        engine = self.engine
+        args = validate_operation_args(spec, body)
+        read = spec.read
+        assert read is not None
+        if read.kind == "sql":
+            statement = args["statement"]
+            if not isinstance(statement, str) or not statement.strip():
+                raise EngineError(ErrorCode.INVALID_ARGUMENT, "statement must be a non-empty string")
+            max_rows_param = args.get("max_rows")
+            if max_rows_param is not None:
+                max_rows, ok = self._validate_max_rows(max_rows_param)
+                if not ok:
+                    raise EngineError(
+                        ErrorCode.INVALID_ARGUMENT,
+                        "max_rows must be a non-negative integer",
+                        details={"field": "max_rows"},
+                    )
+            else:
+                max_rows = None
+            return self._run_sql(str(statement), max_rows, deadline_at), None
+        if read.kind == "weather":
+            conn = engine.services.conn
+
+            def _do_weather() -> dict:
+                db.begin(conn)
+                engine.services.rng.enter_txn()
+                try:
+                    data = execute_weather(
+                        conn, engine.config, engine.services.rng, args
+                    )
+                except BaseException:
+                    engine.services.rng.exit_txn()
+                    db.rollback(conn)
+                    raise
+                engine.services.rng.exit_txn()
+                db.rollback(conn)
+                return data
+
+            return self._run_with_watchdog(conn, deadline_at, _do_weather), None
+        if read.kind == "maps":
+            conn = engine.services.conn
+            return self._run_with_watchdog(
+                conn,
+                deadline_at,
+                lambda: execute_maps(conn, engine.config, engine.artifact, args),
+            ), None
+        if read.kind == "view_get":
+            return self._run_agent_read(
+                deadline_at,
+                lambda conn: execute_view_get(conn, spec, args),
+            ), None
+        if read.kind == "view_singleton":
+            return self._run_agent_read(
+                deadline_at,
+                lambda conn: execute_view_singleton(conn, spec),
+            ), None
+        if read.kind == "view_list":
+            data, next_cursor = self._run_agent_read(
+                deadline_at,
+                lambda conn: execute_view_list(conn, engine.config, spec, args),
+            )
+            return data, next_cursor
+        raise EngineError(ErrorCode.INVARIANT_VIOLATED, f"unsupported read kind {read.kind!r}")
+
+    def _run_with_watchdog(
+        self, conn: sqlite3.Connection, deadline_at: float, fn: object
+    ) -> object:
+        watchdog = _Watchdog(deadline_at=deadline_at, sql_timeout_at=None, sock=self.connection)
+        conn.set_progress_handler(watchdog.progress_handler, _WATCHDOG_OPCODE_INTERVAL)
+        try:
+            result = fn()
+        except sqlite3.Error:
+            _raise_for_watchdog(watchdog)
+            raise
+        finally:
+            conn.set_progress_handler(None, 0)
+        if watchdog.fired in ("deadline", "disconnected"):
+            raise _DeadlineHit() from None
+        return result
+
+    def _run_agent_read(self, deadline_at: float, fn: object) -> object:
+        engine = self.engine
+        return self._run_with_watchdog(engine.sql_conn, deadline_at, lambda: fn(engine.sql_conn))
+
+    def _execute_mutation(
+        self, spec: OperationSpec, body: dict, request_id: str, deadline_at: float
+    ) -> tuple[bytes, bool]:
+        engine = self.engine
+        args = validate_operation_args(spec, body)
+        conn = engine.services.conn
+        watchdog = _Watchdog(deadline_at=deadline_at, sql_timeout_at=None, sock=self.connection)
+        conn.set_progress_handler(watchdog.progress_handler, _WATCHDOG_OPCODE_INTERVAL)
+        try:
+            dispatch = _MUTATION_DISPATCH.get(spec.name)
+            if dispatch is None:
+                raise EngineError(
+                    ErrorCode.INVARIANT_VIOLATED,
+                    f"no mutation dispatch for {spec.name!r}",
+                )
+            response, replayed = dispatch(engine, request_id, args)
+        finally:
+            conn.set_progress_handler(None, 0)
+        if watchdog.fired in ("deadline", "disconnected"):
+            raise _DeadlineHit() from None
+        return response, replayed
+
     def _handle_sql(self, body: dict, deadline_at: float) -> None:
         engine = self.engine
         if engine._shutting_down:
@@ -609,13 +1022,17 @@ class _Handler(BaseHTTPRequestHandler):
             translated = native_failure(WireCode.DEADLINE_EXCEEDED)
             return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of())
 
+        if _txn_run_status(engine.services.conn) is not RunStatus.ACTIVE:
+            translated = native_failure(WireCode.RUN_NOT_ACTIVE)
+            return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of())
+
         active = engine.services.invocations.active()
         if active is None:
             translated = native_failure(WireCode.NO_ACTIVE_SESSION)
             return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of())
         invocation_id = int(active["invocation_id"])
 
-        request_id, request_id_ok = self._extract_request_id(body)
+        request_id, request_id_ok = self._extract_request_id(body, mint_if_absent=False)
         if not request_id_ok:
             translated = native_failure(WireCode.INVALID_REQUEST, details={"field": "request_id"})
             return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of())
@@ -729,7 +1146,7 @@ class _Handler(BaseHTTPRequestHandler):
         request_id = uuid.uuid4().hex
         translated = translate_error(ErrorCode.UNEXPECTED_FAILURE, None, request_id=request_id)
         try:
-            as_of = self.engine.current_as_of()
+            as_of = self.engine.committed_as_of()
         except Exception:
             as_of = ""
         body = build_failure_envelope(translated, as_of=as_of)
@@ -738,6 +1155,9 @@ class _Handler(BaseHTTPRequestHandler):
 
 __all__ = [
     "Engine",
+    "SUNRIDGE_API_PORT_ENV",
+    "SUNRIDGE_API_TOKEN_ENV",
+    "SUNRIDGE_WORKSPACE_ENV",
     "Tokens",
     "open_engine_connection",
 ]

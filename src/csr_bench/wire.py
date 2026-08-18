@@ -108,7 +108,7 @@ _CONFLICT_RULE_CODES: frozenset[ErrorCode] = frozenset(
 )
 
 _VALIDATION_RULE_BY_ENGINE_CODE: Mapping[ErrorCode, str] = {
-    ErrorCode.ADDRESS_UNRESOLVABLE: "address_unresolvable",
+    ErrorCode.ADDRESS_UNRESOLVABLE: "address_not_resolvable",
 }
 
 _INVOCATION_ALREADY_ACTIVE_REASON = "invocation_already_active"
@@ -160,6 +160,16 @@ def translate_error(
         details = {"rule": _INVOCATION_ALREADY_ACTIVE_REASON}
     elif engine_code in _VALIDATION_RULE_BY_ENGINE_CODE:
         details = {"rule": _VALIDATION_RULE_BY_ENGINE_CODE[engine_code]}
+    elif engine_code is ErrorCode.INVALID_ARGUMENT:
+        rule = engine_details.get("rule")
+        if rule:
+            wire_code = WireCode.VALIDATION_ERROR
+            details = {"rule": str(rule)}
+            field = engine_details.get("field")
+            if field:
+                details["field"] = str(field)
+        elif engine_details.get("field"):
+            details = {"field": str(engine_details["field"])}
     elif wire_code is WireCode.INSUFFICIENT_CASH and operation:
         details = {"operation": operation}
     if wire_code is WireCode.UNAUTHORIZED:
@@ -198,16 +208,21 @@ def build_success_envelope(
     *,
     as_of: str,
     invocation_id: int | None,
-    request_id: str,
+    request_id: str | None = None,
+    next_cursor: str | None = None,
 ) -> bytes:
+    meta: dict[str, Any] = {
+        "as_of": as_of,
+        "invocation_id": invocation_id,
+        "spec_version": SPEC_VERSION,
+    }
+    if request_id is not None:
+        meta["request_id"] = request_id
+    if next_cursor is not None:
+        meta["next_cursor"] = next_cursor
     body = {
         "data": data,
-        "meta": {
-            "as_of": as_of,
-            "invocation_id": invocation_id,
-            "request_id": request_id,
-            "spec_version": SPEC_VERSION,
-        },
+        "meta": meta,
     }
     return json.dumps(_coerce_non_finite_floats(body), sort_keys=True, separators=(",", ":")).encode(
         "utf-8"
@@ -240,6 +255,7 @@ def wire_response_for(
     as_of: str,
     invocation_id: int | None,
     request_id: str,
+    operation: str | None = None,
 ) -> tuple[bytes, int]:
     ok, payload = parse_engine_response(response)
     if ok:
@@ -248,7 +264,9 @@ def wire_response_for(
         )
         return envelope, 200
     engine_code, engine_details = payload
-    translated = translate_error(engine_code, engine_details, request_id=request_id)
+    translated = translate_error(
+        engine_code, engine_details, request_id=request_id, operation=operation
+    )
     return build_failure_envelope(translated, as_of=as_of), translated.status
 
 

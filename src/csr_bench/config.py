@@ -1450,6 +1450,26 @@ _DOMAIN_ENTRIES: list[Any] = [
             "structured error's details.",
         },
     ),
+    (
+        "interface.list_default_page_size",
+        "int",
+        50,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "description": "Default page size for registry list reads.",
+        },
+    ),
+    (
+        "interface.list_max_page_size",
+        "int",
+        200,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "description": "Maximum page size for registry list reads.",
+        },
+    ),
 ]
 
 

@@ -42,7 +42,8 @@ def resolve_catalog(
     normalized = address.normalize(address_text, abbreviation_table)
     row = conn.execute(
         "SELECT id, house_number, street, city, state, postal_code, latitude, longitude, "
-        "zone_id, effective_zone_id FROM _address_catalog WHERE canonical_key = ?",
+        "zone_id, effective_zone_id FROM _address_catalog "
+        "WHERE canonical_key = ? AND status = 'usable'",
         (normalized.canonical_key,),
     ).fetchone()
     if row is None:

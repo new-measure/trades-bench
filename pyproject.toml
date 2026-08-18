@@ -1,13 +1,11 @@
 [project]
-name = "csr-bench"
+name = "trades-bench"
 version = "0.1.0"
-description = "CSR-Bench — deterministic home-services business simulation engine"
+description = "Trades Bench - home services business simulation engine"
 readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "MIT" }
-authors = [{ name = "CSR-Bench" }]
-# Zero runtime dependencies: stdlib only (hashlib, sqlite3, json, decimal,
-# zoneinfo, uuid). Deterministic everything; no third-party RNG / money libs.
+authors = [{ name = "Trades Bench" }]
 dependencies = []
 
 [dependency-groups]
@@ -16,13 +14,6 @@ dev = [
     "hypothesis>=6",
     "ruff>=0.8",
 ]
-# CSR-003b build-time-only geography pipeline (`tools/geo_build/`). Never a
-# runtime dependency of `src/csr_bench` and never installed by a plain
-# `uv run pytest` (not a default group) — install explicitly with
-# `uv sync --group geo` before running the geo-marked tests. Every geo test
-# module starts with `pytest.importorskip("osmium")` /
-# `importorskip("shapely")` so the default suite still collects and passes
-# without this group installed.
 geo = [
     "osmium>=4.3.1",
     "shapely>=2.1.2",
@@ -37,24 +28,14 @@ packages = ["src/csr_bench"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# CSR-003 decision 8: Docker-dependent tests are opt-in. The default run
-# deselects them, so `uv run pytest` stays Python-only; select them
-# explicitly with `uv run --group geo pytest -m docker` (a later `-m` on the
-# command line overrides the one here). AGENTS.md records that the marked
-# suite must pass before merging any pipeline change.
 addopts = "-ra -m 'not docker and not nightly'"
 markers = [
-    "docker: needs a running Docker daemon and pulls the digest-pinned OSRM image (CSR-003 decision 8)",
+    "docker: needs a running Docker daemon and pulls the digest-pinned OSRM image; opt in with `uv run --group geo pytest -m docker`",
     "nightly: slow exhaustive sweeps (every resume boundary of the full window); run on the nightly schedule with `uv run pytest -m nightly`",
 ]
-# `tools/` holds CSR-003b's build-time-only `geo_build` package (never a
-# runtime dependency of csr_bench, never packaged in the wheel — see
-# `tools/geo_build/__init__.py`). Adding it to pythonpath lets tests
-# `import geo_build` without an editable install of a second package.
 pythonpath = ["tools"]
 filterwarnings = [
     "error",
-    # zoneinfo may emit an un-pytz deprecation-free path; ignore none here.
 ]
 
 [tool.ruff]
@@ -65,13 +46,10 @@ src = ["src", "tests", "tools"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "C4"]
 ignore = [
-    "E501",   # line length is checked by formatter
-    "B008",   # function-call defaults (used for guarded inits)
+    "E501",
+    "B008",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["B011"]  # assert False / assertTrue-identity acceptable in tests
-# geo test modules gate their `geo_build`/`osmium`/`shapely` imports behind
-# `pytest.importorskip(...)` so the default (non-`geo`-group) suite still
-# collects; that necessarily puts imports after a statement.
+"tests/*" = ["B011"]
 "tests/test_geo_*.py" = ["E402"]

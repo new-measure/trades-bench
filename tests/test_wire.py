@@ -142,7 +142,7 @@ def test_address_unresolvable_maps_to_validation_error_with_a_closed_rule():
         request_id="req.1",
     )
     assert translated.wire_code is WireCode.VALIDATION_ERROR
-    assert translated.details == {"rule": "address_unresolvable"}
+    assert translated.details == {"rule": "address_not_resolvable"}
     assert "canonical_key" not in translated.details
     assert "1600 pennsylvania" not in json.dumps(translated.details)
 
@@ -155,9 +155,9 @@ def test_insufficient_cash_never_carries_priced_detail():
 
 def test_insufficient_cash_carries_operation_only_when_supplied():
     with_operation = translate_error(
-        ErrorCode.INSUFFICIENT_CASH, {}, request_id="req.1", operation="workforce.hire"
+        ErrorCode.INSUFFICIENT_CASH, {}, request_id="req.1", operation="jobs.book"
     )
-    assert with_operation.details == {"operation": "workforce.hire"}
+    assert with_operation.details == {"operation": "jobs.book"}
 
     without_operation = translate_error(ErrorCode.INSUFFICIENT_CASH, {}, request_id="req.1")
     assert without_operation.details == {}
@@ -204,6 +204,14 @@ def test_engine_config_and_registry_faults_map_to_internal_error():
         translated = translate_error(code, {"path": "some/internal/path.py"}, request_id="req.x")
         assert translated.wire_code is WireCode.INTERNAL_ERROR
         assert set(translated.details) == {"incident_id"}
+
+
+def test_build_success_envelope_omits_request_id_when_not_provided():
+    envelope = build_success_envelope(
+        {"job_id": 8801}, as_of="2026-10-01T10:24:00-07:00", invocation_id=412
+    )
+    body = json.loads(envelope)
+    assert "request_id" not in body["meta"]
 
 
 def test_build_success_envelope_shape_and_mutual_exclusivity():

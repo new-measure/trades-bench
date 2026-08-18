@@ -188,6 +188,22 @@ def test_grid_non_consecutive_install_blocks_rejected():
     assert ei.value.details["reason"] == "grid_violation"
 
 
+def test_grid_unknown_block_code_in_reservation_shape_rejected():
+    with pytest.raises(EngineError) as ei:
+        appointments.validate_reservation_shape(1, ("B99_99",))
+    assert ei.value.code is ErrorCode.INVALID_ARGUMENT
+    assert ei.value.details["rule"] == "block_alignment"
+    assert ei.value.details["field"] == "block_start"
+
+
+def test_grid_unknown_first_block_code_in_derivation_rejected():
+    with pytest.raises(EngineError) as ei:
+        appointments._derive_reservation_blocks(1, "B99_99")
+    assert ei.value.code is ErrorCode.INVALID_ARGUMENT
+    assert ei.value.details["rule"] == "block_alignment"
+    assert ei.value.details["field"] == "block_start"
+
+
 def test_grid_standard_job_in_after_hours_block_for_on_call_technician_accepted(tmp_path):
     conn, cfg, controller = _build(tmp_path)
     result = _book_ok(
@@ -469,7 +485,7 @@ def test_lock_b07_09_cannot_be_reassigned_after_opening(tmp_path):
     )
     for error in (first_error, second_error):
         assert error["code"] == ErrorCode.STATE_ILLEGAL.value
-        assert error["details"]["reason"] == "locked_appointment"
+        assert error["details"]["reason"] == "appointment_locked"
 
 
 def test_lock_b07_09_rejects_new_bookings_before_its_nominal_start(tmp_path):
@@ -504,7 +520,7 @@ def test_lock_b11_13_reassignable_before_11_and_not_at_or_after(tmp_path):
         _assign(controller.services, cfg, appointment_id=booked["appointment_id"], technician_id=4)
     )
     assert after_error["code"] == ErrorCode.STATE_ILLEGAL.value
-    assert after_error["details"]["reason"] == "locked_appointment"
+    assert after_error["details"]["reason"] == "appointment_locked"
 
 
 def test_assign_appends_reassigned_event_and_moves_block_holds(tmp_path):
