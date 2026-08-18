@@ -473,7 +473,8 @@ def _generate_new_caller_slot(
         prospect_ids = [
             row["id"]
             for row in conn.execute(
-                "SELECT id FROM _prospect_state WHERE home_zone_id = ? AND segment = ? ORDER BY id",
+                "SELECT id FROM _prospect_state WHERE home_zone_id = ? AND segment = ? "
+                "AND registered_customer_id IS NULL ORDER BY id",
                 (zone_id, segment),
             ).fetchall()
         ]
@@ -1012,17 +1013,27 @@ def transfer_prospect_to_customer(
     conn: sqlite3.Connection, *, prospect_id: int, customer_id: int, now_ms: int
 ) -> None:
     row = conn.execute(
-        "SELECT propensity_micros, last_outcome, competitor_captured_at FROM _prospect_state "
-        "WHERE id = ?",
+        "SELECT propensity_micros, last_outcome, competitor_captured_at, registered_customer_id "
+        "FROM _prospect_state WHERE id = ?",
         (prospect_id,),
     ).fetchone()
     if row is None:
         raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"prospect {prospect_id} not found")
+    if row["registered_customer_id"] is not None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"prospect {prospect_id} is already registered as customer "
+            f"{row['registered_customer_id']}",
+        )
     conn.execute(
         "INSERT INTO _customer_repeat_state "
         "(customer_id, propensity_micros, last_outcome, competitor_captured_at, updated_at) "
         "VALUES (?, ?, ?, ?, ?)",
         (customer_id, row["propensity_micros"], row["last_outcome"], row["competitor_captured_at"], now_ms),
+    )
+    conn.execute(
+        "UPDATE _prospect_state SET registered_customer_id = ? WHERE id = ?",
+        (customer_id, prospect_id),
     )
 
 

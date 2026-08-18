@@ -40,14 +40,14 @@ def test_applies_baseline_from_package_and_reapply_is_noop(conn):
         "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
         "0004_day_state", "0005_booking_columns", "0006_call_arrival",
         "0007_idempotency_fingerprint", "0008_job_outcomes",
-        "0009_drop_attempt_count",
+        "0009_drop_attempt_count", "0010_prospect_registration",
     ]
     assert migrate(conn) == []
     assert applied_versions(conn) == [
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
         (7, "idempotency_fingerprint"), (8, "job_outcomes"),
-        (9, "drop_attempt_count"),
+        (9, "drop_attempt_count"), (10, "prospect_registration"),
     ]
     assert {
         "_run", "_customers", "_ledger_entries", "_clock", "_routing_anchors",
@@ -70,7 +70,7 @@ def test_tampered_checksum_aborts(conn, tmp_path):
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
         (7, "idempotency_fingerprint"), (8, "job_outcomes"),
-        (9, "drop_attempt_count"),
+        (9, "drop_attempt_count"), (10, "prospect_registration"),
     ]
 
 
@@ -89,14 +89,14 @@ def test_custom_path_applies(conn, tmp_path):
         "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
         "0004_day_state", "0005_booking_columns", "0006_call_arrival",
         "0007_idempotency_fingerprint", "0008_job_outcomes",
-        "0009_drop_attempt_count",
+        "0009_drop_attempt_count", "0010_prospect_registration",
     ]
     assert "_customers" in _table_names(conn)
 
 
 def test_apply_is_atomic_on_failure(conn, tmp_path):
     dst = _copy_schema_dir(tmp_path)
-    (dst / "0010_break.sql").write_text(
+    (dst / "0011_break.sql").write_text(
         "CREATE TABLE _break_table (id INTEGER PRIMARY KEY);\n"
         "THIS IS NOT VALID SQL;\n"
     )
@@ -107,7 +107,7 @@ def test_apply_is_atomic_on_failure(conn, tmp_path):
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
         (7, "idempotency_fingerprint"), (8, "job_outcomes"),
-        (9, "drop_attempt_count"),
+        (9, "drop_attempt_count"), (10, "prospect_registration"),
     ]
     assert "_break_table" not in _table_names(conn)
 
@@ -127,7 +127,7 @@ def test_migrations_path_missing_raises(conn, tmp_path):
 
 def test_non_utf8_migration_file_raises_structured_error(conn, tmp_path):
     dst = _copy_schema_dir(tmp_path)
-    (dst / "0010_bad.sql").write_bytes(b"CREATE TABLE _t (x);\n-- \xff\xfe latin\n")
+    (dst / "0011_bad.sql").write_bytes(b"CREATE TABLE _t (x);\n-- \xff\xfe latin\n")
     with pytest.raises(EngineError) as ei:
         migrate(conn, migrations_path=dst)
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
@@ -135,7 +135,7 @@ def test_non_utf8_migration_file_raises_structured_error(conn, tmp_path):
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
         (7, "idempotency_fingerprint"), (8, "job_outcomes"),
-        (9, "drop_attempt_count"),
+        (9, "drop_attempt_count"), (10, "prospect_registration"),
     ]
     assert "_t" not in _table_names(conn)
 
@@ -151,8 +151,80 @@ def test_migrate_refuses_with_open_transaction(conn):
         "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
         "0004_day_state", "0005_booking_columns", "0006_call_arrival",
         "0007_idempotency_fingerprint", "0008_job_outcomes",
+        "0009_drop_attempt_count", "0010_prospect_registration",
+    ]
+
+
+def test_migrating_old_schema_db_adds_prospect_registration_column_and_visibility_row(conn, tmp_path):
+    dst = _copy_schema_dir(tmp_path)
+    prospect_migration = dst / "0010_prospect_registration.sql"
+    original_content = prospect_migration.read_text()
+    prospect_migration.unlink()
+
+    assert migrate(conn, migrations_path=dst) == [
+        "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
+        "0004_day_state", "0005_booking_columns", "0006_call_arrival",
+        "0007_idempotency_fingerprint", "0008_job_outcomes",
         "0009_drop_attempt_count",
     ]
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(_prospect_state)").fetchall()}
+    assert "registered_customer_id" not in columns
+    assert conn.execute(
+        'SELECT 1 FROM _visibility_registry WHERE "table" = ? AND "column" = ?',
+        ("_prospect_state", "registered_customer_id"),
+    ).fetchone() is None
+
+    prospect_migration.write_text(original_content)
+    assert migrate(conn, migrations_path=dst) == ["0010_prospect_registration"]
+
+    columns_after = {row[1] for row in conn.execute("PRAGMA table_info(_prospect_state)").fetchall()}
+    assert "registered_customer_id" in columns_after
+    registry_row = conn.execute(
+        'SELECT visibility_class FROM _visibility_registry WHERE "table" = ? AND "column" = ?',
+        ("_prospect_state", "registered_customer_id"),
+    ).fetchone()
+    assert registry_row["visibility_class"] == "private_engine"
+
+
+def test_migrating_old_schema_db_backfills_registered_customer_id_from_prior_calls(conn, tmp_path):
+    dst = _copy_schema_dir(tmp_path)
+    prospect_migration = dst / "0010_prospect_registration.sql"
+    original_content = prospect_migration.read_text()
+    prospect_migration.unlink()
+
+    migrate(conn, migrations_path=dst)
+
+    conn.execute(
+        "INSERT INTO _prospect_state (identity_key, caller_name, caller_phone, segment, "
+        "home_zone_id, propensity_micros, last_outcome, competitor_captured_at, created_at, "
+        "updated_at) VALUES ('4805550100|Jane Doe', 'Jane Doe', '4805550100', 'residential', "
+        "NULL, 1000000, 'rejected', NULL, 0, 0)"
+    )
+    prospect_id = conn.execute("SELECT id FROM _prospect_state").fetchone()[0]
+    conn.execute(
+        "INSERT INTO _customers (id, name, segment, status, created_at, modified_at) "
+        "VALUES (9001, 'Jane Doe', 'residential', 'active', 0, 0)"
+    )
+    conn.execute(
+        "INSERT INTO _calls (arrived_at, service_date, call_kind, status, caller_name, "
+        "caller_phone, segment, customer_id, requested_service_name, urgent, created_at) "
+        "VALUES (0, '2026-10-01', 'new_job', 'booked', 'Jane Doe', '4805550100', NULL, 9001, "
+        "'HVAC service', 0, 0)"
+    )
+    call_id = conn.execute("SELECT id FROM _calls").fetchone()[0]
+    conn.execute(
+        "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, prospect_id, "
+        "created_at) VALUES (?, 'residential', 1, ?, 0)",
+        (call_id, prospect_id),
+    )
+
+    prospect_migration.write_text(original_content)
+    assert migrate(conn, migrations_path=dst) == ["0010_prospect_registration"]
+
+    row = conn.execute(
+        "SELECT registered_customer_id FROM _prospect_state WHERE id = ?", (prospect_id,)
+    ).fetchone()
+    assert row["registered_customer_id"] == 9001
 
 
 def test_malformed_filename_raises(conn, tmp_path):

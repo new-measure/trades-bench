@@ -551,7 +551,7 @@ CREATE TABLE _prospect_state (
     competitor_captured_at  INTEGER,
     created_at              INTEGER NOT NULL,
     updated_at              INTEGER NOT NULL
-)
+, registered_customer_id INTEGER REFERENCES _customers(id))
 
 -- table: _random_audit
 CREATE TABLE _random_audit (

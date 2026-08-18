@@ -252,6 +252,7 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_prospect_state", "caller_phone"): V.PRIVATE_ENGINE,
     Field("_prospect_state", "segment"): V.PRIVATE_ENGINE,
     Field("_prospect_state", "home_zone_id"): V.PRIVATE_ENGINE,
+    Field("_prospect_state", "registered_customer_id"): V.PRIVATE_ENGINE,
     Field("_prospect_state", "propensity_micros"): V.PRIVATE_ENGINE,
     Field("_prospect_state", "last_outcome"): V.PRIVATE_ENGINE,
     Field("_prospect_state", "competitor_captured_at"): V.PRIVATE_ENGINE,

@@ -436,7 +436,7 @@ def test_ordinal_discipline_matches_hand_recomputation_for_every_slot(tmp_path):
                 r["id"]
                 for r in conn.execute(
                     "SELECT id FROM _prospect_state WHERE home_zone_id = ? AND segment = ? "
-                    "ORDER BY id",
+                    "AND registered_customer_id IS NULL ORDER BY id",
                     (zone_id, segment),
                 ).fetchall()
             ]
@@ -797,10 +797,137 @@ def test_prospect_continuity_and_returning_pickup_and_transfer(tmp_path):
     ).fetchone()
     assert transferred["propensity_micros"] == initial_expected
     assert transferred["last_outcome"] == "rejected"
-    still_present = conn.execute(
-        "SELECT 1 FROM _prospect_state WHERE id = ?", (prospect_id,)
+    prospect_after_transfer = conn.execute(
+        "SELECT * FROM _prospect_state WHERE id = ?", (prospect_id,)
     ).fetchone()
-    assert still_present is not None
+    assert prospect_after_transfer is not None
+    assert prospect_after_transfer["registered_customer_id"] == 5000
+    assert prospect_after_transfer["propensity_micros"] == initial_expected
+    assert prospect_after_transfer["last_outcome"] == "rejected"
+    assert prospect_after_transfer["competitor_captured_at"] is None
+
+
+def test_transfer_prospect_to_customer_excludes_from_returning_pool(tmp_path):
+    config = _zone4_scenario(
+        **{
+            "demand.returning_prospect_probability": 1.0,
+            "demand.segment_weights": {"residential": 1, "commercial": 0, "apartment": 0},
+            "demand.base_new_caller_rate_per_day": 20,
+        }
+    )
+    conn, _run_id = _init(tmp_path, 11, config)
+    now_ms = _now_ms(conn)
+
+    db.begin(conn)
+    rng0 = Rng(11, SPEC_VERSION, conn=conn)
+    rng0.enter_txn()
+    registered_prospect_id = demand.apply_rejection_consequence(
+        conn,
+        config,
+        now_ms=now_ms,
+        prospect={
+            "caller_name": "Registered Caller",
+            "caller_phone": "480-555-0100",
+            "segment": "residential",
+            "home_zone_id": 4,
+        },
+    )
+    open_prospect_id = demand.apply_rejection_consequence(
+        conn,
+        config,
+        now_ms=now_ms,
+        prospect={
+            "caller_name": "Open Caller",
+            "caller_phone": "480-555-0101",
+            "segment": "residential",
+            "home_zone_id": 4,
+        },
+    )
+    rng0.exit_txn()
+    db.commit(conn)
+    assert registered_prospect_id != open_prospect_id
+
+    db.begin(conn)
+    conn.execute(
+        "INSERT INTO _customers (id, name, segment, status, created_at, created_from_call_id, "
+        "modified_at, origin) VALUES (9001, 'Registered Caller', 'residential', 'active', ?, "
+        "NULL, ?, 'run')",
+        (now_ms, now_ms),
+    )
+    demand.transfer_prospect_to_customer(
+        conn, prospect_id=registered_prospect_id, customer_id=9001, now_ms=now_ms
+    )
+    db.commit(conn)
+
+    summary = _generate(conn, config, 11, SERVICE_DATE, now_ms=now_ms)
+    assert summary["new_callers"] >= 1
+
+    picked_registered = conn.execute(
+        "SELECT COUNT(*) c FROM _pending_calls WHERE prospect_id = ?", (registered_prospect_id,)
+    ).fetchone()["c"]
+    picked_open = conn.execute(
+        "SELECT COUNT(*) c FROM _pending_calls WHERE prospect_id = ?", (open_prospect_id,)
+    ).fetchone()["c"]
+    assert picked_registered == 0
+    assert picked_open >= 1
+
+
+def test_prospect_registration_path_is_deterministic_across_identical_runs(tmp_path):
+    config = _zone4_scenario(
+        **{
+            "demand.returning_prospect_probability": 1.0,
+            "demand.segment_weights": {"residential": 1, "commercial": 0, "apartment": 0},
+            "demand.base_new_caller_rate_per_day": 20,
+        }
+    )
+
+    def _run(name):
+        conn, run_id = _init(tmp_path, 11, config, name)
+        now_ms = _now_ms(conn)
+        db.begin(conn)
+        rng0 = Rng(11, SPEC_VERSION, conn=conn)
+        rng0.enter_txn()
+        prospect_id = demand.apply_rejection_consequence(
+            conn,
+            config,
+            now_ms=now_ms,
+            prospect={
+                "caller_name": "Registered Caller",
+                "caller_phone": "480-555-0100",
+                "segment": "residential",
+                "home_zone_id": 4,
+            },
+        )
+        rng0.exit_txn()
+        db.commit(conn)
+
+        db.begin(conn)
+        conn.execute(
+            "INSERT INTO _customers (id, name, segment, status, created_at, created_from_call_id, "
+            "modified_at, origin) VALUES (9001, 'Registered Caller', 'residential', 'active', ?, "
+            "NULL, ?, 'run')",
+            (now_ms, now_ms),
+        )
+        demand.transfer_prospect_to_customer(
+            conn, prospect_id=prospect_id, customer_id=9001, now_ms=now_ms
+        )
+        db.commit(conn)
+
+        _generate(conn, config, 11, SERVICE_DATE, now_ms=now_ms)
+        return conn, run_id, prospect_id
+
+    conn_a, run_id_a, prospect_id_a = _run("a.db")
+    conn_b, run_id_b, prospect_id_b = _run("b.db")
+
+    assert prospect_id_a == prospect_id_b
+    assert _pending_rows(conn_a) == _pending_rows(conn_b)
+
+    prospect_a = dict(conn_a.execute("SELECT * FROM _prospect_state WHERE id = ?", (prospect_id_a,)).fetchone())
+    prospect_b = dict(conn_b.execute("SELECT * FROM _prospect_state WHERE id = ?", (prospect_id_b,)).fetchone())
+    assert prospect_a == prospect_b
+    assert prospect_a["registered_customer_id"] == 9001
+
+    assert dump_hash(conn_a, run_id_a) == dump_hash(conn_b, run_id_b)
 
 
 def test_propensity_never_reaches_zero_after_many_iterations(tmp_path):

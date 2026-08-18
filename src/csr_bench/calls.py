@@ -415,16 +415,26 @@ def ordinary_rejection(
 
     customer_id = call["customer_id"]
     prospect_id: int | None = None
+
+    hidden = conn.execute(
+        "SELECT true_segment, prospect_id FROM _call_hidden WHERE call_id = ?", (call_id,)
+    ).fetchone()
+    if hidden is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED, f"call {call_id} has no _call_hidden row"
+        )
+
+    if customer_id is None and hidden["prospect_id"] is not None:
+        registered = conn.execute(
+            "SELECT registered_customer_id FROM _prospect_state WHERE id = ?",
+            (hidden["prospect_id"],),
+        ).fetchone()
+        if registered is not None and registered["registered_customer_id"] is not None:
+            customer_id = registered["registered_customer_id"]
+
     if customer_id is not None:
         demand.apply_rejection_consequence(conn, config, now_ms=now, customer_id=customer_id)
     else:
-        hidden = conn.execute(
-            "SELECT true_segment FROM _call_hidden WHERE call_id = ?", (call_id,)
-        ).fetchone()
-        if hidden is None:
-            raise EngineError(
-                ErrorCode.INVARIANT_VIOLATED, f"call {call_id} has no _call_hidden row"
-            )
         if call["address_catalog_id"] is None:
             raise EngineError(
                 ErrorCode.INVARIANT_VIOLATED, f"call {call_id} has no address_catalog_id"

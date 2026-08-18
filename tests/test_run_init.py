@@ -27,7 +27,7 @@ def test_open_run_db_twice_is_idempotent(tmp_path):
         (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
         (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
         (7, "idempotency_fingerprint"), (8, "job_outcomes"),
-        (9, "drop_attempt_count"),
+        (9, "drop_attempt_count"), (10, "prospect_registration"),
     ]
     conn1.close()
     conn2 = open_run_db(path)
@@ -80,7 +80,7 @@ def test_open_run_db_upgrades_a_populated_pre_0009_file(tmp_path):
             "(type, ts_ms, sequence, status, prompt_version) "
             "VALUES ('call', 0, 1, 'completed', NULL)"
         )
-        assert applied_versions(resumed)[-1] == (9, "drop_attempt_count")
+        assert applied_versions(resumed)[-1] == (10, "prospect_registration")
         resumed_inv = [
             row["name"] for row in resumed.execute("PRAGMA table_info(_invocations)").fetchall()
         ]

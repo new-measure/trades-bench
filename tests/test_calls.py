@@ -682,6 +682,50 @@ def test_reject_returning_prospect_updates_same_row(tmp_path):
     assert row["last_outcome"] == "rejected"
 
 
+def test_reject_second_call_from_already_registered_prospect_updates_customer(tmp_path):
+    config = _config(**{"competitors.attempt_probability": 0.0})
+    conn, cfg, controller = _build(tmp_path, config=config)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    prospect_id = _insert_prospect_state(conn, now, propensity_micros=2_000_000)
+    _open_invocation(conn, now)
+
+    call_id_a = _new_caller_call(conn, controller, catalog=catalog, prospect_id=prospect_id)
+    call_id_b = _new_caller_call(conn, controller, catalog=catalog, prospect_id=prospect_id)
+
+    db.begin(conn)
+    customer_id = _insert_customer(conn, now)
+    demand.transfer_prospect_to_customer(
+        conn, prospect_id=prospect_id, customer_id=customer_id, now_ms=now
+    )
+    db.commit(conn)
+
+    prospect_before = _prospect_count(conn)
+    _, body = _reject(controller, cfg, call_id=call_id_b)
+    _ok(body)
+
+    multiplier = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
+    floor = cfg.get_decimal("customers.repeat_propensity_floor")
+    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
+    expected = _clamped_multiplied(2_000_000, multiplier, floor, ceiling)
+
+    customer_row = _customer_repeat_row(conn, customer_id)
+    assert customer_row["propensity_micros"] == expected
+    assert customer_row["last_outcome"] == "rejected"
+
+    prospect_row = conn.execute(
+        "SELECT * FROM _prospect_state WHERE id = ?", (prospect_id,)
+    ).fetchone()
+    assert prospect_row["propensity_micros"] == 2_000_000
+    assert prospect_row["last_outcome"] is None
+    assert _prospect_count(conn) == prospect_before
+
+    call_a = conn.execute(
+        "SELECT status FROM _calls WHERE id = ?", (call_id_a,)
+    ).fetchone()
+    assert call_a["status"] == "active"
+
+
 def test_competitor_leakage_attempt_and_served_applies_both_multipliers(tmp_path):
     config = _config(**{
         "competitors.attempt_probability": 1.0,

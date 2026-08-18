@@ -766,6 +766,14 @@ def test_reject_acceptance_floor_above_base():
     )
 
 
+def test_reject_negative_acceptance_lead_time_decay():
+    _bad(
+        '{"keys": {"acceptance.lead_time_decay_by_urgency": '
+        '{"standard": -0.1, "urgent": 0.50}}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
 def test_reject_served_well_repeat_multiplier_at_boundary():
     _bad(
         '{"keys": {"competitors.served_well_repeat_multiplier": 1}}',

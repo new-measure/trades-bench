@@ -154,6 +154,29 @@ def create_customer(
             f"{call['segment']!r}",
         )
 
+    hidden = conn.execute(
+        "SELECT prospect_id FROM _call_hidden WHERE call_id = ?", (call_id,)
+    ).fetchone()
+    if hidden is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED, f"call {call_id} has no _call_hidden row"
+        )
+    prospect_id = hidden["prospect_id"]
+    if prospect_id is not None:
+        prospect_row = conn.execute(
+            "SELECT registered_customer_id FROM _prospect_state WHERE id = ?", (prospect_id,)
+        ).fetchone()
+        if prospect_row is None:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED, f"prospect {prospect_id} not found"
+            )
+        if prospect_row["registered_customer_id"] is not None:
+            raise _state_illegal(
+                "prospect_already_registered",
+                f"call {call_id}'s prospect {prospect_id} is already registered as customer "
+                f"{prospect_row['registered_customer_id']}",
+            )
+
     cur = conn.execute(
         "INSERT INTO _customers (name, segment, status, created_at, created_from_call_id, "
         "modified_at) VALUES (?, ?, 'active', ?, ?, ?)",
@@ -165,14 +188,6 @@ def create_customer(
 
     conn.execute("UPDATE _calls SET customer_id = ? WHERE id = ?", (customer_id, call_id))
 
-    hidden = conn.execute(
-        "SELECT prospect_id FROM _call_hidden WHERE call_id = ?", (call_id,)
-    ).fetchone()
-    if hidden is None:
-        raise EngineError(
-            ErrorCode.INVARIANT_VIOLATED, f"call {call_id} has no _call_hidden row"
-        )
-    prospect_id = hidden["prospect_id"]
     if prospect_id is not None:
         demand.transfer_prospect_to_customer(
             conn, prospect_id=prospect_id, customer_id=customer_id, now_ms=now

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from itertools import count
 
 from _adapters import ScriptedNoOpAdapter
@@ -734,6 +734,53 @@ def test_acceptance_probability_formula_is_monotone_nonincreasing_and_floor_is_r
     high_floor = Decimal("0.25")
     far_out = booking._acceptance_probability(base, Decimal("0.50"), Decimal("1000"), high_floor)
     assert far_out == high_floor
+
+
+def _raw_acceptance(base: Decimal, decay: Decimal, lead_days: Decimal) -> Decimal:
+    with localcontext() as decctx:
+        decctx.prec = 50
+        return base * (-decay * lead_days).exp()
+
+
+def test_acceptance_probability_default_config_sweep_stays_bounded_and_monotone():
+    config = _config()
+    base_by_urgency = config.resolved["acceptance.base_probability_by_urgency"]
+    decay_by_urgency = config.resolved["acceptance.lead_time_decay_by_urgency"]
+    floor_by_urgency = config.resolved["acceptance.floor_probability_by_urgency"]
+
+    lead_days_grid = (
+        [Decimal("0"), Decimal("0.25"), Decimal("0.5")]
+        + [Decimal(n) for n in range(1, 31)]
+        + [Decimal(45), Decimal(90), Decimal(365), Decimal(100000)]
+    )
+
+    for urgency_class in ("standard", "urgent"):
+        base = base_by_urgency[urgency_class]
+        decay = decay_by_urgency[urgency_class]
+        floor = floor_by_urgency[urgency_class]
+        values = [
+            booking._acceptance_probability(base, decay, lead_days, floor)
+            for lead_days in lead_days_grid
+        ]
+        raw_values = [_raw_acceptance(base, decay, lead_days) for lead_days in lead_days_grid]
+
+        assert values[0] == base
+        assert values[-1] == floor
+
+        above_floor_seen = False
+        for prev, curr, raw_curr in zip(values, values[1:], raw_values[1:]):
+            if raw_curr > floor:
+                assert curr < prev, f"{urgency_class}: {curr} >= {prev} before the floor is reached"
+                above_floor_seen = True
+            else:
+                assert curr <= prev, f"{urgency_class}: {curr} > {prev} along increasing lead_days"
+        assert above_floor_seen, f"{urgency_class}: sweep never left the pre-floor region"
+
+        for value in values:
+            assert isinstance(value, Decimal)
+            assert value.is_finite()
+            assert floor <= value <= base
+            assert Decimal("0") <= value <= Decimal("1")
 
 
 def test_cancellation_arrival_window_overnight_case_matches_spec_example():

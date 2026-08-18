@@ -496,6 +496,55 @@ def test_q30_existing_callers_cannot_be_registered(tmp_path):
     assert new_customer_id != existing_customer_id
 
 
+def test_second_call_from_registered_prospect_is_rejected_not_double_registered(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = clock.now(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    distinctive_micros = 2_345_678
+    prospect_id = _insert_prospect(
+        conn, now, propensity_micros=distinctive_micros, last_outcome="rejected",
+        segment="residential",
+    )
+    _open_call_invocation(conn, now)
+    first_call_id = _new_caller_call(
+        conn, controller, catalog=catalog, segment="residential", prospect_id=prospect_id,
+    )
+    first_customer_id = _ok(
+        _create_customer(
+            controller, cfg,
+            call_id=first_call_id, name="Jane Doe", segment="residential",
+            contacts=[_phone_contact()],
+        )
+    )["customer_id"]
+
+    second_call_id = _new_caller_call(
+        conn, controller, catalog=catalog, segment="residential", prospect_id=prospect_id,
+    )
+    error = _err(
+        _create_customer(
+            controller, cfg,
+            call_id=second_call_id, name="Jane Doe", segment="residential",
+            contacts=[_phone_contact()],
+        )
+    )
+    assert error["code"] == ErrorCode.STATE_ILLEGAL.value
+    assert error["details"]["reason"] == "prospect_already_registered"
+
+    assert conn.execute("SELECT COUNT(*) c FROM _customers").fetchone()["c"] == 1
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM _customer_repeat_state"
+    ).fetchone()["c"] == 1
+    second_call = conn.execute(
+        "SELECT customer_id FROM _calls WHERE id = ?", (second_call_id,)
+    ).fetchone()
+    assert second_call["customer_id"] is None
+
+    prospect_row = conn.execute(
+        "SELECT registered_customer_id FROM _prospect_state WHERE id = ?", (prospect_id,)
+    ).fetchone()
+    assert prospect_row["registered_customer_id"] == first_customer_id
+
+
 def test_registration_ordering_rules(tmp_path):
     conn, cfg, controller = _build(tmp_path)
     now = clock.now(conn)
@@ -581,6 +630,9 @@ def test_prospect_state_transfers_without_reset(tmp_path):
     ).fetchone()
     assert prospect_row is not None
     assert prospect_row["propensity_micros"] == distinctive_micros
+    assert prospect_row["last_outcome"] == "rejected"
+    assert prospect_row["competitor_captured_at"] is None
+    assert prospect_row["registered_customer_id"] == customer_id
 
 
 def test_stale_call_from_earlier_invocation_is_not_reachable(tmp_path):
