@@ -309,6 +309,93 @@ def _write_appointment_event(
     )
 
 
+_LEGAL_JOB_TERMINAL_PAIRS = frozenset({
+    ("completed", "completed_paid"),
+    ("completed", "completed_warranty"),
+    ("failed", "failed_unsupported"),
+    ("failed", "failed_unqualified"),
+    ("no_show", "no_show_company"),
+    ("cancelled", "cancelled_by_customer"),
+})
+
+_COMPLETED_JOB_OUTCOMES = frozenset({"completed_paid", "completed_warranty"})
+
+_WORK_FAILED_OUTCOMES = {
+    "unsupported": "failed_unsupported",
+    "unqualified": "failed_unqualified",
+}
+
+
+def classify_job(
+    conn: sqlite3.Connection,
+    *,
+    job_id: int,
+    status: str,
+    outcome: str,
+    now_ms: int,
+    completed_at_ms: int | None = None,
+) -> None:
+    if (status, outcome) not in _LEGAL_JOB_TERMINAL_PAIRS:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"job {job_id} illegal terminal pair ({status!r}, {outcome!r})",
+        )
+    row = conn.execute("SELECT outcome FROM _jobs WHERE id = ?", (job_id,)).fetchone()
+    if row is None:
+        raise EngineError(ErrorCode.INVARIANT_VIOLATED, f"job {job_id} not found")
+    if row["outcome"] is not None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"job {job_id} already classified with outcome {row['outcome']!r}",
+        )
+    completed_at = None
+    if outcome in _COMPLETED_JOB_OUTCOMES:
+        if completed_at_ms is None:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED,
+                f"job {job_id} classification {outcome!r} requires completed_at_ms",
+            )
+        completed_at = completed_at_ms
+    conn.execute(
+        "UPDATE _jobs SET status = ?, outcome = ?, completed_at = ?, modified_at = ? "
+        "WHERE id = ?",
+        (status, outcome, completed_at, now_ms, job_id),
+    )
+
+
+def _arrival_failure_reason(
+    conn: sqlite3.Connection, job_id: int, technician_id: int
+) -> str | None:
+    row = conn.execute(
+        "SELECT sc.supported_job_type_id AS supported_job_type_id "
+        "FROM _jobs j JOIN _call_hidden ch ON ch.call_id = j.call_id "
+        "JOIN _service_catalog sc ON sc.id = ch.requested_category_id "
+        "WHERE j.id = ?",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"job {job_id} has no resolvable requested category",
+        )
+    supported_job_type_id = row["supported_job_type_id"]
+    if supported_job_type_id is None:
+        return "unsupported"
+    skill_row = conn.execute(
+        "SELECT required_skill_code FROM _job_types WHERE id = ?",
+        (supported_job_type_id,),
+    ).fetchone()
+    required_skill_code = skill_row["required_skill_code"] if skill_row else None
+    if required_skill_code is None:
+        return None
+    holder = conn.execute(
+        "SELECT 1 FROM _technician_skills "
+        "WHERE technician_id = ? AND skill_code = ? AND active = 1",
+        (technician_id, required_skill_code),
+    ).fetchone()
+    return None if holder is not None else "unqualified"
+
+
 def first_trip_dispatch_applied(conn: sqlite3.Connection, service_date: str) -> bool:
     day_start, day_end = _day_bounds_ms(service_date)
     row = conn.execute(
@@ -340,6 +427,14 @@ def _pending_work_started_event(conn: sqlite3.Connection, appointment_id: int) -
         "SELECT event_id FROM _events WHERE kind = ? AND status = 'pending' "
         "AND entity_type = ? AND entity_id = ?",
         (EventKind.WORK_STARTED.value, EntityType.APPOINTMENT.value, appointment_id),
+    ).fetchone()
+
+
+def _pending_work_failed_event(conn: sqlite3.Connection, appointment_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT event_id FROM _events WHERE kind = ? AND status = 'pending' "
+        "AND entity_type = ? AND entity_id = ?",
+        (EventKind.WORK_FAILED.value, EntityType.APPOINTMENT.value, appointment_id),
     ).fetchone()
 
 
@@ -653,7 +748,19 @@ def handle_outgoing_technician(
             appointment_id=appointment_id,
             technician_id=technician_id,
             service_date=service_date,
-            work_started_event_id=int(work_started_pending["event_id"]),
+            pending_event_id=int(work_started_pending["event_id"]),
+        )
+        return
+    work_failed_pending = _pending_work_failed_event(conn, appointment_id)
+    if work_failed_pending is not None:
+        _abandon_arrived_not_started(
+            ctx,
+            config,
+            artifact,
+            appointment_id=appointment_id,
+            technician_id=technician_id,
+            service_date=service_date,
+            pending_event_id=int(work_failed_pending["event_id"]),
         )
         return
     dispatch_pending = _pending_dispatch_event(conn, appointment_id)
@@ -781,11 +888,11 @@ def _abandon_arrived_not_started(
     appointment_id: int,
     technician_id: int,
     service_date: str,
-    work_started_event_id: int,
+    pending_event_id: int,
 ) -> None:
     conn = ctx.conn
     now = ctx.now()
-    Events(conn, ctx.rng).cancel(work_started_event_id)
+    Events(conn, ctx.rng).cancel(pending_event_id)
     _job_id, location_id = _appointment_job_location_id(conn, appointment_id)
     from_location = location_point(conn, location_id)
     blocks = _appointment_blocks(conn, appointment_id)
@@ -990,6 +1097,20 @@ def appointment_arrival_handler(config: RunConfig, artifact: GeoArtifact | None)
             conn, appointment_id=appointment_id, technician_id=technician_id,
             event_type="arrived", occurred_at=now, service_date=service_date,
         )
+        job_id, _location_id = _appointment_job_location_id(conn, appointment_id)
+        failure_reason = _arrival_failure_reason(conn, job_id, technician_id)
+        if failure_reason is not None:
+            failed_at = now + config.get_int("execution.failed_visit_minutes") * 60000
+            Events(conn, ctx.rng).schedule(
+                EventKind.WORK_FAILED, failed_at,
+                entity_type=EntityType.APPOINTMENT.value, entity_id=appointment_id,
+                payload={
+                    "appointment_id": appointment_id,
+                    "technician_id": technician_id,
+                    "reason": failure_reason,
+                },
+            )
+            return None
         start_variation = start_variation_minutes(ctx.rng, appointment_id, service_date)
         work_started_ms = max(now, int(appt["scheduled_start"]) + start_variation * 60000)
         if work_started_ms > int(appt["arrival_window_end"]):
@@ -1075,6 +1196,8 @@ def company_no_show_handler(config: RunConfig, artifact: GeoArtifact | None) -> 
             )
         if appt["status"] != "scheduled":
             return None
+        if _pending_work_failed_event(conn, appointment_id) is not None:
+            return None
         service_date = _appointment_service_date(conn, appointment_id)
         updated = conn.execute(
             "UPDATE _appointments SET status = 'no_show', modified_at = ? "
@@ -1090,6 +1213,10 @@ def company_no_show_handler(config: RunConfig, artifact: GeoArtifact | None) -> 
         _write_appointment_event(
             conn, appointment_id=appointment_id, technician_id=technician_id,
             event_type="no_show", occurred_at=cutoff, service_date=service_date,
+        )
+        job_id, _location_id = _appointment_job_location_id(conn, appointment_id)
+        classify_job(
+            conn, job_id=job_id, status="no_show", outcome="no_show_company", now_ms=cutoff,
         )
         conn.execute(
             "DELETE FROM _technician_block_holds WHERE appointment_id = ?",
@@ -1157,6 +1284,7 @@ def work_completed_handler(config: RunConfig, artifact: GeoArtifact | None) -> E
         appointment_id = int(payload["appointment_id"])
         technician_id = int(payload["technician_id"])
         service_date = _appointment_service_date(conn, appointment_id)
+        job_id, location_id = _appointment_job_location_id(conn, appointment_id)
 
         updated = conn.execute(
             "UPDATE _appointments SET status = 'completed', actual_end = ?, "
@@ -1171,6 +1299,10 @@ def work_completed_handler(config: RunConfig, artifact: GeoArtifact | None) -> E
         _write_appointment_event(
             conn, appointment_id=appointment_id, technician_id=technician_id,
             event_type="work_completed", occurred_at=now, service_date=service_date,
+        )
+        classify_job(
+            conn, job_id=job_id, status="completed", outcome="completed_paid",
+            now_ms=now, completed_at_ms=now,
         )
         loc = conn.execute(
             "SELECT latitude, longitude FROM _technician_locations WHERE technician_id = ?",
@@ -1188,7 +1320,64 @@ def work_completed_handler(config: RunConfig, artifact: GeoArtifact | None) -> E
 
         blocks = _appointment_blocks(conn, appointment_id)
         final_block_index = block_index(blocks[-1]["block_code"])
-        _job_id, location_id = _appointment_job_location_id(conn, appointment_id)
+        origin = location_point(conn, location_id)
+        plan_next_chain_step(
+            ctx, config, artifact,
+            technician_id=technician_id, service_date=service_date,
+            from_appointment_id=appointment_id, from_location=origin,
+            from_block_index=final_block_index, departure_ms=now,
+        )
+        return None
+
+    return handler
+
+
+def work_failed_handler(config: RunConfig, artifact: GeoArtifact | None) -> EventHandler:
+
+    def handler(ctx, row: sqlite3.Row) -> dict | None:
+        now = _advance_to_event(ctx, row)
+        conn = ctx.conn
+        payload = _payload(row)
+        appointment_id = int(payload["appointment_id"])
+        technician_id = int(payload["technician_id"])
+        reason = str(payload["reason"])
+        service_date = _appointment_service_date(conn, appointment_id)
+        job_id, location_id = _appointment_job_location_id(conn, appointment_id)
+
+        updated = conn.execute(
+            "UPDATE _appointments SET status = 'failed', modified_at = ? "
+            "WHERE id = ? AND status = 'scheduled'",
+            (now, appointment_id),
+        )
+        if updated.rowcount != 1:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED,
+                f"appointment {appointment_id} was not scheduled at work_failed",
+            )
+        _write_appointment_event(
+            conn, appointment_id=appointment_id, technician_id=technician_id,
+            event_type="work_failed", occurred_at=now, service_date=service_date,
+        )
+        classify_job(
+            conn, job_id=job_id, status="failed", outcome=_WORK_FAILED_OUTCOMES[reason],
+            now_ms=now,
+        )
+        loc = conn.execute(
+            "SELECT latitude, longitude FROM _technician_locations WHERE technician_id = ?",
+            (technician_id,),
+        ).fetchone()
+        _write_technician_location(
+            conn, technician_id, state="on_site",
+            latitude=float(loc["latitude"]), longitude=float(loc["longitude"]), updated_at=now,
+        )
+        conn.execute(
+            "UPDATE _day_state SET unresolved_execution_count = unresolved_execution_count - 1 "
+            "WHERE service_date = ?",
+            (service_date,),
+        )
+
+        blocks = _appointment_blocks(conn, appointment_id)
+        final_block_index = block_index(blocks[-1]["block_code"])
         origin = location_point(conn, location_id)
         plan_next_chain_step(
             ctx, config, artifact,
@@ -1294,6 +1483,7 @@ def build_handlers(config: RunConfig, artifact: GeoArtifact | None) -> dict[Even
         EventKind.APPOINTMENT_ARRIVAL: appointment_arrival_handler(config, artifact),
         EventKind.WORK_STARTED: work_started_handler(config),
         EventKind.WORK_COMPLETED: work_completed_handler(config, artifact),
+        EventKind.WORK_FAILED: work_failed_handler(config, artifact),
         EventKind.COMPANY_NO_SHOW: company_no_show_handler(config, artifact),
         EventKind.TECHNICIAN_RETURN_HOME: technician_return_home_handler(config, artifact),
         EventKind.TECHNICIAN_HOME_ARRIVAL: technician_home_arrival_handler(config, artifact),
@@ -1308,6 +1498,7 @@ __all__ = [
     "block_index",
     "block_start_instant",
     "build_handlers",
+    "classify_job",
     "day_type_for",
     "dispatch_trip",
     "duration_variation_minutes",

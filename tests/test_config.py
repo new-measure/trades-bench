@@ -64,7 +64,7 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
     assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    assert len(rc.resolved) == 151
+    assert len(rc.resolved) == 152
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     with pytest.raises(TypeError):
         rc.resolved["constants.opening_hour"] = 9  # type: ignore[index]
@@ -326,6 +326,27 @@ def test_geography_and_travel_defaults_resolve():
 
     assert set(rc.resolved["travel.weather_travel_multipliers"]) == {c.value for c in ConditionCode}
     assert rc.get_int("appointments.min_actual_duration_minutes") == 30
+
+
+def test_execution_failed_visit_minutes_default_is_thirty_and_provisional():
+    rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
+    assert rc.get_int("execution.failed_visit_minutes") == 30
+    reg = assemble_registry()
+    assert reg["execution.failed_visit_minutes"].deferred == "provisional"
+
+
+def test_reject_execution_failed_visit_minutes_zero():
+    _bad(
+        '{"keys": {"execution.failed_visit_minutes": 0}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_execution_failed_visit_minutes_negative():
+    _bad(
+        '{"keys": {"execution.failed_visit_minutes": -5}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
 
 
 def test_reject_gps_ping_interval_zero():

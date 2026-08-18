@@ -39,6 +39,8 @@ CATALOG_BY_ADDRESS_ID = {row.address_id: row for row in ARTIFACT.catalog}
 
 COMPLETED_CHAIN = ["dispatched", "arrived", "work_started", "work_completed"]
 
+_JOB_TYPE_TO_CATEGORY_ID = {1: 2, 2: 1, 3: 3, 4: 4}
+
 
 @dataclass(frozen=True)
 class BookingOrder:
@@ -182,7 +184,14 @@ def _insert_customer_location_call(conn, config, order: BookingOrder, now_ms: in
         "VALUES (?, ?, 'new_job', 'booked', ?, '555-0100', ?, 0, ?)",
         (now_ms, order.service_date, f"Caller {crm_id}", order.service, now_ms),
     )
-    return int(cur.lastrowid)
+    call_id = int(cur.lastrowid)
+    conn.execute(
+        "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
+        "prospect_id, acceptance_result, created_at) "
+        "VALUES (?, 'residential', ?, NULL, NULL, ?)",
+        (call_id, _JOB_TYPE_TO_CATEGORY_ID[order.job_type_id], now_ms),
+    )
+    return call_id
 
 
 class ScriptedBookingAdapter(ScriptedNoOpAdapter):

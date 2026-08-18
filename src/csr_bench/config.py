@@ -350,6 +350,17 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
     ),
     (
+        "execution.failed_visit_minutes",
+        "int",
+        30,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "description": "On-site minutes consumed before an unsupported or unqualified "
+            "visit terminates as work_failed.",
+        },
+    ),
+    (
         "quality.duration_skill_coefficient",
         "decimal",
         Decimal("0"),

@@ -14,7 +14,7 @@ from _helpers import (
     geo_artifact_sha256,
     register_conn,
 )
-from csr_bench import appointments, clock, demand, geo_reader
+from csr_bench import appointments, clock, demand, execution, geo_reader
 from csr_bench.config import load_run_config
 from csr_bench.controller import Controller
 from csr_bench.enums import EventKind
@@ -734,3 +734,48 @@ def test_company_no_show_event_is_never_cancelled_by_reassignment(tmp_path):
     after = _no_show_guards(conn, booked["appointment_id"])
     assert before == after
     assert after[0][2] == "pending"
+
+
+def _cancel(services, config, **kwargs):
+    request_id = privileged_request_id("cancel", next(_request_seq))
+    response = privileged(
+        services, request_id,
+        lambda ctx: appointments.cancel_appointment(ctx, config, artifact=ARTIFACT, **kwargs),
+    )
+    return json.loads(response)
+
+
+def test_cancel_appointment_routes_job_terminalization_through_the_classify_job_gatekeeper(
+    tmp_path,
+):
+    conn, cfg, controller = _build(tmp_path)
+    booked = _book_ok(
+        conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B09_11"
+    )
+    now = clock.now(conn)
+    result = _ok(
+        _cancel(
+            controller.services, cfg,
+            appointment_id=booked["appointment_id"], effective_at=now,
+        )
+    )
+    assert result["job_id"] == booked["job_id"]
+
+    appt = conn.execute(
+        "SELECT status FROM _appointments WHERE id = ?", (booked["appointment_id"],)
+    ).fetchone()
+    assert appt["status"] == "cancelled"
+
+    job = conn.execute(
+        "SELECT status, outcome, completed_at FROM _jobs WHERE id = ?", (booked["job_id"],)
+    ).fetchone()
+    assert job["status"] == "cancelled"
+    assert job["outcome"] == "cancelled_by_customer"
+    assert job["completed_at"] is None
+
+    with pytest.raises(EngineError) as ei:
+        execution.classify_job(
+            conn, job_id=booked["job_id"], status="cancelled", outcome="cancelled_by_customer",
+            now_ms=now,
+        )
+    assert ei.value.code is ErrorCode.INVARIANT_VIOLATED

@@ -698,10 +698,9 @@ def cancel_appointment(
             f"appointment {appointment_id} was not active at cancellation",
         )
 
-    conn.execute(
-        "UPDATE _jobs SET status = 'cancelled', outcome = 'cancelled_by_customer', "
-        "modified_at = ? WHERE id = ?",
-        (effective_at, job_id),
+    execution.classify_job(
+        conn, job_id=job_id, status="cancelled", outcome="cancelled_by_customer",
+        now_ms=effective_at,
     )
 
     technician_id = execution._active_technician_id(conn, appointment_id)

@@ -43,11 +43,23 @@ from csr_bench.txn import privileged, privileged_request_id
 SEED = 5
 END_DATE = "2026-10-14"
 WEEKDAY = "2026-10-01"
+SECOND_WEEKDAY = "2026-10-02"
 WEEKEND = "2026-10-03"
+
+HVAC_SERVICE_CATEGORY_ID = 2
+PLUMBING_CATEGORY_ID = 3
+UNSUPPORTED_CATEGORY_ID = 5
 
 ARTIFACT = geo_reader.load_artifact(GEO_ARTIFACT_DIR)
 DESTINATION_ADDRESS = next(row for row in ARTIFACT.catalog if row.address_id == 2)
 SECOND_LOCATION_ADDRESS = next(row for row in ARTIFACT.catalog if row.address_id == 3)
+
+_TECHNICIAN_QUALIFIED_CATEGORY_ID = {
+    1: HVAC_SERVICE_CATEGORY_ID,
+    2: HVAC_SERVICE_CATEGORY_ID,
+    3: PLUMBING_CATEGORY_ID,
+    4: 4,
+}
 
 _id_seq = count(9500)
 _request_seq = count(1)
@@ -85,7 +97,8 @@ def _build_run(tmp_path, *, end_date=WEEKDAY, **config_overrides):
 
 
 def _customer_location_call(
-    conn, now_ms: int, service_date: str, *, address_catalog_id: int, config=None
+    conn, now_ms: int, service_date: str, *, address_catalog_id: int, config=None,
+    requested_category_id: int = HVAC_SERVICE_CATEGORY_ID,
 ) -> int:
     row_id = next(_id_seq)
     conn.execute(
@@ -109,6 +122,11 @@ def _customer_location_call(
         "caller_name, caller_phone, requested_service_name, urgent, created_at) "
         "VALUES (?, ?, ?, 'new_job', 'booked', 'A', '555', 'HVAC service', 0, ?)",
         (row_id, now_ms, service_date, now_ms),
+    )
+    conn.execute(
+        "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
+        "prospect_id, arrival_event_id, created_at) VALUES (?, 'commercial', ?, NULL, NULL, ?)",
+        (row_id, requested_category_id, now_ms),
     )
     return row_id
 
@@ -284,10 +302,17 @@ def _step_until(controller, predicate, max_steps=20000):
 
 
 def _book_execution(controller, cfg, *, technician_id, service_date, first_block_code,
-                     job_type_id=1, address_catalog_id=DESTINATION_ADDRESS.address_id):
+                     job_type_id=1, address_catalog_id=DESTINATION_ADDRESS.address_id,
+                     requested_category_id=None):
     now = clock.now(controller.conn)
+    category_id = (
+        requested_category_id
+        if requested_category_id is not None
+        else _TECHNICIAN_QUALIFIED_CATEGORY_ID[technician_id]
+    )
     location_id = _customer_location_call(
-        controller.conn, now, service_date, address_catalog_id=address_catalog_id, config=cfg
+        controller.conn, now, service_date, address_catalog_id=address_catalog_id, config=cfg,
+        requested_category_id=category_id,
     )
     return _book(
         controller.services, cfg,
@@ -297,6 +322,19 @@ def _book_execution(controller, cfg, *, technician_id, service_date, first_block
         technician_id=technician_id, service_date=service_date,
         first_block_code=first_block_code,
     )
+
+
+def _cancel_appointment(controller, cfg, *, appointment_id, effective_at):
+    request_id = privileged_request_id("cancel", next(_request_seq))
+    response = privileged(
+        controller.services, request_id,
+        lambda ctx: appointments.cancel_appointment(
+            ctx, cfg, appointment_id=appointment_id, effective_at=effective_at, artifact=ARTIFACT,
+        ),
+    )
+    body = json.loads(response)
+    assert body["ok"] is True, body
+    return body["result"]
 
 
 def _weekday_wage_total(conn) -> int:
@@ -676,6 +714,7 @@ def test_reassigning_away_a_pending_dispatch_replans_the_technicians_remaining_d
     first = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
         address_catalog_id=DESTINATION_ADDRESS.address_id,
+        requested_category_id=PLUMBING_CATEGORY_ID,
     )
     second = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B13_15",
@@ -715,6 +754,11 @@ def test_reassigning_away_a_pending_dispatch_replans_the_technicians_remaining_d
 
     status = controller.run()
     assert str(status) == "completed"
+
+    first_appt = conn.execute(
+        "SELECT status FROM _appointments WHERE id = ?", (first_appointment_id,)
+    ).fetchone()
+    assert first_appt["status"] == "completed"
 
     second_appt = conn.execute(
         "SELECT status FROM _appointments WHERE id = ?", (second_appointment_id,)
@@ -1047,6 +1091,7 @@ def test_off_hours_settlement_reassignment_before_block_moves_the_accrual(tmp_pa
     conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
     booked = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
+        requested_category_id=PLUMBING_CATEGORY_ID,
     )
     request_id = privileged_request_id("assign", next(_request_seq))
     response = privileged(
@@ -1140,6 +1185,13 @@ def test_abandoned_trip_arrived_not_started_reassignment_replans_the_chain(tmp_p
     ]
     assert len(reassigned_dispatch) == 1
 
+    first_appt = conn.execute(
+        "SELECT status FROM _appointments WHERE id = ?", (first_appointment_id,)
+    ).fetchone()
+    assert first_appt["status"] == "failed"
+    first_job = _job_row(conn, first["job_id"])
+    assert first_job["outcome"] == "failed_unqualified"
+
     second_appt = conn.execute(
         "SELECT status FROM _appointments WHERE id = ?", (second_appointment_id,)
     ).fetchone()
@@ -1155,6 +1207,7 @@ def test_abandoned_trip_en_route_reassignment_turns_technician_back(tmp_path):
     conn, cfg, controller, _ = _build_run(tmp_path)
     booked = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B11_13",
+        requested_category_id=PLUMBING_CATEGORY_ID,
     )
     appointment_id = booked["appointment_id"]
 
@@ -1219,6 +1272,11 @@ def test_abandoned_trip_en_route_reassignment_turns_technician_back(tmp_path):
     status = controller.run()
     assert str(status) == "completed"
 
+    appt = conn.execute(
+        "SELECT status FROM _appointments WHERE id = ?", (appointment_id,)
+    ).fetchone()
+    assert appt["status"] == "completed"
+
     events = _appointment_event_rows(conn, appointment_id)
     dispatched = [e for e in events if e["event_type"] == "dispatched"][-1]
     arrived = [e for e in events if e["event_type"] == "arrived"][-1]
@@ -1262,6 +1320,7 @@ def test_reassign_during_a_same_address_chain_trip_turns_back_to_the_true_origin
     )
     second = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B11_13",
+        requested_category_id=PLUMBING_CATEGORY_ID,
     )
     first_id = first["appointment_id"]
     second_id = second["appointment_id"]
@@ -2046,6 +2105,7 @@ def test_reassign_during_a_post_no_show_chain_trip_turns_back_to_the_no_show_loc
     second = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B13_15",
         address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+        requested_category_id=PLUMBING_CATEGORY_ID,
     )
     first_id = first["appointment_id"]
     second_id = second["appointment_id"]
@@ -2194,3 +2254,535 @@ def test_clock_past_cutoff_arrival_appends_arrived_but_never_schedules_work_star
     day = _day_state_row(conn, WEEKDAY)
     assert day["unresolved_execution_count"] == 0
     assert day["closing_at"] == clock.phoenix_instant(2026, 10, 1, 19, 0)
+
+
+_JOB_TERMINAL_LEGAL_PAIRS = frozenset({
+    ("completed", "completed_paid"),
+    ("completed", "completed_warranty"),
+    ("failed", "failed_unsupported"),
+    ("failed", "failed_unqualified"),
+    ("no_show", "no_show_company"),
+    ("cancelled", "cancelled_by_customer"),
+})
+_TERMINAL_STATUSES = frozenset({"completed", "failed", "no_show", "cancelled"})
+
+
+def _job_row(conn, job_id):
+    return conn.execute(
+        "SELECT status, outcome, completed_at, modified_at FROM _jobs WHERE id = ?", (job_id,)
+    ).fetchone()
+
+
+def test_unsupported_category_leg_burns_visit_minutes_then_fails_and_cascades(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    first = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+        job_type_id=5, requested_category_id=UNSUPPORTED_CATEGORY_ID,
+    )
+    second = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B11_13",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+    first_id = first["appointment_id"]
+    second_id = second["appointment_id"]
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    job = _job_row(conn, first["job_id"])
+    assert job["status"] == "failed"
+    assert job["outcome"] == "failed_unsupported"
+    assert job["completed_at"] is None
+
+    appt = conn.execute(
+        "SELECT status, actual_start FROM _appointments WHERE id = ?", (first_id,)
+    ).fetchone()
+    assert appt["status"] == "failed"
+    assert appt["actual_start"] is None
+
+    events = _appointment_event_rows(conn, first_id)
+    assert [e["event_type"] for e in events] == ["dispatched", "arrived", "work_failed"]
+    arrived_at = events[1]["occurred_at"]
+    failed_at = events[2]["occurred_at"]
+    assert failed_at - arrived_at == cfg.get_int("execution.failed_visit_minutes") * 60000
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM _events WHERE kind = ? AND entity_id = ?",
+        (EventKind.WORK_STARTED.value, first_id),
+    ).fetchone()["c"] == 0
+
+    second_events = _appointment_event_rows(conn, second_id)
+    second_dispatched = next(e for e in second_events if e["event_type"] == "dispatched")
+    assert second_dispatched["occurred_at"] == failed_at
+
+    movement = conn.execute(
+        "SELECT COUNT(*) c FROM _technician_movements WHERE technician_id = 1"
+    ).fetchone()
+    assert movement["c"] == 1
+
+    day = _day_state_row(conn, WEEKDAY)
+    assert day["unresolved_execution_count"] == 0
+
+
+def test_failed_visit_minutes_config_key_governs_the_work_failed_gap(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path, **{"execution.failed_visit_minutes": 45},
+    )
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+        job_type_id=5, requested_category_id=UNSUPPORTED_CATEGORY_ID,
+    )
+    appointment_id = booked["appointment_id"]
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    events = _appointment_event_rows(conn, appointment_id)
+    assert [e["event_type"] for e in events] == ["dispatched", "arrived", "work_failed"]
+    assert events[2]["occurred_at"] - events[1]["occurred_at"] == 45 * 60000
+
+
+def test_unqualified_technician_leg_fails_the_visit_using_the_true_categorys_skill(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+        job_type_id=1, requested_category_id=PLUMBING_CATEGORY_ID,
+    )
+    appointment_id = booked["appointment_id"]
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    job = _job_row(conn, booked["job_id"])
+    assert job["status"] == "failed"
+    assert job["outcome"] == "failed_unqualified"
+    assert job["completed_at"] is None
+
+    appt = conn.execute(
+        "SELECT status, actual_start FROM _appointments WHERE id = ?", (appointment_id,)
+    ).fetchone()
+    assert appt["status"] == "failed"
+    assert appt["actual_start"] is None
+
+    events = _appointment_event_rows(conn, appointment_id)
+    assert [e["event_type"] for e in events] == ["dispatched", "arrived", "work_failed"]
+    assert events[2]["occurred_at"] - events[1]["occurred_at"] == (
+        cfg.get_int("execution.failed_visit_minutes") * 60000
+    )
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM _events WHERE kind = ? AND entity_id = ?",
+        (EventKind.WORK_STARTED.value, appointment_id),
+    ).fetchone()["c"] == 0
+
+
+def test_qualified_despite_misbooking_leg_completes_using_the_true_categorys_skill(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=3, service_date=WEEKDAY, first_block_code="B09_11",
+        job_type_id=1, requested_category_id=PLUMBING_CATEGORY_ID,
+    )
+    appointment_id = booked["appointment_id"]
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    job = _job_row(conn, booked["job_id"])
+    assert job["status"] == "completed"
+    assert job["outcome"] == "completed_paid"
+    assert job["completed_at"] is not None
+
+    appt = conn.execute(
+        "SELECT status, actual_start, actual_end FROM _appointments WHERE id = ?",
+        (appointment_id,),
+    ).fetchone()
+    assert appt["status"] == "completed"
+    assert appt["actual_start"] is not None
+    assert appt["actual_end"] is not None
+
+    events = _appointment_event_rows(conn, appointment_id)
+    assert [e["event_type"] for e in events] == [
+        "dispatched", "arrived", "work_started", "work_completed",
+    ]
+
+
+def test_cancel_during_a_failed_visit_cancels_the_pending_work_failed_and_replans(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+        job_type_id=5, requested_category_id=UNSUPPORTED_CATEGORY_ID,
+    )
+    appointment_id = booked["appointment_id"]
+
+    _step_until(
+        controller,
+        lambda: conn.execute(
+            "SELECT 1 FROM _appointment_events WHERE appointment_id = ? AND event_type = 'arrived'",
+            (appointment_id,),
+        ).fetchone() is not None,
+    )
+    work_failed_pending = conn.execute(
+        "SELECT event_id FROM _events WHERE kind = ? AND entity_id = ? AND status = 'pending'",
+        (EventKind.WORK_FAILED.value, appointment_id),
+    ).fetchone()
+    assert work_failed_pending is not None
+
+    now = clock.now(conn)
+    result = _cancel_appointment(controller, cfg, appointment_id=appointment_id, effective_at=now)
+    assert result["job_id"] == booked["job_id"]
+
+    cancelled_event = conn.execute(
+        "SELECT status FROM _events WHERE event_id = ?", (work_failed_pending["event_id"],)
+    ).fetchone()
+    assert cancelled_event["status"] == "cancelled"
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    appt = conn.execute(
+        "SELECT status FROM _appointments WHERE id = ?", (appointment_id,)
+    ).fetchone()
+    assert appt["status"] == "cancelled"
+
+    job = _job_row(conn, booked["job_id"])
+    assert job["status"] == "cancelled"
+    assert job["outcome"] == "cancelled_by_customer"
+
+    events = _appointment_event_rows(conn, appointment_id)
+    assert [e["event_type"] for e in events] == ["dispatched", "arrived", "cancelled"]
+
+    assert _technician_location_row(conn, 1)["location_state"] == "home"
+    assert _day_state_row(conn, WEEKDAY)["unresolved_execution_count"] == 0
+
+
+def test_reassignment_after_a_forked_arrival_cancels_the_stale_work_failed(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path,
+        **{
+            "travel.speed_by_time_band": _SLOW_MIDDAY_SPEED_OVERRIDE,
+            "travel.noise.max_multiplier": 0.75,
+        },
+    )
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B13_15",
+        job_type_id=5, requested_category_id=UNSUPPORTED_CATEGORY_ID,
+    )
+    appointment_id = booked["appointment_id"]
+
+    _step_until(
+        controller,
+        lambda: conn.execute(
+            "SELECT 1 FROM _appointment_events WHERE appointment_id = ? AND event_type = 'arrived'",
+            (appointment_id,),
+        ).fetchone() is not None,
+    )
+    stale_work_failed = conn.execute(
+        "SELECT event_id, payload FROM _events WHERE kind = ? AND entity_id = ? "
+        "AND status = 'pending'",
+        (EventKind.WORK_FAILED.value, appointment_id),
+    ).fetchone()
+    assert stale_work_failed is not None
+    assert json.loads(stale_work_failed["payload"])["technician_id"] == 1
+
+    request_id = privileged_request_id("assign", next(_request_seq))
+    response = privileged(
+        controller.services, request_id,
+        lambda ctx: appointments.assign(
+            ctx, cfg, appointment_id=appointment_id, technician_id=3, artifact=ARTIFACT,
+        ),
+    )
+    body = json.loads(response)
+    assert body["ok"] is True, body
+
+    cancelled = conn.execute(
+        "SELECT status FROM _events WHERE event_id = ?", (stale_work_failed["event_id"],)
+    ).fetchone()
+    assert cancelled["status"] == "cancelled"
+
+    new_dispatch = conn.execute(
+        "SELECT payload FROM _events WHERE kind = ? AND entity_id = ? AND status = 'pending'",
+        (EventKind.APPOINTMENT_DISPATCH.value, appointment_id),
+    ).fetchone()
+    assert new_dispatch is not None
+    assert json.loads(new_dispatch["payload"])["technician_id"] == 3
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    job = _job_row(conn, booked["job_id"])
+    assert job["status"] == "failed"
+    assert job["outcome"] == "failed_unsupported"
+
+    events = _appointment_event_rows(conn, appointment_id)
+    work_failed_events = [e for e in events if e["event_type"] == "work_failed"]
+    assert len(work_failed_events) == 1
+    assert work_failed_events[0]["technician_id"] == 3
+
+    assert _day_state_row(conn, WEEKDAY)["unresolved_execution_count"] == 0
+
+
+def test_company_no_show_cutoff_defers_to_a_pending_work_failed(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+        job_type_id=5, requested_category_id=UNSUPPORTED_CATEGORY_ID,
+    )
+    appointment_id = booked["appointment_id"]
+    cutoff = clock.phoenix_instant(2026, 10, 1, 11, 0)
+    arrival_ms = cutoff - 15 * 60000
+
+    _step_until(
+        controller,
+        lambda: _technician_location_row(conn, 1)["location_state"] == "traveling",
+    )
+    _retime_pending_arrival(
+        conn, appointment_id=appointment_id, technician_id=1, arrival_ms=arrival_ms,
+    )
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    job = _job_row(conn, booked["job_id"])
+    assert job["status"] == "failed"
+    assert job["outcome"] == "failed_unsupported"
+
+    appt = conn.execute(
+        "SELECT status FROM _appointments WHERE id = ?", (appointment_id,)
+    ).fetchone()
+    assert appt["status"] == "failed"
+
+    events = _appointment_event_rows(conn, appointment_id)
+    assert [e["event_type"] for e in events] == ["dispatched", "arrived", "work_failed"]
+    assert events[1]["occurred_at"] == arrival_ms
+    assert events[2]["occurred_at"] == arrival_ms + (
+        cfg.get_int("execution.failed_visit_minutes") * 60000
+    )
+
+    guard = conn.execute(
+        "SELECT status FROM _events WHERE kind = ? AND entity_id = ?",
+        (EventKind.COMPANY_NO_SHOW.value, appointment_id),
+    ).fetchone()
+    assert guard["status"] == "applied"
+
+    assert _day_state_row(conn, WEEKDAY)["unresolved_execution_count"] == 0
+
+
+def test_classify_job_gatekeeper_rejects_double_classification(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    now = clock.now(conn)
+    execution.classify_job(
+        conn, job_id=booked["job_id"], status="completed", outcome="completed_paid",
+        now_ms=now, completed_at_ms=now,
+    )
+    conn.commit()
+
+    with pytest.raises(EngineError) as ei:
+        execution.classify_job(
+            conn, job_id=booked["job_id"], status="completed", outcome="completed_paid",
+            now_ms=now, completed_at_ms=now,
+        )
+    assert ei.value.code is ErrorCode.INVARIANT_VIOLATED
+
+
+def test_classify_job_gatekeeper_rejects_an_illegal_status_outcome_pair(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    now = clock.now(conn)
+
+    with pytest.raises(EngineError) as ei:
+        execution.classify_job(
+            conn, job_id=booked["job_id"], status="completed", outcome="no_show_company",
+            now_ms=now,
+        )
+    assert ei.value.code is ErrorCode.INVARIANT_VIOLATED
+
+    row = _job_row(conn, booked["job_id"])
+    assert row["status"] == "scheduled"
+    assert row["outcome"] is None
+
+
+def test_classify_job_sets_completed_at_only_for_a_completed_outcome(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    completed = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    failed = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B11_13",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+    now = clock.now(conn)
+    execution.classify_job(
+        conn, job_id=completed["job_id"], status="completed", outcome="completed_paid",
+        now_ms=now, completed_at_ms=now,
+    )
+    execution.classify_job(
+        conn, job_id=failed["job_id"], status="failed", outcome="failed_unsupported", now_ms=now,
+    )
+    conn.commit()
+
+    assert _job_row(conn, completed["job_id"])["completed_at"] == now
+    assert _job_row(conn, failed["job_id"])["completed_at"] is None
+
+
+def test_classify_job_gatekeeper_requires_completed_at_ms_for_a_completed_outcome(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    now = clock.now(conn)
+
+    with pytest.raises(EngineError) as ei:
+        execution.classify_job(
+            conn, job_id=booked["job_id"], status="completed", outcome="completed_paid",
+            now_ms=now,
+        )
+    assert ei.value.code is ErrorCode.INVARIANT_VIOLATED
+
+    row = _job_row(conn, booked["job_id"])
+    assert row["status"] == "scheduled"
+    assert row["outcome"] is None
+
+
+def test_classify_job_completed_at_tracks_completed_at_ms_while_modified_at_tracks_now_ms(
+    tmp_path,
+):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    completed_at_ms = clock.now(conn)
+    now_ms = completed_at_ms + 5 * 60000
+
+    execution.classify_job(
+        conn, job_id=booked["job_id"], status="completed", outcome="completed_paid",
+        now_ms=now_ms, completed_at_ms=completed_at_ms,
+    )
+    conn.commit()
+
+    row = _job_row(conn, booked["job_id"])
+    assert row["completed_at"] == completed_at_ms
+    assert row["modified_at"] == now_ms
+    assert row["completed_at"] != row["modified_at"]
+
+
+def test_coherence_sweep_every_terminal_job_has_exactly_one_matching_outcome(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path, end_date=SECOND_WEEKDAY)
+
+    completed = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    failed = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B11_13",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+        job_type_id=5, requested_category_id=UNSUPPORTED_CATEGORY_ID,
+    )
+    cancelled = _book_execution(
+        controller, cfg, technician_id=3, service_date=WEEKDAY, first_block_code="B13_15",
+    )
+    _cancel_appointment(
+        controller, cfg, appointment_id=cancelled["appointment_id"], effective_at=clock.now(conn),
+    )
+    no_show = _book_execution(
+        controller, cfg, technician_id=4, service_date=WEEKDAY, first_block_code="B15_17",
+    )
+    future = _book_execution(
+        controller, cfg, technician_id=1, service_date=SECOND_WEEKDAY, first_block_code="B09_11",
+    )
+
+    _step_until(
+        controller,
+        lambda: _pending_event(
+            conn, EventKind.APPOINTMENT_DISPATCH, no_show["appointment_id"]
+        ) is not None,
+    )
+    dispatch = _pending_event(conn, EventKind.APPOINTMENT_DISPATCH, no_show["appointment_id"])
+    guard = _guard_event(conn, no_show["appointment_id"])
+    _move_pending_event(
+        conn, int(dispatch["event_id"]), int(guard["scheduled_at_ms"]) + 30 * 60000,
+    )
+
+    settled_ids = {
+        completed["appointment_id"], failed["appointment_id"], cancelled["appointment_id"],
+        no_show["appointment_id"],
+    }
+    _step_until(
+        controller,
+        lambda: all(_appointment_status(conn, aid) in _TERMINAL_STATUSES for aid in settled_ids),
+    )
+
+    rows = conn.execute(
+        "SELECT j.status AS job_status, j.outcome AS outcome, a.status AS appt_status "
+        "FROM _jobs j JOIN _appointments a ON a.job_id = j.id"
+    ).fetchall()
+    assert len(rows) == 5
+    for row in rows:
+        if row["appt_status"] in _TERMINAL_STATUSES:
+            assert (row["job_status"], row["outcome"]) in _JOB_TERMINAL_LEGAL_PAIRS
+        else:
+            assert row["outcome"] is None
+            assert row["job_status"] not in _TERMINAL_STATUSES
+
+    no_show_job = _job_row(conn, no_show["job_id"])
+    assert no_show_job["status"] == "no_show"
+    assert no_show_job["outcome"] == "no_show_company"
+    assert no_show_job["completed_at"] is None
+
+    assert _appointment_status(conn, future["appointment_id"]) == "scheduled"
+    future_job = _job_row(conn, future["job_id"])
+    assert future_job["status"] == "scheduled"
+    assert future_job["outcome"] is None
+
+
+def _twin_failure_bookings(controller, cfg):
+    _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+        job_type_id=5, requested_category_id=UNSUPPORTED_CATEGORY_ID,
+    )
+    _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B11_13",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+
+
+def test_twin_determinism_through_the_failure_path_identical_jobs_and_dump(tmp_path):
+    global _id_seq, _request_seq
+    saved_id_seq, saved_request_seq = _id_seq, _request_seq
+    try:
+        (tmp_path / "a").mkdir()
+        _id_seq, _request_seq = count(9500), count(1)
+        conn_a, cfg_a, controller_a, _ = _build_run(tmp_path / "a")
+        _twin_failure_bookings(controller_a, cfg_a)
+        status_a = controller_a.run()
+        assert str(status_a) == "completed"
+        run_id_a = conn_a.execute("SELECT run_id FROM _run").fetchone()["run_id"]
+        hash_a = dump_hash(conn_a, run_id_a)
+        jobs_a = [
+            tuple(row)
+            for row in conn_a.execute(
+                "SELECT id, status, outcome, completed_at FROM _jobs ORDER BY id"
+            ).fetchall()
+        ]
+
+        (tmp_path / "b").mkdir()
+        _id_seq, _request_seq = count(9500), count(1)
+        conn_b, cfg_b, controller_b, _ = _build_run(tmp_path / "b")
+        _twin_failure_bookings(controller_b, cfg_b)
+        status_b = controller_b.run()
+        assert str(status_b) == "completed"
+        run_id_b = conn_b.execute("SELECT run_id FROM _run").fetchone()["run_id"]
+        hash_b = dump_hash(conn_b, run_id_b)
+        jobs_b = [
+            tuple(row)
+            for row in conn_b.execute(
+                "SELECT id, status, outcome, completed_at FROM _jobs ORDER BY id"
+            ).fetchall()
+        ]
+
+        assert jobs_a == jobs_b
+        assert hash_a == hash_b
+        assert any(row[2] == "failed_unsupported" for row in jobs_a)
+    finally:
+        _id_seq, _request_seq = saved_id_seq, saved_request_seq
