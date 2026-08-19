@@ -120,7 +120,7 @@ def _open_call_session(port: int, control_token: str, ts_ms: int) -> int:
         "POST",
         "/v1/control/next_invocation",
         token=control_token,
-        body={"type": "call", "ts_ms": ts_ms},
+        body={"type": "call", "ts_ms": ts_ms, "request_id": f"corpus-open-{ts_ms}"},
     )
     assert status == 200, body
     return int(body["data"]["invocation_id"])

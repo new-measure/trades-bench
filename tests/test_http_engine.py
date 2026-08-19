@@ -104,7 +104,7 @@ def _open_call_session(port: int, control_token: str, ts_ms: int = 1_000_000) ->
         "POST",
         "/v1/control/next_invocation",
         token=control_token,
-        body={"type": "call", "ts_ms": ts_ms},
+        body={"type": "call", "ts_ms": ts_ms, "request_id": uuid.uuid4().hex},
     )
     assert status == 200, body
     return int(body["data"]["invocation_id"])
@@ -265,7 +265,7 @@ def test_control_next_invocation_envelope_shape(engine):
         "POST",
         "/v1/control/next_invocation",
         token=engine.tokens.control,
-        body={"type": "opening", "ts_ms": 1_000_000},
+        body={"type": "opening", "ts_ms": 1_000_000, "request_id": "open-opening-1"},
     )
     assert status == 200
     assert body.keys() == {"data", "meta"}
@@ -280,7 +280,7 @@ def test_control_failure_envelope_shape(engine):
         "POST",
         "/v1/control/next_invocation",
         token=engine.tokens.control,
-        body={"type": "not-a-real-type"},
+        body={"type": "not-a-real-type", "request_id": "open-bad-type-1"},
     )
     assert status == 400
     assert body.keys() == {"error", "meta"}
@@ -295,7 +295,7 @@ def test_complete_invocation_round_trip(engine):
         "POST",
         "/v1/control/complete_invocation",
         token=engine.tokens.control,
-        body={"invocation_id": invocation_id},
+        body={"invocation_id": invocation_id, "request_id": "complete-ok-1"},
     )
     assert status == 200
     assert body["data"] == {"invocation_id": invocation_id, "status": "completed"}
@@ -307,7 +307,7 @@ def test_complete_invocation_unknown_id_is_not_found(engine):
         "POST",
         "/v1/control/complete_invocation",
         token=engine.tokens.control,
-        body={"invocation_id": 999999},
+        body={"invocation_id": 999999, "request_id": "complete-missing-1"},
     )
     assert status == 404
     assert body["error"]["code"] == "not_found"
@@ -688,7 +688,7 @@ def test_double_open_returns_conflict_with_invocation_already_active_rule(engine
         "POST",
         "/v1/control/next_invocation",
         token=engine.tokens.control,
-        body={"type": "call", "ts_ms": 1_000_000},
+        body={"type": "call", "ts_ms": 1_000_000, "request_id": "open-conflict-1"},
     )
     assert status == 409
     assert body["error"]["code"] == "conflict"
@@ -808,7 +808,7 @@ def test_sql_response_meta_invocation_id_updates_across_session_boundary(engine)
         "POST",
         "/v1/control/complete_invocation",
         token=engine.tokens.control,
-        body={"invocation_id": first_invocation_id},
+        body={"invocation_id": first_invocation_id, "request_id": "complete-first-1"},
     )
     assert status == 200
 
@@ -889,6 +889,23 @@ def test_control_request_id_reserved_prefix_is_invalid_request(engine):
     assert body["error"]["details"]["field"] == "request_id"
 
 
+def test_control_operations_require_a_request_id(engine):
+    for operation, body_args in (
+        ("next_invocation", {"type": "call", "ts_ms": 1_000_000}),
+        ("complete_invocation", {"invocation_id": 1}),
+    ):
+        status, body, _ = _request(
+            engine.port,
+            "POST",
+            f"/v1/control/{operation}",
+            token=engine.tokens.control,
+            body=body_args,
+        )
+        assert status == 400, body
+        assert body["error"]["code"] == "invalid_request"
+        assert body["error"]["details"]["field"] == "request_id"
+
+
 def test_health_server_header_has_no_interpreter_version(engine):
     status1, _, headers1 = _request(engine.port, "GET", "/v1/health")
     status2, _, headers2 = _request(engine.port, "GET", "/v1/health")
@@ -919,7 +936,7 @@ def test_control_type_list_is_invalid_request_not_a_dropped_connection(engine):
         "POST",
         "/v1/control/next_invocation",
         token=engine.tokens.control,
-        body={"type": [], "ts_ms": 1_000_000},
+        body={"type": [], "ts_ms": 1_000_000, "request_id": "open-type-shape-1"},
     )
     assert status == 400
     assert body["error"]["code"] == "invalid_request"

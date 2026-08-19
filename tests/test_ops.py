@@ -184,7 +184,7 @@ def _open_call_session(port: int, control_token: str, ts_ms: int) -> int:
         "POST",
         "/v1/control/next_invocation",
         token=control_token,
-        body={"type": "call", "ts_ms": ts_ms},
+        body={"type": "call", "ts_ms": ts_ms, "request_id": f"ops-open-{ts_ms}"},
     )
     assert status == 200, body
     return int(body["data"]["invocation_id"])
@@ -1798,6 +1798,20 @@ def test_oversized_int_arguments_are_invalid_request_not_a_crash(warm_engine):
     )
     assert status == 400, body
     assert body["error"]["code"] == "invalid_request"
+
+
+def test_mutation_without_a_request_id_is_invalid_request(warm_engine):
+    eng, conn = warm_engine
+    status, body, _, _ = _request(
+        eng.port,
+        "POST",
+        _ops_path("calls.reject"),
+        token=eng.tokens.agent,
+        body={"call_id": 1},
+    )
+    assert status == 400, body
+    assert body["error"]["code"] == "invalid_request"
+    assert body["error"]["details"]["field"] == "request_id"
 
 
 def test_contacts_argument_rejects_a_dict_not_only_lists(tmp_path):

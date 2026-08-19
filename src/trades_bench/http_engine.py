@@ -666,13 +666,9 @@ class _Handler(BaseHTTPRequestHandler):
             engine._gate.leave()
         self._write(status, payload, replay=replayed)
 
-    def _extract_request_id(
-        self, body: dict, *, mint_if_absent: bool = True
-    ) -> tuple[str | None, bool]:
+    def _extract_request_id(self, body: dict) -> tuple[str | None, bool]:
         raw = body.get("request_id")
         if raw is None:
-            if mint_if_absent:
-                return uuid.uuid4().hex, True
             return None, True
         if not isinstance(raw, str):
             return None, False
@@ -690,7 +686,7 @@ class _Handler(BaseHTTPRequestHandler):
             return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of()), False
 
         request_id, request_id_ok = self._extract_request_id(body)
-        if not request_id_ok:
+        if not request_id_ok or request_id is None:
             translated = native_failure(WireCode.INVALID_REQUEST, details={"field": "request_id"})
             return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of()), False
 
@@ -823,10 +819,9 @@ class _Handler(BaseHTTPRequestHandler):
             return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of()), False
         invocation_id = int(active["invocation_id"])
 
-        if spec.kind == "mutation":
-            request_id, request_id_ok = self._extract_request_id(body, mint_if_absent=True)
-        else:
-            request_id, request_id_ok = self._extract_request_id(body, mint_if_absent=False)
+        request_id, request_id_ok = self._extract_request_id(body)
+        if spec.kind == "mutation" and request_id is None:
+            request_id_ok = False
         if not request_id_ok:
             translated = native_failure(WireCode.INVALID_REQUEST, details={"field": "request_id"})
             return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of()), False
@@ -1032,7 +1027,7 @@ class _Handler(BaseHTTPRequestHandler):
             return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of())
         invocation_id = int(active["invocation_id"])
 
-        request_id, request_id_ok = self._extract_request_id(body, mint_if_absent=False)
+        request_id, request_id_ok = self._extract_request_id(body)
         if not request_id_ok:
             translated = native_failure(WireCode.INVALID_REQUEST, details={"field": "request_id"})
             return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of())
