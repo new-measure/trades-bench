@@ -4,6 +4,7 @@ import hashlib
 import sqlite3
 from collections.abc import Callable, Iterator
 from decimal import Decimal, localcontext
+from math import isqrt
 
 from . import clock
 from .constants import TIMING_VARIATION_HIGH, TIMING_VARIATION_LOW
@@ -138,6 +139,37 @@ def randint(u: int, a: int, b: int) -> int:
 
 def bounded_int(u: int, lo: int, hi: int) -> int:
     return randint(u, lo, hi)
+
+
+def _isqrt_half_up(square: int) -> int:
+    return (isqrt(4 * square) + 1) // 2
+
+
+def triangular_cents(u: int, *, low: int, mode: int, high: int) -> int:
+    if isinstance(u, bool) or not isinstance(u, int) or not (0 <= u < U64_MOD):
+        raise EngineError(ErrorCode.INVALID_ARGUMENT, f"u must be a u64, got {u!r}")
+    for name, value in (("low", low), ("mode", mode), ("high", high)):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise EngineError(
+                ErrorCode.INVALID_ARGUMENT,
+                f"triangular_cents {name} must be an int, got {type(value).__name__}",
+            )
+    if not (0 <= low <= mode <= high):
+        raise EngineError(
+            ErrorCode.STATE_ILLEGAL,
+            f"triangular_cents needs 0 <= low <= mode <= high, got [{low},{mode},{high}]",
+        )
+    width = high - low
+    if width == 0:
+        return low
+    left_width = mode - low
+    right_width = high - mode
+    if u * width <= left_width * U64_MOD:
+        offset = _isqrt_half_up(u * width * left_width // U64_MOD)
+        return min(high, low + offset)
+    upper_tail = U64_MOD - u
+    offset = _isqrt_half_up(upper_tail * width * right_width // U64_MOD)
+    return max(low, high - offset)
 
 
 def triangular(
@@ -369,6 +401,21 @@ class Rng:
         u = self.draw(stream_name, entity_type, entity_id, scope, scope_event_kind, draw_index)
         return bounded_int(u, lo, hi)
 
+    def triangular_cents(
+        self,
+        stream_name: str,
+        entity_type: str,
+        entity_id: int,
+        scope: str,
+        event_kind: str,
+        low: int,
+        mode: int,
+        high: int,
+        draw_index: int = 0,
+    ) -> int:
+        u = self.draw(stream_name, entity_type, entity_id, scope, event_kind, draw_index)
+        return triangular_cents(u, low=low, mode=mode, high=high)
+
     def triangular(
         self,
         stream_name: str,
@@ -535,5 +582,6 @@ __all__ = [
     "sqlite_audit_recorder",
     "stream_seed",
     "triangular",
+    "triangular_cents",
     "uniform01",
 ]

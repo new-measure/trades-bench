@@ -240,7 +240,7 @@ def _off_hours_entries(
     marks = ctx.conn.execute(
         "SELECT * FROM _events WHERE kind = ? AND status = 'applied' "
         "AND scheduled_at_ms >= ? AND scheduled_at_ms < ? "
-        "ORDER BY scheduled_at_ms, priority, event_id",
+        "ORDER BY entity_id, event_id",
         (EventKind.OFF_HOURS_ACCRUAL_MARK.value, day_start, day_end),
     ).fetchall()
     entries: list[LedgerEntry] = []

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from trades_bench.money import FloatMoneyError, Money
+from trades_bench.money import (
+    BASIS_POINTS_SCALE,
+    FloatMoneyError,
+    Money,
+    basis_point_amount,
+)
 
 
 def test_construct_int_cents():
@@ -71,3 +76,49 @@ def test_from_dollars_rejects_float_inputs_and_bad_strings():
         Money.from_dollars("1e2")
     with pytest.raises(ValueError):
         Money.from_dollars("abc")
+
+
+def test_basis_point_amount_scale_is_ten_thousand():
+    assert BASIS_POINTS_SCALE == 10_000
+
+
+@pytest.mark.parametrize(
+    ("amount_cents", "basis_points", "expected"),
+    [
+        (0, 2500, 0),
+        (100_000, 0, 0),
+        (100_000, 2500, 25_000),
+        (45_000, 1500, 6_750),
+        (333, 1500, 50),
+        (1, 5000, 1),
+        (3, 5000, 2),
+        (1, 4999, 0),
+        (750_000, 4500, 337_500),
+    ],
+)
+def test_basis_point_amount_rounds_half_up_on_exact_integer_cents(
+    amount_cents, basis_points, expected
+):
+    assert basis_point_amount(amount_cents, basis_points) == expected
+
+
+def test_basis_point_amount_never_exceeds_the_base_amount():
+    for basis_points in range(0, BASIS_POINTS_SCALE, 137):
+        assert basis_point_amount(50_000, basis_points) <= 50_000
+
+
+@pytest.mark.parametrize("bad", [1.0, 0.5, True, "100"])
+def test_basis_point_amount_rejects_non_integer_inputs(bad):
+    with pytest.raises(FloatMoneyError):
+        basis_point_amount(bad, 1500)
+    with pytest.raises(FloatMoneyError):
+        basis_point_amount(1500, bad)
+
+
+def test_basis_point_amount_rejects_negative_and_out_of_scale_values():
+    with pytest.raises(ValueError):
+        basis_point_amount(-1, 1500)
+    with pytest.raises(ValueError):
+        basis_point_amount(1000, -1)
+    with pytest.raises(ValueError):
+        basis_point_amount(1000, BASIS_POINTS_SCALE)

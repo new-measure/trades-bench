@@ -7,7 +7,7 @@ from decimal import ROUND_FLOOR, Decimal, localcontext
 
 from . import appointments, calls, clock, constants, surface
 from .config import RunConfig, probability_threshold
-from .enums import EventKind, KeyedStreamName
+from .enums import EntityType, EventKind, KeyedStreamName
 from .errors import EngineError, ErrorCode
 from .events import Events
 from .geo_reader import GeoArtifact
@@ -280,7 +280,8 @@ def book(
 
     creation_date = clock.service_date_for_ms(now)
     u01 = ctx.rng.uniform01(
-        KeyedStreamName.JOB_QUALITY.value, "job", job_id, creation_date, "complexity", 0,
+        KeyedStreamName.JOB_QUALITY.value, EntityType.JOB.value, job_id, creation_date,
+        "complexity", 0,
     )
     dist = config.resolved["quality.complexity_distribution"][plan.job_type_code]
     complexity = dist["min"] + (dist["max"] - dist["min"]) * u01

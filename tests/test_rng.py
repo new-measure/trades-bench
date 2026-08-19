@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import hashlib
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from trades_bench.errors import EngineError, ErrorCode
 from trades_bench.rng import (
+    U64_MOD,
     Rng,
     bounded_int,
     chance,
@@ -16,6 +19,7 @@ from trades_bench.rng import (
     sequential_draw,
     stream_seed,
     triangular,
+    triangular_cents,
     uniform01,
 )
 
@@ -249,3 +253,112 @@ def test_enter_exit_txn_guarded():
     r.exit_txn()
     with pytest.raises(EngineError):
         r.exit_txn()
+
+
+_TRIANGLE = {"low": 0, "mode": 5000, "high": 10000}
+
+
+def test_triangular_cents_pins_the_distribution_endpoints():
+    assert triangular_cents(0, **_TRIANGLE) == 0
+    assert triangular_cents(U64_MOD - 1, **_TRIANGLE) == 10000
+
+
+def test_triangular_cents_returns_the_mode_at_the_cumulative_mode_probability():
+    u_at_mode = U64_MOD // 2
+    assert triangular_cents(u_at_mode, **_TRIANGLE) == 5000
+    assert triangular_cents(u_at_mode - 1, **_TRIANGLE) == 5000
+    assert triangular_cents(u_at_mode + 1, **_TRIANGLE) == 5000
+
+
+def test_triangular_cents_hand_computed_interior_literal():
+    assert triangular_cents(1 << 62, **_TRIANGLE) == 3536
+
+
+def _reference_triangular_cents(u: int, *, low: int, mode: int, high: int) -> int:
+    with localcontext() as ctx:
+        ctx.prec = 60
+        share = Decimal(u) / Decimal(U64_MOD)
+        left = Decimal(mode - low) / Decimal(high - low)
+        if share < left:
+            exact = Decimal(low) + (share * Decimal((high - low) * (mode - low))).sqrt()
+        else:
+            exact = Decimal(high) - (
+                (Decimal(1) - share) * Decimal((high - low) * (high - mode))
+            ).sqrt()
+        return int(exact.quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+def test_triangular_cents_rounds_half_up_on_both_branches():
+    left_u = 1 << 62
+    right_u = U64_MOD - (1 << 62)
+    assert triangular_cents(left_u, **_TRIANGLE) == 3536
+    assert _reference_triangular_cents(left_u, **_TRIANGLE) == 3536
+    assert triangular_cents(right_u, **_TRIANGLE) == 6464
+    assert _reference_triangular_cents(right_u, **_TRIANGLE) == 6464
+
+
+@given(st.integers(min_value=0, max_value=U64_MOD - 1))
+@settings(max_examples=400, deadline=None)
+def test_triangular_cents_matches_the_half_up_reference_within_one_cent(u):
+    triangle = {"low": 20000, "mode": 38000, "high": 85000}
+    assert abs(triangular_cents(u, **triangle) - _reference_triangular_cents(u, **triangle)) <= 1
+
+
+def test_triangular_cents_handles_an_asymmetric_mode():
+    triangle = {"low": 20000, "mode": 38000, "high": 85000}
+    assert triangular_cents(0, **triangle) == 20000
+    assert triangular_cents(U64_MOD - 1, **triangle) == 85000
+    at_mode = triangular_cents((18000 * U64_MOD) // 65000, **triangle)
+    assert abs(at_mode - 38000) <= 1
+
+
+def test_triangular_cents_collapses_to_a_point_distribution():
+    assert triangular_cents(12345, low=7000, mode=7000, high=7000) == 7000
+
+
+def test_triangular_cents_rejects_bad_arguments():
+    with pytest.raises(EngineError) as ei:
+        triangular_cents(U64_MOD, **_TRIANGLE)
+    assert ei.value.code is ErrorCode.INVALID_ARGUMENT
+    with pytest.raises(EngineError) as ei:
+        triangular_cents(-1, **_TRIANGLE)
+    assert ei.value.code is ErrorCode.INVALID_ARGUMENT
+    with pytest.raises(EngineError) as ei:
+        triangular_cents(0, low=100, mode=50, high=200)
+    assert ei.value.code is ErrorCode.STATE_ILLEGAL
+    with pytest.raises(EngineError) as ei:
+        triangular_cents(0, low=-1, mode=50, high=200)
+    assert ei.value.code is ErrorCode.STATE_ILLEGAL
+    with pytest.raises(EngineError) as ei:
+        triangular_cents(0, low=0, mode=5000.0, high=10000)  # type: ignore[arg-type]
+    assert ei.value.code is ErrorCode.INVALID_ARGUMENT
+
+
+@given(st.integers(min_value=0, max_value=U64_MOD - 1))
+@settings(max_examples=300, deadline=None)
+def test_triangular_cents_output_always_inside_the_configured_bounds(u):
+    assert 20000 <= triangular_cents(u, low=20000, mode=38000, high=85000) <= 85000
+
+
+@given(
+    st.integers(min_value=0, max_value=U64_MOD - 2),
+    st.integers(min_value=1, max_value=1 << 40),
+)
+@settings(max_examples=300, deadline=None)
+def test_triangular_cents_is_monotone_nondecreasing_in_u(u, step):
+    higher = min(u + step, U64_MOD - 1)
+    assert triangular_cents(u, low=20000, mode=38000, high=85000) <= triangular_cents(
+        higher, low=20000, mode=38000, high=85000
+    )
+
+
+def test_triangular_cents_draw_is_keyed_and_unaffected_by_unrelated_keys():
+    r = Rng(MASTER, SPEC)
+    r.enter_txn()
+    first = r.triangular_cents("job_finance", "job", 41, "2026-10-01", "invoice_amount", 0, 5000, 10000)
+    other_entity = r.triangular_cents(
+        "job_finance", "job", 42, "2026-10-01", "invoice_amount", 0, 5000, 10000
+    )
+    repeat = r.triangular_cents("job_finance", "job", 41, "2026-10-01", "invoice_amount", 0, 5000, 10000)
+    assert first == repeat
+    assert 0 <= other_entity <= 10000

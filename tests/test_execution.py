@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sqlite3
 from decimal import ROUND_HALF_UP, Decimal
 from fractions import Fraction
 from itertools import count
@@ -32,9 +33,11 @@ from trades_bench import (
 from trades_bench._dump import dump_hash
 from trades_bench.config import load_run_config
 from trades_bench.controller import Controller
-from trades_bench.enums import ConditionCode, EventKind
+from trades_bench.enums import ConditionCode, EventKind, KeyedStreamName, LedgerCategory
 from trades_bench.errors import EngineError, ErrorCode
 from trades_bench.events import Events
+from trades_bench.ledger import Ledger
+from trades_bench.money import basis_point_amount
 from trades_bench.rng import U64_MOD, Rng, inverse_cdf_variation
 from trades_bench.run_init import initialize_run, open_run_db
 from trades_bench.sql_gate import execute_gated, open_agent_session
@@ -303,7 +306,7 @@ def _step_until(controller, predicate, max_steps=20000):
 
 def _book_execution(controller, cfg, *, technician_id, service_date, first_block_code,
                      job_type_id=1, address_catalog_id=DESTINATION_ADDRESS.address_id,
-                     requested_category_id=None):
+                     requested_category_id=None, priority="normal"):
     now = clock.now(controller.conn)
     category_id = (
         requested_category_id
@@ -318,7 +321,7 @@ def _book_execution(controller, cfg, *, technician_id, service_date, first_block
         controller.services, cfg,
         call_id=location_id, customer_id=location_id, location_id=location_id,
         job_type_id=job_type_id, requested_service_name="HVAC service",
-        priority="normal", summary="x",
+        priority=priority, summary="x",
         technician_id=technician_id, service_date=service_date,
         first_block_code=first_block_code,
     )
@@ -510,7 +513,17 @@ def test_happy_path_office_day_full_chain_and_settlement(tmp_path):
     starting_cash = cfg.get_int("finance.starting_cash")
     overhead = cfg.get_int("finance.daily_operating_overhead")
     wage_total = _weekday_wage_total(conn)
-    expected_cash = starting_cash - constants.WEEKDAY_PAY_MULTIPLIER * wage_total - overhead
+    invoice = conn.execute(
+        "SELECT total_cents, material_cost_cents FROM _invoices WHERE job_id = ?",
+        (booked["job_id"],),
+    ).fetchone()
+    expected_cash = (
+        starting_cash
+        + int(invoice["total_cents"])
+        - int(invoice["material_cost_cents"])
+        - constants.WEEKDAY_PAY_MULTIPLIER * wage_total
+        - overhead
+    )
     assert controller.services.ledger.cash_balance() == expected_cash
 
     home = execution.technician_home_point(conn, 1)
@@ -2786,3 +2799,760 @@ def test_twin_determinism_through_the_failure_path_identical_jobs_and_dump(tmp_p
         assert any(row[2] == "failed_unsupported" for row in jobs_a)
     finally:
         _id_seq, _request_seq = saved_id_seq, saved_request_seq
+
+
+_SETTLEMENT_ENTRY_TYPES = frozenset({
+    "payroll_base", "payroll_off_hours", "payroll_off_hours_bonus", "operating_overhead",
+})
+
+
+def _invoice_row(conn, job_id):
+    return conn.execute("SELECT * FROM _invoices WHERE job_id = ?", (job_id,)).fetchone()
+
+
+def _ledger_rows(conn, entry_type):
+    return conn.execute(
+        "SELECT * FROM _ledger_entries WHERE entry_type = ? ORDER BY occurred_at, id",
+        (entry_type,),
+    ).fetchall()
+
+
+def _job_finance_expectation(conn, cfg, job_id):
+    row = conn.execute(
+        "SELECT c.segment AS segment, jt.code AS code, j.completed_at AS completed_at "
+        "FROM _jobs j JOIN _customers c ON c.id = j.customer_id "
+        "JOIN _call_hidden ch ON ch.call_id = j.call_id "
+        "JOIN _service_catalog sc ON sc.id = ch.requested_category_id "
+        "JOIN _job_types jt ON jt.id = sc.supported_job_type_id WHERE j.id = ?",
+        (job_id,),
+    ).fetchone()
+    completion_date = clock.service_date_for_ms(int(row["completed_at"]))
+    shadow = _shadow_rng()
+    amounts = cfg.resolved["invoices.amount"][row["code"]][row["segment"]]
+    subtotal = shadow.triangular_cents(
+        KeyedStreamName.JOB_FINANCE.value, "job", job_id, completion_date, "invoice_amount",
+        amounts["min_cents"], amounts["mode_cents"], amounts["max_cents"], 0,
+    )
+    percent_range = cfg.resolved["materials.percent_range"][row["code"]]
+    basis_points = shadow.bounded_int(
+        KeyedStreamName.JOB_FINANCE.value, "job", job_id, completion_date, "material_percentage",
+        percent_range["min_basis_points"], percent_range["max_basis_points"], 0,
+    )
+    return {
+        "completion_date": completion_date,
+        "job_type_code": row["code"],
+        "segment": row["segment"],
+        "subtotal_cents": subtotal,
+        "basis_points": basis_points,
+        "material_cost_cents": basis_point_amount(subtotal, basis_points),
+    }
+
+
+def test_paid_completion_writes_invoice_item_payment_and_two_ledger_entries(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    job_id = booked["job_id"]
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    expected = _job_finance_expectation(conn, cfg, job_id)
+    completed_at = int(_job_row(conn, job_id)["completed_at"])
+
+    invoice = _invoice_row(conn, job_id)
+    assert invoice["invoice_number"] == f"INV-{invoice['id']:06d}"
+    assert invoice["status"] == "paid"
+    assert invoice["no_charge"] == 0
+    assert invoice["issued_at"] == completed_at
+    assert invoice["invoice_date"] == expected["completion_date"]
+    assert invoice["subtotal_cents"] == expected["subtotal_cents"]
+    assert invoice["total_cents"] == expected["subtotal_cents"]
+    assert invoice["material_percent_basis_points"] == expected["basis_points"]
+    assert invoice["material_cost_cents"] == expected["material_cost_cents"]
+    percent_range = cfg.resolved["materials.percent_range"][expected["job_type_code"]]
+    assert (
+        percent_range["min_basis_points"]
+        <= invoice["material_percent_basis_points"]
+        <= percent_range["max_basis_points"]
+    )
+    amounts = cfg.resolved["invoices.amount"][expected["job_type_code"]][expected["segment"]]
+    assert amounts["min_cents"] <= invoice["subtotal_cents"] <= amounts["max_cents"]
+    assert invoice["business_unit_id"] == conn.execute(
+        "SELECT business_unit_id FROM _job_types WHERE code = ?", (expected["job_type_code"],)
+    ).fetchone()["business_unit_id"]
+
+    items = conn.execute(
+        "SELECT * FROM _invoice_items WHERE invoice_id = ? ORDER BY id", (invoice["id"],)
+    ).fetchall()
+    assert len(items) == 1
+    assert items[0]["item_type"] == "service"
+    assert items[0]["quantity"] == 1
+    assert items[0]["amount_cents"] == invoice["subtotal_cents"]
+    assert items[0]["description"] == conn.execute(
+        "SELECT name FROM _job_types WHERE code = ?", (expected["job_type_code"],)
+    ).fetchone()["name"]
+
+    payments = conn.execute(
+        "SELECT * FROM _payments WHERE invoice_id = ? ORDER BY id", (invoice["id"],)
+    ).fetchall()
+    assert len(payments) == 1
+    assert payments[0]["payment_number"] == f"PAY-{payments[0]['id']:06d}"
+    assert payments[0]["paid_at"] == invoice["issued_at"]
+    assert payments[0]["amount_cents"] == invoice["total_cents"]
+    assert payments[0]["payment_type"] == "immediate"
+    assert payments[0]["status"] == "posted"
+
+    revenue = _ledger_rows(conn, "revenue")
+    materials = _ledger_rows(conn, "material_cost")
+    assert len(revenue) == 1
+    assert len(materials) == 1
+    assert revenue[0]["amount_cents"] == invoice["total_cents"]
+    assert revenue[0]["occurred_at"] == completed_at
+    assert revenue[0]["service_date"] == expected["completion_date"]
+    assert revenue[0]["job_id"] == job_id
+    assert revenue[0]["invoice_id"] == invoice["id"]
+    assert revenue[0]["payment_id"] == payments[0]["id"]
+    assert materials[0]["amount_cents"] == -invoice["material_cost_cents"]
+    assert materials[0]["occurred_at"] == completed_at
+    assert materials[0]["job_id"] == job_id
+    assert materials[0]["invoice_id"] == invoice["id"]
+
+    audit = conn.execute(
+        "SELECT event_kind, scope, draw_index, simulated_ts_ms FROM _random_audit "
+        "WHERE stream_name = ? AND entity_type = 'job' AND entity_id = ? ORDER BY seq",
+        (KeyedStreamName.JOB_FINANCE.value, job_id),
+    ).fetchall()
+    assert [tuple(row) for row in audit] == [
+        ("invoice_amount", expected["completion_date"], 0, completed_at),
+        ("material_percentage", expected["completion_date"], 0, completed_at),
+    ]
+
+
+def test_paid_completion_rows_are_readable_through_the_public_views(tmp_path):
+    conn, cfg, controller, db_path = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    job_id = booked["job_id"]
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    invoice = _invoice_row(conn, job_id)
+    agent = open_agent_session(db_path)
+    try:
+        row = execute_gated(
+            agent,
+            "SELECT i.invoice_number AS invoice_number, i.subtotal_cents AS subtotal_cents, "
+            "i.total_cents AS total_cents, i.material_cost_cents AS material_cost_cents, "
+            "i.material_percent_basis_points AS basis_points, "
+            "ii.description AS description, ii.amount_cents AS item_amount_cents, "
+            "p.payment_number AS payment_number, p.amount_cents AS paid_cents, "
+            "p.payment_type AS payment_type, p.status AS payment_status "
+            "FROM invoices i JOIN invoice_items ii ON ii.invoice_id = i.id "
+            f"JOIN payments p ON p.invoice_id = i.id WHERE i.job_id = {job_id}",
+        ).fetchone()
+        assert row["invoice_number"] == invoice["invoice_number"]
+        assert row["subtotal_cents"] == invoice["subtotal_cents"]
+        assert row["total_cents"] == invoice["total_cents"]
+        assert row["material_cost_cents"] == invoice["material_cost_cents"]
+        assert row["basis_points"] == invoice["material_percent_basis_points"]
+        assert row["item_amount_cents"] == invoice["subtotal_cents"]
+        assert row["paid_cents"] == invoice["total_cents"]
+        assert row["payment_type"] == "immediate"
+        assert row["payment_status"] == "posted"
+        assert row["description"] == conn.execute(
+            "SELECT name FROM _job_types WHERE id = 1"
+        ).fetchone()["name"]
+        with pytest.raises(EngineError):
+            execute_gated(agent, "SELECT origin FROM invoices")
+        with pytest.raises(EngineError):
+            execute_gated(agent, "SELECT origin FROM payments")
+    finally:
+        agent.close()
+
+
+def _disjoint_plumbing_invoice_amounts():
+    amounts = json.loads(json.dumps(load_run_config().resolved["invoices.amount"]))
+    amounts["plumbing"]["commercial"] = {
+        "min_cents": 200000, "mode_cents": 210000, "max_cents": 220000,
+    }
+    return amounts
+
+
+def test_paid_completion_prices_the_true_job_type_not_the_booked_one(tmp_path):
+    amounts = _disjoint_plumbing_invoice_amounts()
+    conn, cfg, controller, _ = _build_run(tmp_path, **{"invoices.amount": amounts})
+    booked = _book_execution(
+        controller, cfg, technician_id=3, service_date=WEEKDAY, first_block_code="B09_11",
+        job_type_id=1, requested_category_id=PLUMBING_CATEGORY_ID,
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+    job_id = booked["job_id"]
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    job = conn.execute(
+        "SELECT outcome, job_type_id, business_unit_id FROM _jobs WHERE id = ?", (job_id,)
+    ).fetchone()
+    assert job["outcome"] == "completed_paid"
+    assert int(job["job_type_id"]) == 1
+    assert int(job["business_unit_id"]) == int(
+        conn.execute("SELECT business_unit_id FROM _job_types WHERE id = 1").fetchone()[0]
+    )
+
+    plumbing = conn.execute(
+        "SELECT id, name, business_unit_id FROM _job_types WHERE code = 'plumbing'"
+    ).fetchone()
+    assert int(plumbing["id"]) != 1
+    expected = _job_finance_expectation(conn, cfg, job_id)
+    assert expected["job_type_code"] == "plumbing"
+
+    invoice = _invoice_row(conn, job_id)
+    plumbing_band = amounts["plumbing"]["commercial"]
+    hvac_band = amounts["hvac_service"]["commercial"]
+    assert plumbing_band["min_cents"] > hvac_band["max_cents"]
+    assert plumbing_band["min_cents"] <= invoice["subtotal_cents"] <= plumbing_band["max_cents"]
+    assert not (
+        hvac_band["min_cents"] <= invoice["subtotal_cents"] <= hvac_band["max_cents"]
+    )
+    assert invoice["subtotal_cents"] == expected["subtotal_cents"]
+    assert int(invoice["business_unit_id"]) == int(plumbing["business_unit_id"])
+    assert int(invoice["business_unit_id"]) != int(job["business_unit_id"])
+
+    plumbing_range = cfg.resolved["materials.percent_range"]["plumbing"]
+    assert invoice["material_percent_basis_points"] == expected["basis_points"]
+    assert (
+        plumbing_range["min_basis_points"]
+        <= invoice["material_percent_basis_points"]
+        <= plumbing_range["max_basis_points"]
+    )
+    assert invoice["material_cost_cents"] == expected["material_cost_cents"]
+
+    item = conn.execute(
+        "SELECT description FROM _invoice_items WHERE invoice_id = ?", (invoice["id"],)
+    ).fetchone()
+    assert item["description"] == plumbing["name"]
+
+    revenue = _ledger_rows(conn, "revenue")
+    assert [row["amount_cents"] for row in revenue] == [invoice["total_cents"]]
+
+
+def test_paid_completion_ledger_balance_after_replays_in_occurred_at_and_id_order(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    _book_execution(
+        controller, cfg, technician_id=3, service_date=WEEKDAY, first_block_code="B13_15",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    rows = conn.execute(
+        "SELECT amount_cents, balance_after_cents FROM _ledger_entries "
+        "ORDER BY occurred_at, id"
+    ).fetchall()
+    running = 0
+    for row in rows:
+        running += int(row["amount_cents"])
+        assert int(row["balance_after_cents"]) == running
+    assert controller.services.ledger.cash_balance() == running
+
+
+def test_booking_moves_no_cash_and_settlement_posts_only_payroll_and_overhead(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    starting_cash = cfg.get_int("finance.starting_cash")
+    opening_entries = controller.services.ledger.entry_count()
+
+    _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    _book_execution(
+        controller, cfg, technician_id=3, service_date=WEEKDAY, first_block_code="B13_15",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+    assert controller.services.ledger.entry_count() == opening_entries
+    assert controller.services.ledger.cash_balance() == starting_cash
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM _random_audit WHERE stream_name = ?",
+        (KeyedStreamName.JOB_FINANCE.value,),
+    ).fetchone()["c"] == 0
+    assert conn.execute("SELECT COUNT(*) c FROM _invoices").fetchone()["c"] == 0
+    assert conn.execute("SELECT COUNT(*) c FROM _payments").fetchone()["c"] == 0
+
+    status = controller.run()
+    assert str(status) == "completed"
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM _random_audit WHERE stream_name = ?",
+        (KeyedStreamName.JOB_FINANCE.value,),
+    ).fetchone()["c"] == 4
+
+    closing_at = int(
+        conn.execute(
+            "SELECT closing_at FROM _day_state WHERE service_date = ?", (WEEKDAY,)
+        ).fetchone()["closing_at"]
+    )
+    settlement_types = {
+        row["entry_type"]
+        for row in conn.execute(
+            "SELECT DISTINCT entry_type FROM _ledger_entries WHERE occurred_at = ?", (closing_at,)
+        ).fetchall()
+    }
+    assert settlement_types
+    assert settlement_types <= _SETTLEMENT_ENTRY_TYPES
+    for entry_type in ("revenue", "material_cost"):
+        assert all(int(row["occurred_at"]) < closing_at for row in _ledger_rows(conn, entry_type))
+
+
+def test_non_paid_outcomes_create_no_invoice_payment_or_revenue(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    unsupported = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+        job_type_id=5, requested_category_id=UNSUPPORTED_CATEGORY_ID,
+    )
+    unqualified = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B11_13",
+        requested_category_id=PLUMBING_CATEGORY_ID,
+    )
+    cancelled = _book_execution(
+        controller, cfg, technician_id=3, service_date=WEEKDAY, first_block_code="B15_17",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+    no_show = _book_execution(
+        controller, cfg, technician_id=4, service_date=WEEKDAY, first_block_code="B13_15",
+    )
+    _cancel_appointment(
+        controller, cfg, appointment_id=cancelled["appointment_id"],
+        effective_at=clock.phoenix_instant(2026, 10, 1, 7, 0),
+    )
+    _step_until(
+        controller,
+        lambda: _pending_event(
+            conn, EventKind.APPOINTMENT_DISPATCH, no_show["appointment_id"]
+        ) is not None,
+    )
+    dispatch = _pending_event(conn, EventKind.APPOINTMENT_DISPATCH, no_show["appointment_id"])
+    _cancel_event(controller, int(dispatch["event_id"]))
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    outcomes = {
+        int(row["id"]): row["outcome"]
+        for row in conn.execute("SELECT id, outcome FROM _jobs").fetchall()
+    }
+    assert outcomes[unsupported["job_id"]] == "failed_unsupported"
+    assert outcomes[unqualified["job_id"]] == "failed_unqualified"
+    assert outcomes[cancelled["job_id"]] == "cancelled_by_customer"
+    assert outcomes[no_show["job_id"]] == "no_show_company"
+    assert "completed_paid" not in outcomes.values()
+
+    assert conn.execute("SELECT COUNT(*) c FROM _invoices").fetchone()["c"] == 0
+    assert conn.execute("SELECT COUNT(*) c FROM _invoice_items").fetchone()["c"] == 0
+    assert conn.execute("SELECT COUNT(*) c FROM _payments").fetchone()["c"] == 0
+    assert _ledger_rows(conn, "revenue") == []
+    assert _ledger_rows(conn, "material_cost") == []
+
+
+def _finance_snapshot(directory, *, priority="normal", with_unrelated_activity=False):
+    global _id_seq, _request_seq
+    _id_seq, _request_seq = count(9500), count(1)
+    conn, cfg, controller, db_path = _build_run(directory)
+    if with_unrelated_activity:
+        agent = open_agent_session(db_path)
+        try:
+            execute_gated(agent, "SELECT COUNT(*) AS c FROM jobs").fetchone()
+        finally:
+            agent.close()
+        failed = privileged(
+            controller.services, privileged_request_id("assign", next(_request_seq)),
+            lambda ctx: appointments.assign(
+                ctx, cfg, appointment_id=987654, technician_id=1, artifact=ARTIFACT,
+            ),
+        )
+        assert json.loads(failed)["ok"] is False
+
+    now = clock.now(conn)
+    location_id = _customer_location_call(
+        conn, now, WEEKDAY, address_catalog_id=DESTINATION_ADDRESS.address_id, config=cfg,
+        requested_category_id=HVAC_SERVICE_CATEGORY_ID,
+    )
+    request_id = privileged_request_id("book", next(_request_seq))
+
+    def book(ctx):
+        return appointments.book(
+            ctx, cfg, call_id=location_id, customer_id=location_id, location_id=location_id,
+            job_type_id=1, requested_service_name="HVAC service", priority=priority, summary="x",
+            technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+        )
+
+    response = privileged(controller.services, request_id, book)
+    body = json.loads(response)
+    assert body["ok"] is True, body
+    if with_unrelated_activity:
+        assert privileged(controller.services, request_id, book) == response
+        other = _book_execution(
+            controller, cfg, technician_id=3, service_date=WEEKDAY,
+            first_block_code="B07_09", requested_category_id=PLUMBING_CATEGORY_ID,
+            address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+        )
+
+    status = controller.run()
+    assert str(status) == "completed"
+    job_id = body["result"]["job_id"]
+    if with_unrelated_activity:
+        assert _job_row(conn, other["job_id"])["outcome"] == "completed_paid"
+        assert int(other["job_id"]) != int(job_id)
+    invoice = _invoice_row(conn, job_id)
+    finance_draws = int(
+        conn.execute(
+            "SELECT COUNT(*) c FROM _random_audit WHERE stream_name = ?",
+            (KeyedStreamName.JOB_FINANCE.value,),
+        ).fetchone()["c"]
+    )
+    return job_id, (
+        int(invoice["subtotal_cents"]),
+        int(invoice["total_cents"]),
+        int(invoice["material_percent_basis_points"]),
+        int(invoice["material_cost_cents"]),
+    ), audit_count(conn), finance_draws
+
+
+def test_unrelated_activity_never_shifts_the_job_finance_draws(tmp_path):
+    global _id_seq, _request_seq
+    saved_id_seq, saved_request_seq = _id_seq, _request_seq
+    try:
+        (tmp_path / "plain").mkdir()
+        (tmp_path / "noisy").mkdir()
+        plain_job_id, plain, plain_audit, plain_finance = _finance_snapshot(tmp_path / "plain")
+        noisy_job_id, noisy, noisy_audit, noisy_finance = _finance_snapshot(
+            tmp_path / "noisy", with_unrelated_activity=True
+        )
+        assert plain_job_id == noisy_job_id
+        assert noisy_audit > plain_audit
+        assert noisy_finance == plain_finance + 2
+        assert plain == noisy
+    finally:
+        _id_seq, _request_seq = saved_id_seq, saved_request_seq
+
+
+def test_urgent_and_normal_jobs_draw_the_same_invoice_amount(tmp_path):
+    global _id_seq, _request_seq
+    saved_id_seq, saved_request_seq = _id_seq, _request_seq
+    try:
+        (tmp_path / "normal").mkdir()
+        (tmp_path / "urgent").mkdir()
+        normal_job_id, normal, _, _ = _finance_snapshot(tmp_path / "normal", priority="normal")
+        urgent_job_id, urgent, _, _ = _finance_snapshot(tmp_path / "urgent", priority="urgent")
+        assert normal_job_id == urgent_job_id
+        assert normal == urgent
+    finally:
+        _id_seq, _request_seq = saved_id_seq, saved_request_seq
+
+
+def test_invoice_distribution_parameters_ignore_urgency(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    urgent = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+        priority="urgent",
+    )
+    normal = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B13_15",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    urgent_expected = _job_finance_expectation(conn, cfg, urgent["job_id"])
+    normal_expected = _job_finance_expectation(conn, cfg, normal["job_id"])
+    priorities = {
+        int(row["id"]): row["priority"]
+        for row in conn.execute("SELECT id, priority FROM _jobs").fetchall()
+    }
+    assert priorities[urgent["job_id"]] == "urgent"
+    assert priorities[normal["job_id"]] == "normal"
+    assert (
+        cfg.resolved["invoices.amount"][urgent_expected["job_type_code"]][
+            urgent_expected["segment"]
+        ]
+        == cfg.resolved["invoices.amount"][normal_expected["job_type_code"]][
+            normal_expected["segment"]
+        ]
+    )
+    for job in (urgent, normal):
+        invoice = _invoice_row(conn, job["job_id"])
+        expected = _job_finance_expectation(conn, cfg, job["job_id"])
+        assert invoice["subtotal_cents"] == expected["subtotal_cents"]
+
+
+def test_revenue_and_material_entries_reconcile_with_the_paid_invoices(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    _book_execution(
+        controller, cfg, technician_id=3, service_date=WEEKDAY, first_block_code="B13_15",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    invoices = conn.execute(
+        "SELECT id, job_id, total_cents, material_cost_cents FROM _invoices ORDER BY id"
+    ).fetchall()
+    assert len(invoices) == 2
+    revenue = _ledger_rows(conn, "revenue")
+    materials = _ledger_rows(conn, "material_cost")
+    assert [(row["job_id"], row["amount_cents"]) for row in revenue] == [
+        (row["job_id"], row["total_cents"]) for row in invoices
+    ]
+    assert [(row["job_id"], row["amount_cents"]) for row in materials] == [
+        (row["job_id"], -row["material_cost_cents"]) for row in invoices
+    ]
+    for row in revenue:
+        assert row["invoice_id"] is not None
+        assert row["payment_id"] is not None
+        assert row["technician_id"] is None
+    for row in materials:
+        assert row["invoice_id"] is not None
+        assert row["payment_id"] is None
+    realized_types = {
+        row["entry_type"]
+        for row in conn.execute("SELECT DISTINCT entry_type FROM _ledger_entries").fetchall()
+    }
+    assert realized_types <= {category.value for category in LedgerCategory}
+    assert {"revenue", "material_cost"} <= realized_types
+
+
+def test_the_smallest_accepted_price_still_posts_revenue_and_a_material_entry(tmp_path):
+    amounts = json.loads(json.dumps(load_run_config().resolved["invoices.amount"]))
+    for segment in ("residential", "apartment", "commercial"):
+        amounts["hvac_service"][segment] = {
+            "min_cents": 5, "mode_cents": 5, "max_cents": 5,
+        }
+    conn, cfg, controller, _ = _build_run(tmp_path, **{"invoices.amount": amounts})
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    invoice = _invoice_row(conn, booked["job_id"])
+    assert invoice["subtotal_cents"] == 5
+    assert invoice["total_cents"] == 5
+    assert invoice["material_cost_cents"] == basis_point_amount(
+        5, invoice["material_percent_basis_points"]
+    )
+    assert invoice["material_cost_cents"] >= 1
+    assert [row["amount_cents"] for row in _ledger_rows(conn, "revenue")] == [5]
+    assert [row["amount_cents"] for row in _ledger_rows(conn, "material_cost")] == [
+        -invoice["material_cost_cents"]
+    ]
+
+
+def test_off_hours_settlement_pays_nothing_when_cancellation_precedes_the_block_start(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
+    )
+    _cancel_appointment(
+        controller, cfg, appointment_id=booked["appointment_id"],
+        effective_at=clock.phoenix_instant(2026, 10, 3, 7, 30),
+    )
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    assert _appointment_status(conn, booked["appointment_id"]) == "cancelled"
+    assert _ledger_off_hours_entries(conn, WEEKEND) == []
+
+
+def test_off_hours_accrual_stays_with_the_technician_active_at_the_block_start(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
+        requested_category_id=PLUMBING_CATEGORY_ID,
+    )
+    _step_until(
+        controller,
+        lambda: conn.execute(
+            "SELECT status FROM _events WHERE kind = ? AND entity_id = ?",
+            (EventKind.OFF_HOURS_ACCRUAL_MARK.value, booked["appointment_id"]),
+        ).fetchone()["status"] == "applied",
+    )
+    request_id = privileged_request_id("assign", next(_request_seq))
+    response = privileged(
+        controller.services, request_id,
+        lambda ctx: appointments.assign(
+            ctx, cfg, appointment_id=booked["appointment_id"], technician_id=3, artifact=ARTIFACT,
+        ),
+    )
+    body = json.loads(response)
+    assert body["ok"] is False
+    assert body["error"]["code"] == ErrorCode.STATE_ILLEGAL.value
+
+    wage1 = int(
+        conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 1").fetchone()[0]
+    )
+    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    entries = _ledger_off_hours_entries(conn, WEEKEND)
+    assert [row["technician_id"] for row in entries] == [1, 1]
+    assert entries[0]["amount_cents"] == -(2 * wage1)
+    assert entries[1]["amount_cents"] == -bonus
+
+
+def test_a_weekend_evening_job_earns_exactly_one_off_hours_bonus(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B17_19",
+    )
+    wage = int(
+        conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 1").fetchone()[0]
+    )
+    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
+
+    marks = conn.execute(
+        "SELECT scheduled_at_ms FROM _events WHERE kind = ? AND entity_id = ?",
+        (EventKind.OFF_HOURS_ACCRUAL_MARK.value, booked["appointment_id"]),
+    ).fetchall()
+    assert len(marks) == 1
+    assert int(marks[0]["scheduled_at_ms"]) == clock.phoenix_instant(2026, 10, 3, 17, 0)
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    entries = _ledger_off_hours_entries(conn, WEEKEND)
+    assert [(row["entry_type"], row["amount_cents"]) for row in entries] == [
+        ("payroll_off_hours", -(2 * wage)),
+        ("payroll_off_hours_bonus", -bonus),
+    ]
+
+
+def test_off_hours_settlement_wage_is_unchanged_by_an_overrun(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path, end_date=WEEKEND, **{"appointments.min_actual_duration_minutes": 260}
+    )
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
+    )
+    wage = int(
+        conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 1").fetchone()[0]
+    )
+    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    appointment = conn.execute(
+        "SELECT scheduled_end, actual_end FROM _appointments WHERE id = ?",
+        (booked["appointment_id"],),
+    ).fetchone()
+    assert int(appointment["actual_end"]) > int(appointment["scheduled_end"])
+    entries = _ledger_off_hours_entries(conn, WEEKEND)
+    assert [row["amount_cents"] for row in entries] == [-(2 * wage), -bonus]
+
+
+def test_off_hours_settlement_orders_entries_by_ascending_appointment_id(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
+    later_block = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B13_15",
+    )
+    earlier_block = _book_execution(
+        controller, cfg, technician_id=3, service_date=WEEKEND, first_block_code="B09_11",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+    assert later_block["appointment_id"] < earlier_block["appointment_id"]
+    marks = conn.execute(
+        "SELECT entity_id, scheduled_at_ms FROM _events WHERE kind = ? ORDER BY entity_id",
+        (EventKind.OFF_HOURS_ACCRUAL_MARK.value,),
+    ).fetchall()
+    assert int(marks[0]["scheduled_at_ms"]) > int(marks[1]["scheduled_at_ms"])
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    entries = conn.execute(
+        "SELECT entry_type, job_id FROM _ledger_entries WHERE service_date = ? "
+        "AND entry_type IN ('payroll_off_hours', 'payroll_off_hours_bonus') ORDER BY id",
+        (WEEKEND,),
+    ).fetchall()
+    assert [(row["entry_type"], row["job_id"]) for row in entries] == [
+        ("payroll_off_hours", later_block["job_id"]),
+        ("payroll_off_hours_bonus", later_block["job_id"]),
+        ("payroll_off_hours", earlier_block["job_id"]),
+        ("payroll_off_hours_bonus", earlier_block["job_id"]),
+    ]
+
+
+def test_a_failure_inside_the_completion_transaction_leaves_no_partial_money(tmp_path, monkeypatch):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    original_post = Ledger.post
+
+    def refusing_post(self, entries):
+        if any(entry.entry_type is LedgerCategory.REVENUE for entry in entries):
+            raise EngineError(ErrorCode.STATE_ILLEGAL, "ledger post refused")
+        return original_post(self, entries)
+
+    with monkeypatch.context() as m:
+        m.setattr(Ledger, "post", refusing_post)
+        with pytest.raises(EngineError):
+            controller.run()
+
+    assert conn.execute("SELECT COUNT(*) c FROM _invoices").fetchone()["c"] == 0
+    assert conn.execute("SELECT COUNT(*) c FROM _invoice_items").fetchone()["c"] == 0
+    assert conn.execute("SELECT COUNT(*) c FROM _payments").fetchone()["c"] == 0
+    assert _ledger_rows(conn, "revenue") == []
+    assert _ledger_rows(conn, "material_cost") == []
+    job = _job_row(conn, booked["job_id"])
+    assert job["outcome"] is None
+    assert _appointment_status(conn, booked["appointment_id"]) == "in_progress"
+
+
+def test_a_second_invoice_or_payment_for_a_paid_completion_is_unreachable(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    invoice = _invoice_row(conn, booked["job_id"])
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO _invoices (invoice_number, job_id, customer_id, location_id, "
+            "business_unit_id, invoice_date, issued_at, status, no_charge, subtotal_cents, "
+            "total_cents, material_cost_cents, material_percent_basis_points, created_at) "
+            "VALUES ('INV-999999', ?, ?, ?, ?, ?, ?, 'paid', 0, 1, 1, 1, 1, ?)",
+            (
+                invoice["job_id"], invoice["customer_id"], invoice["location_id"],
+                invoice["business_unit_id"], invoice["invoice_date"], invoice["issued_at"],
+                invoice["issued_at"],
+            ),
+        )
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO _payments (payment_number, invoice_id, customer_id, paid_at, "
+            "amount_cents, payment_type, status, created_at) "
+            "VALUES ('PAY-999999', ?, ?, ?, 1, 'immediate', 'posted', ?)",
+            (
+                invoice["id"], invoice["customer_id"], invoice["issued_at"],
+                invoice["issued_at"],
+            ),
+        )

@@ -11,7 +11,7 @@ from trades_bench._dump import dump_hash
 from trades_bench.db import read_config
 from trades_bench.errors import EngineError, ErrorCode
 from trades_bench.migrations import MIGRATIONS_PACKAGE_DIR, applied_versions, migrate
-from trades_bench.run_init import initialize_run, open_run_db
+from trades_bench.run_init import boundary_check, initialize_run, open_run_db
 from trades_bench.views import VIEWS, verify_views
 from trades_bench.visibility import FIELD_REGISTRY
 
@@ -249,3 +249,132 @@ def test_warm_start_wraps_raw_fixture_failure_and_init_marks_failed(tmp_path, mo
     conn = open_run_db(path, artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn)
     assert conn.execute("SELECT status FROM _run").fetchone()["status"] == "failed"
+
+
+def _seed_paid_invoice(conn, *, with_payment: bool) -> None:
+    now = 0
+    conn.execute(
+        "INSERT INTO _customers (id, name, segment, status, created_at, modified_at) "
+        "VALUES (1, 'Acme', 'residential', 'active', ?, ?)",
+        (now, now),
+    )
+    conn.execute(
+        "INSERT INTO _locations (id, customer_id, name, street, unit, city, state, "
+        "postal_code, latitude, longitude, active, created_at, modified_at, "
+        "effective_zone_id) "
+        "VALUES (1, 1, 'HQ', '1 Main St', '', 'Tempe', 'AZ', '85282', 33.4, -111.9, 1, ?, ?, 4)",
+        (now, now),
+    )
+    conn.execute(
+        "INSERT INTO _calls (id, arrived_at, service_date, call_kind, status, caller_name, "
+        "caller_phone, requested_service_name, urgent, created_at) "
+        "VALUES (1, ?, '2026-09-30', 'new_job', 'booked', 'A', '555', 'HVAC service', 0, ?)",
+        (now, now),
+    )
+    conn.execute(
+        "INSERT INTO _jobs (id, job_number, call_id, customer_id, location_id, job_type_id, "
+        "business_unit_id, requested_service_name, status, outcome, priority, no_charge, "
+        "summary, created_at, completed_at, modified_at) "
+        "VALUES (1, 'J-000001', 1, 1, 1, 1, 1, 'HVAC service', 'completed', 'completed_paid', "
+        "'normal', 0, 'x', ?, ?, ?)",
+        (now, now, now),
+    )
+    conn.execute(
+        "INSERT INTO _invoices (id, invoice_number, job_id, customer_id, location_id, "
+        "business_unit_id, invoice_date, issued_at, status, no_charge, subtotal_cents, "
+        "total_cents, material_cost_cents, material_percent_basis_points, created_at) "
+        "VALUES (1, 'INV-000001', 1, 1, 1, 1, '2026-09-30', ?, 'paid', 0, 45000, 45000, "
+        "9000, 2000, ?)",
+        (now, now),
+    )
+    if with_payment:
+        conn.execute(
+            "INSERT INTO _payments (id, payment_number, invoice_id, customer_id, paid_at, "
+            "amount_cents, payment_type, status, created_at) "
+            "VALUES (1, 'PAY-000001', 1, 1, ?, 45000, 'immediate', 'posted', ?)",
+            (now, now),
+        )
+
+
+def test_boundary_check_rejects_an_invoice_without_a_payment(tmp_path):
+    cfg = _cfg()
+    path = tmp_path / "invoice_boundary.db"
+    initialize_run(path, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
+    conn = open_run_db(path, artifact_dir=GEO_ARTIFACT_DIR)
+    register_conn(conn)
+    db.begin(conn)
+    _seed_paid_invoice(conn, with_payment=False)
+    db.commit(conn)
+
+    with pytest.raises(EngineError) as ei:
+        boundary_check(conn, cfg)
+    assert ei.value.code is ErrorCode.INVARIANT_VIOLATED
+    assert "payment" in ei.value.message
+
+    db.begin(conn)
+    conn.execute(
+        "INSERT INTO _payments (id, payment_number, invoice_id, customer_id, paid_at, "
+        "amount_cents, payment_type, status, created_at) "
+        "VALUES (1, 'PAY-000001', 1, 1, 0, 45000, 'immediate', 'posted', 0)"
+    )
+    db.commit(conn)
+    boundary_check(conn, cfg)
+
+
+def _seed_no_charge_invoice(conn, *, with_payment: bool) -> None:
+    now = 0
+    conn.execute(
+        "INSERT INTO _jobs (id, job_number, call_id, customer_id, location_id, job_type_id, "
+        "business_unit_id, requested_service_name, status, outcome, priority, no_charge, "
+        "summary, created_at, completed_at, modified_at) "
+        "VALUES (2, 'J-000002', 1, 1, 1, 1, 1, 'HVAC service', 'completed', "
+        "'completed_warranty', 'normal', 1, 'x', ?, ?, ?)",
+        (now, now, now),
+    )
+    conn.execute(
+        "INSERT INTO _invoices (id, invoice_number, job_id, customer_id, location_id, "
+        "business_unit_id, invoice_date, issued_at, status, no_charge, subtotal_cents, "
+        "total_cents, material_cost_cents, material_percent_basis_points, created_at) "
+        "VALUES (2, 'INV-000002', 2, 1, 1, 1, '2026-09-30', ?, 'no_charge', 1, 0, 0, "
+        "9000, 2000, ?)",
+        (now, now),
+    )
+    if with_payment:
+        conn.execute(
+            "INSERT INTO _payments (id, payment_number, invoice_id, customer_id, paid_at, "
+            "amount_cents, payment_type, status, created_at) "
+            "VALUES (2, 'PAY-000002', 2, 1, ?, 0, 'immediate', 'posted', ?)",
+            (now, now),
+        )
+
+
+def _boundary_conn(tmp_path, name):
+    cfg = _cfg()
+    path = tmp_path / name
+    initialize_run(path, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
+    conn = open_run_db(path, artifact_dir=GEO_ARTIFACT_DIR)
+    register_conn(conn)
+    return conn, cfg
+
+
+def test_boundary_check_accepts_a_no_charge_invoice_without_a_payment(tmp_path):
+    conn, cfg = _boundary_conn(tmp_path, "no_charge_boundary.db")
+    db.begin(conn)
+    _seed_paid_invoice(conn, with_payment=True)
+    _seed_no_charge_invoice(conn, with_payment=False)
+    db.commit(conn)
+
+    boundary_check(conn, cfg)
+
+
+def test_boundary_check_rejects_a_payment_against_a_no_charge_invoice(tmp_path):
+    conn, cfg = _boundary_conn(tmp_path, "no_charge_payment_boundary.db")
+    db.begin(conn)
+    _seed_paid_invoice(conn, with_payment=True)
+    _seed_no_charge_invoice(conn, with_payment=True)
+    db.commit(conn)
+
+    with pytest.raises(EngineError) as ei:
+        boundary_check(conn, cfg)
+    assert ei.value.code is ErrorCode.INVARIANT_VIOLATED
+    assert "no-charge" in ei.value.message

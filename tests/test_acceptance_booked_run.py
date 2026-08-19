@@ -28,7 +28,7 @@ DAY_ONE = "2026-10-01"
 DAY_TWO = "2026-10-02"
 DAY_THREE = "2026-10-03"
 STARTING_CASH = 20_000_000
-FINAL_CASH = 19_604_800
+FINAL_CASH = 20_293_533
 MIN_TRAVEL_MINUTES = 20
 SINGLE_BLOCK_HOURS = 2
 OVERRUN_DURATION_MINUTES = 600
@@ -371,8 +371,14 @@ def test_final_cash_matches_the_hand_derived_booked_arithmetic(booked_run):
     weekend_technician = ORDERS_BY_KEY["weekend"].technician_id
     after_hours_job_pay = SINGLE_BLOCK_HOURS * wages[after_hours_technician] + bonus
     weekend_job_pay = SINGLE_BLOCK_HOURS * wages[weekend_technician] + bonus
+    invoice_totals = conn.execute(
+        "SELECT COALESCE(SUM(total_cents), 0) revenue, "
+        "COALESCE(SUM(material_cost_cents), 0) materials FROM _invoices"
+    ).fetchone()
     expected = (
         starting
+        + int(invoice_totals["revenue"])
+        - int(invoice_totals["materials"])
         - weekday_count * daily_payroll
         - day_count * overhead
         - after_hours_job_pay

@@ -143,10 +143,17 @@ def boundary_check(conn: sqlite3.Connection, config: RunConfig) -> None:
             ).fetchone() is None,
         ),
         (
-            "every invoice has a matching payment",
+            "every paid invoice has a matching payment",
             conn.execute(
-                "SELECT 1 FROM _invoices i WHERE NOT EXISTS "
+                "SELECT 1 FROM _invoices i WHERE i.no_charge = 0 AND NOT EXISTS "
                 "(SELECT 1 FROM _payments p WHERE p.invoice_id = i.id) LIMIT 1"
+            ).fetchone() is None,
+        ),
+        (
+            "no payment against a no-charge invoice",
+            conn.execute(
+                "SELECT 1 FROM _payments p JOIN _invoices i ON i.id = p.invoice_id "
+                "WHERE i.no_charge = 1 LIMIT 1"
             ).fetchone() is None,
         ),
         (

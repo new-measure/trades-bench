@@ -206,6 +206,7 @@ def test_entity_type_closed_set():
         "run",
         "zone",
         "customer",
+        "job",
         "appointment",
         "technician",
         "pending_call",

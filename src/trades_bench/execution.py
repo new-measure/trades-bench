@@ -8,10 +8,19 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from . import appointments, clock, constants, geography, travel
 from .config import RunConfig
-from .enums import ConditionCode, DayType, EntityType, EventKind, KeyedStreamName
+from .enums import (
+    ConditionCode,
+    DayType,
+    EntityType,
+    EventKind,
+    KeyedStreamName,
+    LedgerCategory,
+)
 from .errors import EngineError, ErrorCode
 from .events import EventHandler, Events
 from .geo_reader import GeoArtifact
+from .ledger import LedgerEntry
+from .money import basis_point_amount
 from .rng import Rng
 
 BLOCK_CODES = appointments.BLOCK_CODES
@@ -1275,6 +1284,115 @@ def company_no_show_handler(config: RunConfig, artifact: GeoArtifact | None) -> 
     return handler
 
 
+def true_job_type(conn: sqlite3.Connection, job_id: int) -> sqlite3.Row:
+    row = conn.execute(
+        "SELECT jt.code AS code, jt.name AS name, jt.business_unit_id AS business_unit_id "
+        "FROM _jobs j JOIN _call_hidden ch ON ch.call_id = j.call_id "
+        "JOIN _service_catalog sc ON sc.id = ch.requested_category_id "
+        "JOIN _job_types jt ON jt.id = sc.supported_job_type_id "
+        "WHERE j.id = ?",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"job {job_id} has no resolvable true job type",
+        )
+    return row
+
+
+def post_paid_completion(ctx, config: RunConfig, *, job_id: int, now_ms: int) -> int:
+    conn = ctx.conn
+    job = conn.execute(
+        "SELECT customer_id, location_id FROM _jobs WHERE id = ?", (job_id,)
+    ).fetchone()
+    if job is None:
+        raise EngineError(ErrorCode.INVARIANT_VIOLATED, f"job {job_id} not found")
+    customer = conn.execute(
+        "SELECT segment FROM _customers WHERE id = ?", (job["customer_id"],)
+    ).fetchone()
+    if customer is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED, f"job {job_id} has no customer of record"
+        )
+    job_type = true_job_type(conn, job_id)
+    segment = str(customer["segment"])
+    job_type_code = str(job_type["code"])
+    completion_date = clock.service_date_for_ms(now_ms)
+
+    amounts = config.resolved["invoices.amount"][job_type_code][segment]
+    subtotal_cents = ctx.rng.triangular_cents(
+        KeyedStreamName.JOB_FINANCE.value, EntityType.JOB.value, job_id, completion_date,
+        "invoice_amount",
+        amounts["min_cents"], amounts["mode_cents"], amounts["max_cents"], 0,
+    )
+    percent_range = config.resolved["materials.percent_range"][job_type_code]
+    material_percent_basis_points = ctx.rng.bounded_int(
+        KeyedStreamName.JOB_FINANCE.value, EntityType.JOB.value, job_id, completion_date,
+        "material_percentage",
+        percent_range["min_basis_points"], percent_range["max_basis_points"], 0,
+    )
+    material_cost_cents = basis_point_amount(subtotal_cents, material_percent_basis_points)
+    total_cents = subtotal_cents
+
+    invoice_cur = conn.execute(
+        "INSERT INTO _invoices (invoice_number, job_id, customer_id, location_id, "
+        "business_unit_id, invoice_date, issued_at, status, no_charge, subtotal_cents, "
+        "total_cents, material_cost_cents, material_percent_basis_points, created_at) "
+        "VALUES ('', ?, ?, ?, ?, ?, ?, 'paid', 0, ?, ?, ?, ?, ?)",
+        (
+            job_id, job["customer_id"], job["location_id"], job_type["business_unit_id"],
+            completion_date, now_ms, subtotal_cents, total_cents, material_cost_cents,
+            material_percent_basis_points, now_ms,
+        ),
+    )
+    invoice_id = int(invoice_cur.lastrowid)
+    conn.execute(
+        "UPDATE _invoices SET invoice_number = ? WHERE id = ?",
+        (f"INV-{invoice_id:06d}", invoice_id),
+    )
+    conn.execute(
+        "INSERT INTO _invoice_items (invoice_id, item_type, description, quantity, "
+        "amount_cents, created_at) VALUES (?, 'service', ?, 1, ?, ?)",
+        (invoice_id, str(job_type["name"]), subtotal_cents, now_ms),
+    )
+    payment_cur = conn.execute(
+        "INSERT INTO _payments (payment_number, invoice_id, customer_id, paid_at, "
+        "amount_cents, payment_type, status, created_at) "
+        "VALUES ('', ?, ?, ?, ?, 'immediate', 'posted', ?)",
+        (invoice_id, job["customer_id"], now_ms, total_cents, now_ms),
+    )
+    payment_id = int(payment_cur.lastrowid)
+    conn.execute(
+        "UPDATE _payments SET payment_number = ? WHERE id = ?",
+        (f"PAY-{payment_id:06d}", payment_id),
+    )
+
+    entries = [
+        LedgerEntry(
+            entry_type=LedgerCategory.REVENUE,
+            amount_cents=total_cents,
+            occurred_at_ms=now_ms,
+            service_date=completion_date,
+            description="paid completion revenue",
+            job_id=job_id,
+            invoice_id=invoice_id,
+            payment_id=payment_id,
+        ),
+        LedgerEntry(
+            entry_type=LedgerCategory.MATERIAL_COST,
+            amount_cents=-material_cost_cents,
+            occurred_at_ms=now_ms,
+            service_date=completion_date,
+            description="job material cost",
+            job_id=job_id,
+            invoice_id=invoice_id,
+        ),
+    ]
+    ctx.services.ledger.post(entries)
+    return invoice_id
+
+
 def work_completed_handler(config: RunConfig, artifact: GeoArtifact | None) -> EventHandler:
 
     def handler(ctx, row: sqlite3.Row) -> dict | None:
@@ -1304,6 +1422,7 @@ def work_completed_handler(config: RunConfig, artifact: GeoArtifact | None) -> E
             conn, job_id=job_id, status="completed", outcome="completed_paid",
             now_ms=now, completed_at_ms=now,
         )
+        post_paid_completion(ctx, config, job_id=job_id, now_ms=now)
         loc = conn.execute(
             "SELECT latitude, longitude FROM _technician_locations WHERE technician_id = ?",
             (technician_id,),

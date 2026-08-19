@@ -107,6 +107,7 @@ class EntityType(StrEnum):
     RUN = "run"
     ZONE = "zone"
     CUSTOMER = "customer"
+    JOB = "job"
     APPOINTMENT = "appointment"
     TECHNICIAN = "technician"
     PENDING_CALL = "pending_call"

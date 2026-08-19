@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -414,3 +416,108 @@ def test_reject_float_and_bool_amount_and_bad_field_types(ledger):
         LedgerEntry(LedgerCategory.REVENUE, 100, True)  # type: ignore[arg-type]
     with pytest.raises(EngineError):
         LedgerEntry(LedgerCategory.REVENUE, 100, TS, description=123)  # type: ignore[arg-type]
+
+
+_SRC_DIR = Path(__file__).resolve().parents[1] / "src" / "trades_bench"
+_COMPLETION_SETTLEMENT_MODULE = "execution.py"
+_SIGN_REGISTRY_MODULE = "ledger.py"
+_REVENUE_SIDE_CATEGORIES = frozenset({"REVENUE", "MATERIAL_COST"})
+_SETTLEMENT_CATEGORIES = frozenset(
+    {"PAYROLL_BASE", "PAYROLL_OFF_HOURS", "PAYROLL_OFF_HOURS_BONUS", "OPERATING_OVERHEAD"}
+)
+
+
+_LEDGER_POSTING_NAMES = frozenset({"LedgerCategory", "LedgerEntry", "Ledger"})
+_LEDGER_POSTING_MODULES = frozenset(
+    {"execution.py", "controller.py", "warm_start.py", "ledger.py", "run_init.py"}
+)
+_ENTRY_TYPE_LITERAL_MODULES = frozenset({"enums.py"})
+_DYNAMIC_USE = "<dynamic>"
+
+
+def _local_bindings(tree: ast.Module, imported: frozenset[str]) -> set[str]:
+    bindings: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name in imported:
+                    bindings.add(alias.asname or alias.name)
+    return bindings
+
+
+def _ledger_category_uses(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text())
+    bindings = _local_bindings(tree, frozenset({"LedgerCategory"}))
+    if path.name == "enums.py":
+        bindings.add("LedgerCategory")
+    attribute_bases: set[int] = set()
+    uses: list[str] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in bindings
+        ):
+            attribute_bases.add(id(node.value))
+            uses.append(node.attr)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in bindings and id(node) not in attribute_bases:
+            uses.append(_DYNAMIC_USE)
+    return uses
+
+
+def _entry_type_string_literals(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text())
+    values = {category.value for category in LedgerCategory}
+    return {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in values
+    }
+
+
+def test_only_the_completion_settlement_module_constructs_revenue_and_material_entries():
+    writers = {
+        path.name: [
+            used
+            for used in _ledger_category_uses(path)
+            if used in _REVENUE_SIDE_CATEGORIES or used == _DYNAMIC_USE
+        ]
+        for path in sorted(_SRC_DIR.glob("*.py"))
+    }
+    offenders = {
+        name: used
+        for name, used in writers.items()
+        if used and name not in (_COMPLETION_SETTLEMENT_MODULE, _SIGN_REGISTRY_MODULE)
+    }
+    assert offenders == {}, f"revenue-side ledger writers outside the allowlist: {offenders}"
+    assert sorted(writers[_COMPLETION_SETTLEMENT_MODULE]) == ["MATERIAL_COST", "REVENUE"]
+
+
+def test_only_the_allowlisted_modules_can_reach_the_ledger_posting_api():
+    importers = {
+        path.name
+        for path in sorted(_SRC_DIR.glob("*.py"))
+        if _local_bindings(ast.parse(path.read_text()), _LEDGER_POSTING_NAMES)
+    }
+    assert importers == set(_LEDGER_POSTING_MODULES)
+
+
+def test_ledger_entry_type_string_literals_live_only_in_the_enum_module():
+    carriers = {
+        path.name: sorted(_entry_type_string_literals(path))
+        for path in sorted(_SRC_DIR.glob("*.py"))
+        if _entry_type_string_literals(path)
+    }
+    assert set(carriers) == set(_ENTRY_TYPE_LITERAL_MODULES), carriers
+
+
+def test_the_daily_settlement_module_posts_only_payroll_and_overhead_categories():
+    used = _ledger_category_uses(_SRC_DIR / "controller.py")
+    assert set(used) == _SETTLEMENT_CATEGORIES
+
+
+def test_the_ledger_enum_has_no_refund_member():
+    values = {category.value for category in LedgerCategory}
+    assert "refund" not in values
+    assert not any("refund" in value for value in values)

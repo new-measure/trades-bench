@@ -11,6 +11,7 @@ from typing import Any
 from .constants import CONSTANT_ENTRIES, JOB_TYPE_CODES, SUPPORTED_CATEGORIES
 from .enums import ConditionCode
 from .errors import EngineError, ErrorCode
+from .money import BASIS_POINTS_SCALE, basis_point_amount
 
 DEFAULT_CONFIG_VERSION: str = "1.0.0"
 
@@ -72,6 +73,62 @@ _DOMAIN_ENTRIES: list[Any] = [
             "deferred": "provisional",
             "description": "Aggregate daily operating overhead (integer cents) posted by every "
             "daily settlement, with no internal vendor breakdown.",
+        },
+    ),
+    (
+        "invoices.amount",
+        "cents_triple_map_map",
+        {
+            "hvac_service": {
+                "residential": {"min_cents": 25000, "mode_cents": 45000, "max_cents": 90000},
+                "apartment": {"min_cents": 30000, "mode_cents": 52000, "max_cents": 100000},
+                "commercial": {"min_cents": 40000, "mode_cents": 65000, "max_cents": 130000},
+            },
+            "hvac_installation": {
+                "residential": {"min_cents": 550000, "mode_cents": 750000, "max_cents": 1200000},
+                "apartment": {"min_cents": 600000, "mode_cents": 820000, "max_cents": 1300000},
+                "commercial": {"min_cents": 700000, "mode_cents": 950000, "max_cents": 1600000},
+            },
+            "plumbing": {
+                "residential": {"min_cents": 20000, "mode_cents": 38000, "max_cents": 85000},
+                "apartment": {"min_cents": 24000, "mode_cents": 44000, "max_cents": 95000},
+                "commercial": {"min_cents": 32000, "mode_cents": 56000, "max_cents": 120000},
+            },
+            "electrical": {
+                "residential": {"min_cents": 22000, "mode_cents": 40000, "max_cents": 88000},
+                "apartment": {"min_cents": 26000, "mode_cents": 46000, "max_cents": 98000},
+                "commercial": {"min_cents": 34000, "mode_cents": 60000, "max_cents": 125000},
+            },
+        },
+        {
+            "deferred": "provisional",
+            "description": "Triangular invoice-subtotal parameters in integer cents per true job "
+            "type and customer segment, drawn once at paid completion.",
+        },
+    ),
+    (
+        "materials.percent_range",
+        "basis_points_range_map",
+        {
+            "hvac_service": {"min_basis_points": 1500, "max_basis_points": 3000},
+            "hvac_installation": {"min_basis_points": 3000, "max_basis_points": 4500},
+            "plumbing": {"min_basis_points": 1200, "max_basis_points": 2800},
+            "electrical": {"min_basis_points": 1000, "max_basis_points": 2500},
+        },
+        {
+            "deferred": "provisional",
+            "description": "Uniform integer-basis-point material-cost range per true job type, "
+            "drawn once at completion and disclosed on the invoice.",
+        },
+    ),
+    (
+        "materials.warranty_basis_fraction",
+        "decimal",
+        Decimal("0.30"),
+        {
+            "deferred": "provisional",
+            "description": "Fraction of a recall chain's root paid subtotal that forms the "
+            "material basis for zero-revenue warranty rework.",
         },
     ),
     (
@@ -1598,6 +1655,72 @@ def _v_int_range(spec: KeySpec, value: Any) -> tuple[int, int]:
     return (lo, hi)
 
 
+_CENTS_TRIPLE_KEYS = ("min_cents", "mode_cents", "max_cents")
+
+_BASIS_POINTS_RANGE_KEYS = ("min_basis_points", "max_basis_points")
+
+
+def _v_cents_triple_map_map(spec: KeySpec, value: Any) -> dict[str, dict[str, dict[str, int]]]:
+    if not isinstance(value, dict) or not value:
+        raise _bad(f"{spec.path}: expected a non-empty map, got {type(value).__name__}")
+    out: dict[str, dict[str, dict[str, int]]] = {}
+    for outer_k, inner in value.items():
+        if not isinstance(outer_k, str) or not outer_k:
+            raise _bad(f"{spec.path}: outer map keys must be non-empty strings")
+        if not isinstance(inner, dict) or not inner:
+            raise _bad(f"{spec.path}[{outer_k!r}]: expected a non-empty map")
+        inner_out: dict[str, dict[str, int]] = {}
+        for k, triple in inner.items():
+            if not isinstance(k, str) or not k:
+                raise _bad(f"{spec.path}[{outer_k!r}]: inner map keys must be non-empty strings")
+            where = f"{spec.path}[{outer_k!r}][{k!r}]"
+            if not isinstance(triple, dict) or set(triple.keys()) != set(_CENTS_TRIPLE_KEYS):
+                raise _bad(
+                    f"{where}: keys must be exactly {list(_CENTS_TRIPLE_KEYS)}, got {triple!r}"
+                )
+            triple_out = {name: _as_int(triple[name]) for name in _CENTS_TRIPLE_KEYS}
+            if triple_out["min_cents"] < 1:
+                raise _bad(
+                    f"{where}: requires a strictly positive min_cents, got "
+                    f"{triple_out['min_cents']}"
+                )
+            if not (
+                triple_out["min_cents"]
+                <= triple_out["mode_cents"]
+                <= triple_out["max_cents"]
+            ):
+                raise _bad(
+                    f"{where}: requires min_cents <= mode_cents <= max_cents, got "
+                    f"{triple_out['min_cents']}, {triple_out['mode_cents']}, "
+                    f"{triple_out['max_cents']}"
+                )
+            inner_out[k] = triple_out
+        out[outer_k] = inner_out
+    return out
+
+
+def _v_basis_points_range_map(spec: KeySpec, value: Any) -> dict[str, dict[str, int]]:
+    if not isinstance(value, dict) or not value:
+        raise _bad(f"{spec.path}: expected a non-empty map, got {type(value).__name__}")
+    out: dict[str, dict[str, int]] = {}
+    for k, pair in value.items():
+        if not isinstance(k, str) or not k:
+            raise _bad(f"{spec.path}: map keys must be non-empty strings")
+        where = f"{spec.path}[{k!r}]"
+        if not isinstance(pair, dict) or set(pair.keys()) != set(_BASIS_POINTS_RANGE_KEYS):
+            raise _bad(f"{where}: keys must be exactly {list(_BASIS_POINTS_RANGE_KEYS)}, got {pair!r}")
+        pair_out = {name: _as_int(pair[name]) for name in _BASIS_POINTS_RANGE_KEYS}
+        lo = pair_out["min_basis_points"]
+        hi = pair_out["max_basis_points"]
+        if not (0 <= lo <= hi < BASIS_POINTS_SCALE):
+            raise _bad(
+                f"{where}: requires 0 <= min_basis_points <= max_basis_points < "
+                f"{BASIS_POINTS_SCALE}, got {lo}, {hi}"
+            )
+        out[k] = pair_out
+    return out
+
+
 def _v_block_grid(spec: KeySpec, value: Any) -> list[list[int]]:
     if not isinstance(value, list) or not value:
         raise _bad(f"{spec.path}: block_grid must be a non-empty list")
@@ -1910,6 +2033,8 @@ _VALIDATORS = {
     "cost": _v_cost,
     "cost_map": _v_cost_map,
     "int_range": _v_int_range,
+    "cents_triple_map_map": _v_cents_triple_map_map,
+    "basis_points_range_map": _v_basis_points_range_map,
     "block_grid": _v_block_grid,
     "time_of_day_bands": _v_time_of_day_bands,
     "speed_by_time_band": _v_speed_by_time_band,
@@ -1975,6 +2100,9 @@ _SEGMENTS = frozenset({"residential", "commercial", "apartment"})
 _URGENCY_CLASSES = frozenset({"standard", "urgent"})
 _SUPPORTED_CATEGORY_SET = frozenset(SUPPORTED_CATEGORIES)
 _JOB_TYPE_CODE_SET = frozenset(JOB_TYPE_CODES)
+_REVENUE_JOB_TYPE_CODES = tuple(code for code in JOB_TYPE_CODES if code != "other")
+_INSTALLATION_JOB_TYPE_CODE = "hvac_installation"
+_SEGMENT_MODE_ORDER = ("residential", "apartment", "commercial")
 _CONDITION_THRESHOLD_KEYS = frozenset(
     {"extreme_heat_high_f", "hot_high_f", "cool_high_f", "windy_wind_mph", "rain_precipitation_mm"}
 )
@@ -2013,6 +2141,88 @@ def _validate_word_of_mouth_weight_ordering(base: dict[str, Any]) -> None:
         raise _bad(
             f"demand.word_of_mouth_negative_weight {neg} must be >= "
             f"demand.word_of_mouth_positive_weight {pos}"
+        )
+
+
+def _validate_invoice_amount_map(base: dict[str, Any]) -> None:
+    amounts = base["invoices.amount"]
+    expected_types = set(_REVENUE_JOB_TYPE_CODES)
+    if set(amounts.keys()) != expected_types:
+        raise _bad(
+            "invoices.amount must cover exactly the revenue-bearing job types "
+            f"{sorted(expected_types)}, got {sorted(amounts.keys())}"
+        )
+    for code, by_segment in amounts.items():
+        if set(by_segment.keys()) != set(_SEGMENTS):
+            raise _bad(
+                f"invoices.amount[{code!r}] must cover exactly the segments "
+                f"{sorted(_SEGMENTS)}, got {sorted(by_segment.keys())}"
+            )
+        for lower, upper in zip(_SEGMENT_MODE_ORDER, _SEGMENT_MODE_ORDER[1:], strict=False):
+            if by_segment[upper]["mode_cents"] < by_segment[lower]["mode_cents"]:
+                raise _bad(
+                    f"invoices.amount[{code!r}] requires {upper} mode_cents "
+                    f"{by_segment[upper]['mode_cents']} >= {lower} mode_cents "
+                    f"{by_segment[lower]['mode_cents']}"
+                )
+    for segment in _SEGMENT_MODE_ORDER:
+        installation_mode = amounts[_INSTALLATION_JOB_TYPE_CODE][segment]["mode_cents"]
+        for code in _REVENUE_JOB_TYPE_CODES:
+            if code == _INSTALLATION_JOB_TYPE_CODE:
+                continue
+            service_mode = amounts[code][segment]["mode_cents"]
+            if installation_mode < service_mode:
+                raise _bad(
+                    f"invoices.amount[{_INSTALLATION_JOB_TYPE_CODE!r}][{segment!r}] mode_cents "
+                    f"{installation_mode} must be the highest of the job types, but "
+                    f"{code!r} is {service_mode}"
+                )
+
+
+def _validate_material_percent_ranges(base: dict[str, Any]) -> None:
+    ranges = base["materials.percent_range"]
+    expected_types = set(_REVENUE_JOB_TYPE_CODES)
+    if set(ranges.keys()) != expected_types:
+        raise _bad(
+            "materials.percent_range must cover exactly the revenue-bearing job types "
+            f"{sorted(expected_types)}, got {sorted(ranges.keys())}"
+        )
+    installation = ranges[_INSTALLATION_JOB_TYPE_CODE]
+    for code in _REVENUE_JOB_TYPE_CODES:
+        if code == _INSTALLATION_JOB_TYPE_CODE:
+            continue
+        for bound in _BASIS_POINTS_RANGE_KEYS:
+            if installation[bound] < ranges[code][bound]:
+                raise _bad(
+                    f"materials.percent_range[{_INSTALLATION_JOB_TYPE_CODE!r}] {bound} "
+                    f"{installation[bound]} must be >= {code!r} {bound} {ranges[code][bound]}"
+                )
+
+
+def _validate_material_cost_is_always_positive(base: dict[str, Any]) -> None:
+    amounts = base["invoices.amount"]
+    ranges = base["materials.percent_range"]
+    for code in _REVENUE_JOB_TYPE_CODES:
+        min_basis_points = ranges[code]["min_basis_points"]
+        for segment in _SEGMENT_MODE_ORDER:
+            smallest = basis_point_amount(
+                amounts[code][segment]["min_cents"], min_basis_points
+            )
+            if smallest < 1:
+                raise _bad(
+                    f"materials.percent_range[{code!r}] min_basis_points {min_basis_points} "
+                    f"against invoices.amount[{code!r}][{segment!r}] min_cents "
+                    f"{amounts[code][segment]['min_cents']} yields a material cost of "
+                    "0 cents; every paid completion must post a strictly negative "
+                    "material_cost entry"
+                )
+
+
+def _validate_warranty_basis_fraction(base: dict[str, Any]) -> None:
+    fraction = base["materials.warranty_basis_fraction"]
+    if not (0 < fraction <= 1):
+        raise _bad(
+            f"materials.warranty_basis_fraction {fraction} must lie inside (0, 1]"
         )
 
 
@@ -2446,6 +2656,22 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
         frozenset({"demand.arrival_time_of_day_weights"}),
         _validate_arrival_time_weights_positive_sum,
     ),
+    (
+        frozenset({"invoices.amount"}),
+        _validate_invoice_amount_map,
+    ),
+    (
+        frozenset({"materials.percent_range"}),
+        _validate_material_percent_ranges,
+    ),
+    (
+        frozenset({"materials.warranty_basis_fraction"}),
+        _validate_warranty_basis_fraction,
+    ),
+    (
+        frozenset({"invoices.amount", "materials.percent_range"}),
+        _validate_material_cost_is_always_positive,
+    ),
 )
 
 
@@ -2716,8 +2942,12 @@ DEFERRED_ITEMS: list[dict[str, Any]] = [
     {"name": "competitor_probabilities", "key_paths": ["competitors.*"], "status": "provisional"},
     {"name": "review_sampling", "key_paths": ["reviews.*"], "status": "provisional"},
     {"name": "weather_severity", "key_paths": ["weather.*"], "status": "provisional"},
-    {"name": "invoice_distributions", "key_paths": ["invoices.*"], "status": "provisional"},
-    {"name": "material_percentages", "key_paths": ["materials.*"], "status": "provisional"},
+    {"name": "invoice_distributions", "key_paths": ["invoices.amount"], "status": "provisional"},
+    {
+        "name": "material_percentages",
+        "key_paths": ["materials.percent_range", "materials.warranty_basis_fraction"],
+        "status": "provisional",
+    },
     {
         "name": "skill_strain_coefficients",
         "key_paths": ["skill_strain.*", "quality.*"],

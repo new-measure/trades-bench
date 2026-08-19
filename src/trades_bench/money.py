@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, SupportsInt
 
+BASIS_POINTS_SCALE = 10_000
+
 
 class FloatMoneyError(TypeError):
     pass
@@ -116,4 +118,20 @@ def _coerce(other: Any) -> None:
         raise TypeError(f"money arithmetic expects Money, got {type(other).__name__!r}")
 
 
-__all__ = ["Money", "FloatMoneyError"]
+def _require_nonnegative_int(name: str, value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise FloatMoneyError(f"{name} must be an exact int, got {type(value).__name__!r}")
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative, got {value}")
+    return value
+
+
+def basis_point_amount(amount_cents: int, basis_points: int) -> int:
+    base = _require_nonnegative_int("amount_cents", amount_cents)
+    bp = _require_nonnegative_int("basis_points", basis_points)
+    if bp >= BASIS_POINTS_SCALE:
+        raise ValueError(f"basis_points must be below {BASIS_POINTS_SCALE}, got {bp}")
+    return (base * bp * 2 + BASIS_POINTS_SCALE) // (2 * BASIS_POINTS_SCALE)
+
+
+__all__ = ["BASIS_POINTS_SCALE", "Money", "FloatMoneyError", "basis_point_amount"]

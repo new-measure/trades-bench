@@ -64,7 +64,7 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
     assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    assert len(rc.resolved) == 154
+    assert len(rc.resolved) == 157
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     with pytest.raises(TypeError):
         rc.resolved["constants.opening_hour"] = 9  # type: ignore[index]
@@ -885,3 +885,241 @@ def test_all_demand_model_keys_resolve_from_shipped_defaults():
     assert owned
     for path in owned:
         assert path in rc.resolved
+
+
+def _default_map(path: str) -> dict:
+    return json.loads(json.dumps(_reg()[path].default))
+
+
+def _invoice_scenario(mutate) -> str:
+    amounts = _default_map("invoices.amount")
+    mutate(amounts)
+    return json.dumps({"keys": {"invoices.amount": amounts}})
+
+
+def _material_scenario(mutate) -> str:
+    ranges = _default_map("materials.percent_range")
+    mutate(ranges)
+    return json.dumps({"keys": {"materials.percent_range": ranges}})
+
+
+def test_reject_invoice_triple_with_mode_below_min():
+    def mutate(amounts):
+        amounts["plumbing"]["residential"]["mode_cents"] = 100
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_invoice_triple_with_max_below_mode():
+    def mutate(amounts):
+        amounts["plumbing"]["residential"]["max_cents"] = 1000
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_negative_invoice_min_cents():
+    def mutate(amounts):
+        amounts["plumbing"]["residential"]["min_cents"] = -1
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_an_all_zero_invoice_triple():
+    def mutate(amounts):
+        amounts["plumbing"]["residential"] = {
+            "min_cents": 0, "mode_cents": 0, "max_cents": 0,
+        }
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_a_zero_invoice_min_cents_that_would_allow_a_zero_paid_total():
+    def mutate(amounts):
+        amounts["plumbing"]["residential"]["min_cents"] = 0
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_accept_the_smallest_invoice_triple_that_still_yields_a_material_cost():
+    def mutate(amounts):
+        for segment in ("residential", "apartment", "commercial"):
+            amounts["plumbing"][segment] = {
+                "min_cents": 5, "mode_cents": 5, "max_cents": 5,
+            }
+
+    rc = _load(_invoice_scenario(mutate))
+    assert rc.resolved["invoices.amount"]["plumbing"]["residential"]["min_cents"] == 5
+
+
+def test_reject_invoice_triple_with_unexpected_keys():
+    def mutate(amounts):
+        amounts["plumbing"]["residential"]["surcharge_cents"] = 100
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_invoice_apartment_mode_below_residential():
+    def mutate(amounts):
+        amounts["plumbing"]["apartment"]["mode_cents"] = 30000
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_invoice_commercial_mode_below_apartment():
+    def mutate(amounts):
+        amounts["plumbing"]["commercial"]["mode_cents"] = 40000
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_invoice_installation_mode_not_highest_in_a_segment():
+    def mutate(amounts):
+        amounts["hvac_installation"]["residential"] = {
+            "min_cents": 1000, "mode_cents": 20000, "max_cents": 1200000,
+        }
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_invoice_amount_missing_a_job_type():
+    def mutate(amounts):
+        del amounts["electrical"]
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_invoice_amount_with_an_unknown_job_type():
+    def mutate(amounts):
+        amounts["other"] = amounts["plumbing"]
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_invoice_amount_missing_a_segment():
+    def mutate(amounts):
+        del amounts["plumbing"]["apartment"]
+
+    _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_material_range_with_max_below_min():
+    def mutate(ranges):
+        ranges["plumbing"]["max_basis_points"] = 100
+
+    _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_material_range_at_ten_thousand_basis_points():
+    def mutate(ranges):
+        ranges["hvac_installation"]["max_basis_points"] = 10000
+
+    _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_negative_material_min_basis_points():
+    def mutate(ranges):
+        ranges["plumbing"]["min_basis_points"] = -1
+
+    _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_material_installation_min_below_a_service_min():
+    def mutate(ranges):
+        ranges["hvac_installation"]["min_basis_points"] = 900
+
+    _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_material_installation_max_below_a_service_max():
+    def mutate(ranges):
+        ranges["hvac_service"]["max_basis_points"] = 4600
+
+    _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_zero_material_min_basis_points_that_would_skip_the_material_entry():
+    def mutate(ranges):
+        for code in ("hvac_service", "plumbing", "electrical"):
+            ranges[code]["min_basis_points"] = 0
+
+    _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_an_invoice_and_material_pair_that_rounds_the_material_cost_to_zero():
+    amounts = _default_map("invoices.amount")
+    ranges = _default_map("materials.percent_range")
+    for segment in ("residential", "apartment", "commercial"):
+        amounts["plumbing"][segment] = {
+            "min_cents": 1, "mode_cents": 1, "max_cents": 1,
+        }
+    ranges["plumbing"]["min_basis_points"] = 1
+    _bad(
+        json.dumps(
+            {"keys": {"invoices.amount": amounts, "materials.percent_range": ranges}}
+        ),
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_material_range_with_unexpected_keys():
+    def mutate(ranges):
+        ranges["plumbing"]["surcharge_basis_points"] = 100
+
+    _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_material_percent_range_with_an_unknown_job_type():
+    def mutate(ranges):
+        ranges["other"] = dict(ranges["plumbing"])
+
+    _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_material_percent_range_missing_a_job_type():
+    def mutate(ranges):
+        del ranges["electrical"]
+
+    _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_warranty_basis_fraction_at_zero():
+    _bad(
+        '{"keys": {"materials.warranty_basis_fraction": 0}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_warranty_basis_fraction_above_one():
+    _bad(
+        '{"keys": {"materials.warranty_basis_fraction": 1.5}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_warranty_basis_fraction_accepts_the_closed_upper_bound():
+    rc = _load('{"keys": {"materials.warranty_basis_fraction": 1}}')
+    assert rc.get_decimal("materials.warranty_basis_fraction") == Decimal(1)
+
+
+def test_shipped_invoice_and_material_defaults_satisfy_every_cross_field_constraint():
+    rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
+    amounts = rc.resolved["invoices.amount"]
+    ranges = rc.resolved["materials.percent_range"]
+    for segment in ("residential", "apartment", "commercial"):
+        installation_mode = amounts["hvac_installation"][segment]["mode_cents"]
+        for code in ("hvac_service", "plumbing", "electrical"):
+            assert installation_mode >= amounts[code][segment]["mode_cents"]
+            assert (
+                ranges["hvac_installation"]["min_basis_points"]
+                >= ranges[code]["min_basis_points"]
+            )
+            assert (
+                ranges["hvac_installation"]["max_basis_points"]
+                >= ranges[code]["max_basis_points"]
+            )
+    for by_segment in amounts.values():
+        assert (
+            by_segment["residential"]["mode_cents"]
+            <= by_segment["apartment"]["mode_cents"]
+            <= by_segment["commercial"]["mode_cents"]
+        )
