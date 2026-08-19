@@ -319,7 +319,7 @@ CREATE TABLE _invocations (
     ts_ms           INTEGER NOT NULL,
     sequence        INTEGER NOT NULL,
     status          TEXT NOT NULL CHECK (status IN ('active','completed')),
-    prompt_version  TEXT)
+    prompt_version  TEXT, origin_event_id INTEGER REFERENCES _events(event_id))
 
 -- table: _invoice_items
 CREATE TABLE _invoice_items (
@@ -614,7 +614,7 @@ CREATE TABLE _run (
     harness_version     TEXT,
     context_policy      TEXT,
     system_prompt_hash  TEXT
-)
+, final_score_cents INTEGER, track TEXT, attempt_definition TEXT)
 
 -- table: _schema_migrations
 CREATE TABLE _schema_migrations (
@@ -884,6 +884,9 @@ CREATE INDEX _events_status ON _events (status)
 
 -- index: _invocations_order
 CREATE INDEX _invocations_order ON _invocations (sequence)
+
+-- index: _invocations_origin
+CREATE UNIQUE INDEX _invocations_origin ON _invocations (origin_event_id)
 
 -- index: _on_call_rotations_live
 CREATE UNIQUE INDEX _on_call_rotations_live

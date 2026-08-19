@@ -150,6 +150,10 @@ def _script_active_call(conn, rng) -> int:
             "UPDATE _events SET status = 'applied', applied_at_ms = ? WHERE event_id = ?",
             (arrival_at, event_id),
         )
+        conn.execute(
+            "UPDATE _invocations SET origin_event_id = ? WHERE status = 'active'",
+            (event_id,),
+        )
         clock.advance(conn, arrival_at)
     except BaseException:
         rng.exit_txn()

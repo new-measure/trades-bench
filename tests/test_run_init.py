@@ -20,15 +20,18 @@ def _cfg():
     return geo_run_config()
 
 
+def _packaged_migrations() -> list[tuple[int, str]]:
+    return sorted(
+        (int(f.name[:4]), f.name[5:-4])
+        for f in MIGRATIONS_PACKAGE_DIR.iterdir()
+        if f.is_file() and f.suffix == ".sql"
+    )
+
+
 def test_open_run_db_twice_is_idempotent(tmp_path):
     path = tmp_path / "idem.db"
     conn1 = open_run_db(path)
-    assert applied_versions(conn1) == [
-        (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
-        (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
-        (7, "idempotency_fingerprint"), (8, "job_outcomes"),
-        (9, "drop_attempt_count"), (10, "prospect_registration"),
-    ]
+    assert applied_versions(conn1) == _packaged_migrations()
     conn1.close()
     conn2 = open_run_db(path)
     register_conn(conn2)
@@ -61,6 +64,11 @@ def test_open_run_db_upgrades_a_populated_pre_0009_file(tmp_path):
         )
         db.commit(conn)
         conn.execute(
+            "INSERT INTO _events "
+            "(event_id, kind, scheduled_at_ms, priority, status, created_at_ms, applied_at_ms) "
+            "VALUES (1, 'call_invocation', 0, 910, 'applied', 0, 0)"
+        )
+        conn.execute(
             "INSERT INTO _invocations "
             "(type, ts_ms, sequence, status, prompt_version, attempt_count) "
             "VALUES ('call', 0, 1, 'completed', NULL, 3)"
@@ -76,11 +84,16 @@ def test_open_run_db_upgrades_a_populated_pre_0009_file(tmp_path):
     register_conn(fresh)
     try:
         fresh.execute(
-            "INSERT INTO _invocations "
-            "(type, ts_ms, sequence, status, prompt_version) "
-            "VALUES ('call', 0, 1, 'completed', NULL)"
+            "INSERT INTO _events "
+            "(event_id, kind, scheduled_at_ms, priority, status, created_at_ms, applied_at_ms) "
+            "VALUES (1, 'call_invocation', 0, 910, 'applied', 0, 0)"
         )
-        assert applied_versions(resumed)[-1] == (10, "prospect_registration")
+        fresh.execute(
+            "INSERT INTO _invocations "
+            "(type, ts_ms, sequence, status, prompt_version, origin_event_id) "
+            "VALUES ('call', 0, 1, 'completed', NULL, 1)"
+        )
+        assert applied_versions(resumed) == _packaged_migrations()
         resumed_inv = [
             row["name"] for row in resumed.execute("PRAGMA table_info(_invocations)").fetchall()
         ]

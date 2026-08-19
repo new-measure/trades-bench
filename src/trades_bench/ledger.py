@@ -167,6 +167,9 @@ class Ledger:
         if status is not RunStatus.ACTIVE:
             return False
         if self.cash_balance() < 0:
+            self.conn.execute(
+                "UPDATE _run SET final_score_cents = 0 WHERE run_id = ?", (row["run_id"],)
+            )
             set_run_status(self.conn, row["run_id"], RunStatus.BANKRUPT)
             return True
         return False

@@ -62,12 +62,17 @@ def _now_ms(conn) -> int:
     return conn.execute("SELECT current_time_ms FROM _clock").fetchone()[0]
 
 
-def _open_invocation(conn, now, invocation_type="call") -> int:
+def _open_invocation(conn, now, invocation_type="call", *, call_id=None) -> int:
+    origin_event_id = None
+    if call_id is not None:
+        origin_event_id = conn.execute(
+            "SELECT arrival_event_id FROM _call_hidden WHERE call_id = ?", (call_id,)
+        ).fetchone()["arrival_event_id"]
     cur = conn.execute(
-        "INSERT INTO _invocations (type, ts_ms, sequence, status) "
+        "INSERT INTO _invocations (type, ts_ms, sequence, status, origin_event_id) "
         "VALUES (?, ?, "
-        "(SELECT COALESCE(MAX(sequence), 0) + 1 FROM _invocations), 'active')",
-        (invocation_type, now),
+        "(SELECT COALESCE(MAX(sequence), 0) + 1 FROM _invocations), 'active', ?)",
+        (invocation_type, now, origin_event_id),
     )
     return int(cur.lastrowid)
 
@@ -172,6 +177,10 @@ def _arrive_applied(conn, rng, pending_id, arrival_at):
         conn.execute(
             "UPDATE _events SET status = 'applied', applied_at_ms = ? WHERE event_id = ?",
             (arrival_at, event_id),
+        )
+        conn.execute(
+            "UPDATE _invocations SET origin_event_id = ? WHERE status = 'active'",
+            (event_id,),
         )
     except BaseException:
         rng.exit_txn()
@@ -677,7 +686,7 @@ def test_resolved_row_written_by_acknowledged_cancellation_after_attempt(tmp_pat
         address_catalog_id=catalog["id"], target_appointment_id=appointment_id,
         target_job_id=job_id,
     )
-    _open_invocation(conn, manufactured_now)
+    _open_invocation(conn, manufactured_now, call_id=cancellation_call_id)
 
     _, body = _record(
         controller.services, cfg, call_id=cancellation_call_id, attempt_number=1,
@@ -892,7 +901,7 @@ def test_mark_call_unanswered_cancellation_cancels_and_frees_with_zero_deltas(tm
         address_catalog_id=catalog["id"], target_appointment_id=appointment_id,
         target_job_id=job_id,
     )
-    invocation_id = _open_invocation(conn, manufactured_now)
+    invocation_id = _open_invocation(conn, manufactured_now, call_id=cancellation_call_id)
 
     for n in (1, 2, 3):
         _, attempt_body = _record(

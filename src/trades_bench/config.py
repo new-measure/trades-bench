@@ -1527,6 +1527,16 @@ _DOMAIN_ENTRIES: list[Any] = [
             "description": "Maximum page size for registry list reads.",
         },
     ),
+    (
+        "reference_policies.reject_heavy.reject_probability",
+        "probability",
+        Decimal("0.80"),
+        {
+            "description": "Probability the reject-heavy reference policy rejects an arriving "
+            "new-job call; must lie strictly inside (0, 1) so the policy neither books "
+            "everything nor rejects everything.",
+        },
+    ),
 ]
 
 
@@ -2310,6 +2320,7 @@ def _validate_unit_interval_strict_params(base: dict[str, Any]) -> None:
     for path in (
         "competitors.served_well_repeat_multiplier",
         "demand.rejection_repeat_propensity_multiplier",
+        "reference_policies.reject_heavy.reject_probability",
     ):
         v = base[path]
         if not (0 < v < 1):

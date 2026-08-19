@@ -738,10 +738,8 @@ def cancel_appointment(
             appointment_id=appointment_id, technician_id=technician_id,
             service_date=service_date,
         )
-        conn.execute(
-            "UPDATE _day_state SET unresolved_execution_count = unresolved_execution_count - 1 "
-            "WHERE service_date = ?",
-            (service_date,),
+        execution.record_execution_terminal(
+            conn, service_date=service_date, occurred_at_ms=effective_at
         )
 
     return {

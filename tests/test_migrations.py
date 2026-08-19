@@ -9,6 +9,30 @@ from trades_bench.db import in_memory
 from trades_bench.errors import EngineError, ErrorCode
 from trades_bench.migrations import MIGRATIONS_PACKAGE_DIR, applied_versions, migrate
 
+MIGRATIONS: tuple[tuple[int, str], ...] = (
+    (1, "baseline"),
+    (2, "routing_anchors"),
+    (3, "demand_primitives"),
+    (4, "day_state"),
+    (5, "booking_columns"),
+    (6, "call_arrival"),
+    (7, "idempotency_fingerprint"),
+    (8, "job_outcomes"),
+    (9, "drop_attempt_count"),
+    (10, "prospect_registration"),
+    (11, "run_score_and_invocation_origin"),
+)
+
+UNUSED_VERSION = max(version for version, _name in MIGRATIONS) + 1
+
+
+def _versions(*, without: frozenset[int] = frozenset()) -> list[tuple[int, str]]:
+    return [(v, n) for v, n in MIGRATIONS if v not in without]
+
+
+def _names(*, without: frozenset[int] = frozenset()) -> list[str]:
+    return [f"{v:04d}_{n}" for v, n in _versions(without=without)]
+
 
 @pytest.fixture
 def conn():
@@ -36,19 +60,9 @@ def _table_names(conn) -> set[str]:
 
 
 def test_applies_baseline_from_package_and_reapply_is_noop(conn):
-    assert migrate(conn) == [
-        "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
-        "0004_day_state", "0005_booking_columns", "0006_call_arrival",
-        "0007_idempotency_fingerprint", "0008_job_outcomes",
-        "0009_drop_attempt_count", "0010_prospect_registration",
-    ]
+    assert migrate(conn) == _names()
     assert migrate(conn) == []
-    assert applied_versions(conn) == [
-        (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
-        (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
-        (7, "idempotency_fingerprint"), (8, "job_outcomes"),
-        (9, "drop_attempt_count"), (10, "prospect_registration"),
-    ]
+    assert applied_versions(conn) == _versions()
     assert {
         "_run", "_customers", "_ledger_entries", "_clock", "_routing_anchors",
         "_pending_calls",
@@ -66,12 +80,7 @@ def test_tampered_checksum_aborts(conn, tmp_path):
     with pytest.raises(EngineError) as ei:
         migrate(conn, migrations_path=dst)
     assert ei.value.code is ErrorCode.MIGRATION_CHECKSUM_MISMATCH
-    assert applied_versions(conn) == [
-        (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
-        (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
-        (7, "idempotency_fingerprint"), (8, "job_outcomes"),
-        (9, "drop_attempt_count"), (10, "prospect_registration"),
-    ]
+    assert applied_versions(conn) == _versions()
 
 
 def test_missing_migration_file_for_applied_version_aborts(conn, tmp_path):
@@ -85,30 +94,20 @@ def test_missing_migration_file_for_applied_version_aborts(conn, tmp_path):
 
 def test_custom_path_applies(conn, tmp_path):
     dst = _copy_schema_dir(tmp_path)
-    assert migrate(conn, migrations_path=dst) == [
-        "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
-        "0004_day_state", "0005_booking_columns", "0006_call_arrival",
-        "0007_idempotency_fingerprint", "0008_job_outcomes",
-        "0009_drop_attempt_count", "0010_prospect_registration",
-    ]
+    assert migrate(conn, migrations_path=dst) == _names()
     assert "_customers" in _table_names(conn)
 
 
 def test_apply_is_atomic_on_failure(conn, tmp_path):
     dst = _copy_schema_dir(tmp_path)
-    (dst / "0011_break.sql").write_text(
+    (dst / f"{UNUSED_VERSION:04d}_break.sql").write_text(
         "CREATE TABLE _break_table (id INTEGER PRIMARY KEY);\n"
         "THIS IS NOT VALID SQL;\n"
     )
     with pytest.raises(EngineError) as ei:
         migrate(conn, migrations_path=dst)
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
-    assert applied_versions(conn) == [
-        (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
-        (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
-        (7, "idempotency_fingerprint"), (8, "job_outcomes"),
-        (9, "drop_attempt_count"), (10, "prospect_registration"),
-    ]
+    assert applied_versions(conn) == _versions()
     assert "_break_table" not in _table_names(conn)
 
 
@@ -127,16 +126,11 @@ def test_migrations_path_missing_raises(conn, tmp_path):
 
 def test_non_utf8_migration_file_raises_structured_error(conn, tmp_path):
     dst = _copy_schema_dir(tmp_path)
-    (dst / "0011_bad.sql").write_bytes(b"CREATE TABLE _t (x);\n-- \xff\xfe latin\n")
+    (dst / f"{UNUSED_VERSION:04d}_bad.sql").write_bytes(b"CREATE TABLE _t (x);\n-- \xff\xfe latin\n")
     with pytest.raises(EngineError) as ei:
         migrate(conn, migrations_path=dst)
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
-    assert applied_versions(conn) == [
-        (1, "baseline"), (2, "routing_anchors"), (3, "demand_primitives"),
-        (4, "day_state"), (5, "booking_columns"), (6, "call_arrival"),
-        (7, "idempotency_fingerprint"), (8, "job_outcomes"),
-        (9, "drop_attempt_count"), (10, "prospect_registration"),
-    ]
+    assert applied_versions(conn) == _versions()
     assert "_t" not in _table_names(conn)
 
 
@@ -147,12 +141,7 @@ def test_migrate_refuses_with_open_transaction(conn):
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
     assert conn.in_transaction
     conn.execute("ROLLBACK")
-    assert migrate(conn) == [
-        "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
-        "0004_day_state", "0005_booking_columns", "0006_call_arrival",
-        "0007_idempotency_fingerprint", "0008_job_outcomes",
-        "0009_drop_attempt_count", "0010_prospect_registration",
-    ]
+    assert migrate(conn) == _names()
 
 
 def test_migrating_old_schema_db_adds_prospect_registration_column_and_visibility_row(conn, tmp_path):
@@ -161,12 +150,7 @@ def test_migrating_old_schema_db_adds_prospect_registration_column_and_visibilit
     original_content = prospect_migration.read_text()
     prospect_migration.unlink()
 
-    assert migrate(conn, migrations_path=dst) == [
-        "0001_baseline", "0002_routing_anchors", "0003_demand_primitives",
-        "0004_day_state", "0005_booking_columns", "0006_call_arrival",
-        "0007_idempotency_fingerprint", "0008_job_outcomes",
-        "0009_drop_attempt_count",
-    ]
+    assert migrate(conn, migrations_path=dst) == _names(without=frozenset({10}))
     columns = {row[1] for row in conn.execute("PRAGMA table_info(_prospect_state)").fetchall()}
     assert "registered_customer_id" not in columns
     assert conn.execute(
@@ -225,6 +209,88 @@ def test_migrating_old_schema_db_backfills_registered_customer_id_from_prior_cal
         "SELECT registered_customer_id FROM _prospect_state WHERE id = ?", (prospect_id,)
     ).fetchone()
     assert row["registered_customer_id"] == 9001
+
+
+def test_migrating_old_schema_db_adds_run_score_and_invocation_origin(conn, tmp_path):
+    dst = _copy_schema_dir(tmp_path)
+    origin_migration = dst / "0011_run_score_and_invocation_origin.sql"
+    original_content = origin_migration.read_text()
+    origin_migration.unlink()
+
+    assert migrate(conn, migrations_path=dst) == _names(without=frozenset({11}))
+    run_columns = {row[1] for row in conn.execute("PRAGMA table_info(_run)").fetchall()}
+    assert {"final_score_cents", "track", "attempt_definition"}.isdisjoint(run_columns)
+    invocation_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(_invocations)").fetchall()
+    }
+    assert "origin_event_id" not in invocation_columns
+    conn.executemany(
+        "INSERT INTO _events "
+        "(event_id, kind, scheduled_at_ms, priority, status, created_at_ms, applied_at_ms) "
+        "VALUES (?, ?, ?, ?, 'applied', ?, ?)",
+        [
+            (101, "opening_invocation", 100, 900, 100, 100),
+            (102, "call_invocation", 200, 910, 200, 200),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO _invocations "
+        "(invocation_id, type, ts_ms, sequence, status, prompt_version) "
+        "VALUES (?, ?, ?, ?, ?, NULL)",
+        [
+            (201, "opening", 100, 1, "completed"),
+            (202, "call", 200, 2, "active"),
+        ],
+    )
+
+    origin_migration.write_text(original_content)
+    assert migrate(conn, migrations_path=dst) == ["0011_run_score_and_invocation_origin"]
+
+    run_columns_after = {row[1] for row in conn.execute("PRAGMA table_info(_run)").fetchall()}
+    assert {"final_score_cents", "track", "attempt_definition"}.issubset(run_columns_after)
+    invocation_columns_after = {
+        row[1] for row in conn.execute("PRAGMA table_info(_invocations)").fetchall()
+    }
+    assert "origin_event_id" in invocation_columns_after
+    assert [
+        (row["invocation_id"], row["origin_event_id"])
+        for row in conn.execute(
+            "SELECT invocation_id, origin_event_id FROM _invocations ORDER BY sequence"
+        )
+    ] == [(201, 101), (202, 102)]
+    registered = dict(
+        conn.execute(
+            'SELECT "table" || \'.\' || "column" AS field, visibility_class '
+            'FROM _visibility_registry WHERE ("table" = \'_run\' AND "column" IN '
+            "('final_score_cents', 'track', 'attempt_definition')) "
+            'OR ("table" = \'_invocations\' AND "column" = \'origin_event_id\')'
+        ).fetchall()
+    )
+    assert registered == {
+        "_run.final_score_cents": "post_run_only",
+        "_run.track": "post_run_only",
+        "_run.attempt_definition": "post_run_only",
+        "_invocations.origin_event_id": "post_run_only",
+    }
+
+
+def test_invocation_origin_migration_rejects_unmatched_legacy_history(conn, tmp_path):
+    dst = _copy_schema_dir(tmp_path)
+    origin_migration = dst / "0011_run_score_and_invocation_origin.sql"
+    original_content = origin_migration.read_text()
+    origin_migration.unlink()
+    migrate(conn, migrations_path=dst)
+    conn.execute(
+        "INSERT INTO _invocations (type, ts_ms, sequence, status, prompt_version) "
+        "VALUES ('call', 100, 1, 'active', NULL)"
+    )
+    origin_migration.write_text(original_content)
+    with pytest.raises(EngineError) as exc_info:
+        migrate(conn, migrations_path=dst)
+    assert exc_info.value.code is ErrorCode.MIGRATION_FAILED
+    assert "origin_event_id" not in {
+        row[1] for row in conn.execute("PRAGMA table_info(_invocations)").fetchall()
+    }
 
 
 def test_malformed_filename_raises(conn, tmp_path):

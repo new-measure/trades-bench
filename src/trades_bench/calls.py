@@ -4,7 +4,7 @@ import sqlite3
 
 from . import clock, demand, surface
 from .config import RunConfig
-from .enums import EntityType, EventKind, KeyedStreamName
+from .enums import EntityType, InvocationType, KeyedStreamName
 from .errors import EngineError, ErrorCode
 from .txn import Services, TxnContext, command
 
@@ -180,6 +180,22 @@ def _cancellation_arrival(conn: sqlite3.Connection, event_row: sqlite3.Row, *, n
     return call_id
 
 
+def arrived_call_id(conn: sqlite3.Connection, arrival_event_id: int) -> int:
+    row = conn.execute(
+        "SELECT call_id FROM _call_hidden WHERE arrival_event_id = ?", (arrival_event_id,)
+    ).fetchone()
+    if row is None:
+        raise EngineError(
+            ErrorCode.ENTITY_NOT_FOUND,
+            f"no arrived call recorded for event {arrival_event_id}",
+        )
+    return int(row["call_id"])
+
+
+def reached_terminal_state(conn: sqlite3.Connection, call_id: int) -> bool:
+    return _call_row(conn, call_id)["status"] != "active"
+
+
 def prompt_payload(conn: sqlite3.Connection, event_row: sqlite3.Row, ts_ms: int) -> dict:
     call = conn.execute(
         "SELECT c.* FROM _calls c JOIN _call_hidden h ON h.call_id = c.id "
@@ -339,11 +355,11 @@ def _call_row(conn: sqlite3.Connection, call_id: int) -> sqlite3.Row:
 
 def current_active_call_id(conn: sqlite3.Connection) -> int | None:
     row = conn.execute(
-        "SELECT h.call_id FROM _events e "
-        "JOIN _call_hidden h ON h.arrival_event_id = e.event_id "
-        "WHERE e.status = 'applied' AND e.kind = ? "
-        "ORDER BY e.applied_at_ms DESC, e.event_id DESC LIMIT 1",
-        (EventKind.CALL_INVOCATION.value,),
+        "SELECT h.call_id FROM _invocations i "
+        "JOIN _call_hidden h ON h.arrival_event_id = i.origin_event_id "
+        "WHERE i.status = 'active' AND i.type = ? "
+        "ORDER BY i.sequence DESC LIMIT 1",
+        (InvocationType.CALL.value,),
     ).fetchone()
     return int(row["call_id"]) if row is not None else None
 
@@ -514,9 +530,11 @@ def reject_command(
 
 __all__ = [
     "arrive",
+    "arrived_call_id",
     "current_active_call_id",
     "ordinary_rejection",
     "prompt_payload",
+    "reached_terminal_state",
     "record_resolved_attempt",
     "reject",
     "reject_command",

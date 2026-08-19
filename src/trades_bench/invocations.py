@@ -40,6 +40,7 @@ class Invocations:
         *,
         request_id: str,
         prompt_version: str | None = None,
+        origin_event_id: int | None = None,
         services: Any,
     ) -> int | bytes:
         result, _replayed = self.open_with_replay(
@@ -47,6 +48,7 @@ class Invocations:
             ts_ms,
             request_id=request_id,
             prompt_version=prompt_version,
+            origin_event_id=origin_event_id,
             services=services,
         )
         return result
@@ -58,8 +60,10 @@ class Invocations:
         *,
         request_id: str,
         prompt_version: str | None = None,
+        origin_event_id: int | None = None,
         services: Any,
     ) -> tuple[int | bytes, bool]:
+        origin = None if origin_event_id is None else int(origin_event_id)
 
         def inner(ctx) -> dict:
             if services.invocations.active() is not None:
@@ -71,14 +75,19 @@ class Invocations:
             seq = self._next_sequence()
             cur = ctx.conn.execute(
                 """INSERT INTO _invocations
-                   (type, ts_ms, sequence, status, prompt_version)
-                   VALUES (?, ?, ?, 'active', ?)""",
-                (kind.value, int(ts_ms), seq, prompt_version),
+                   (type, ts_ms, sequence, status, prompt_version, origin_event_id)
+                   VALUES (?, ?, ?, 'active', ?, ?)""",
+                (kind.value, int(ts_ms), seq, prompt_version, origin),
             )
             clock.advance(ctx.conn, int(ts_ms))
             return {"invocation_id": int(cur.lastrowid), "sequence": seq}
 
-        args = {"kind": kind.value, "ts_ms": int(ts_ms), "prompt_version": prompt_version}
+        args = {
+            "kind": kind.value,
+            "ts_ms": int(ts_ms),
+            "prompt_version": prompt_version,
+            "origin_event_id": origin,
+        }
         resp, replayed = privileged_with_replay(
             services,
             privileged_request_id("open_inv", request_id),

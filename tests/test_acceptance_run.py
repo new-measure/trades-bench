@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from _adapters import CrashOnNthPromptAdapter, ScriptedNoOpAdapter
+from _adapters import ScriptedNoOpAdapter, SnapshotOnNthPromptAdapter
 from _helpers import (
     GEO_ARTIFACT_DIR,
     GEO_ARTIFACT_ID,
@@ -102,11 +102,12 @@ def _run_id(conn):
 
 
 def _run_counting_steps(conn, config):
-    controller = Controller(conn, config, ScriptedNoOpAdapter())
+    adapter = ScriptedNoOpAdapter()
+    controller = Controller(conn, config, adapter)
     steps = 0
     while controller.step():
         steps += 1
-    return controller.status(), steps
+    return controller.status(), steps, len(adapter.prompts)
 
 
 @pytest.fixture(scope="module")
@@ -114,7 +115,7 @@ def full_run(tmp_path_factory):
     path = tmp_path_factory.mktemp("acceptance_full") / "run.db"
     config = _config()
     conn = _init(path, config)
-    status, steps = _run_counting_steps(conn, config)
+    status, steps, prompts = _run_counting_steps(conn, config)
     run_id = _run_id(conn)
     yield {
         "conn": conn,
@@ -122,6 +123,7 @@ def full_run(tmp_path_factory):
         "status": status,
         "run_id": run_id,
         "steps": steps,
+        "prompts": prompts,
         "dump": dump_hash(conn, run_id),
     }
     conn.close()
@@ -132,9 +134,14 @@ def fast_baseline(tmp_path_factory):
     path = tmp_path_factory.mktemp("acceptance_fast") / "run.db"
     config = _config(**{"run.end_date": FAST_END_DATE})
     conn = _init(path, config)
-    status, steps = _run_counting_steps(conn, config)
+    status, steps, prompts = _run_counting_steps(conn, config)
     assert status is RunStatus.COMPLETED
-    baseline = {"config": config, "steps": steps, "dump": dump_hash(conn, _run_id(conn))}
+    baseline = {
+        "config": config,
+        "steps": steps,
+        "prompts": prompts,
+        "dump": dump_hash(conn, _run_id(conn)),
+    }
     conn.close()
     return baseline
 
@@ -289,29 +296,38 @@ def test_sampled_boundary_kills_resume_to_the_identical_dump(fast_baseline, tmp_
     )
 
 
-def _crash_copy_resume_and_compare(tmp_path, config, prompt_number, expected_dump):
-    crashed_path = tmp_path / f"crashed_{prompt_number}.db"
-    conn = _init(crashed_path, config)
+def _snapshot_resume_and_compare(tmp_path, config, prompt_number, expected_dump):
+    live_path = tmp_path / f"live_{prompt_number}.db"
+    snapshot_path = tmp_path / f"snapshot_{prompt_number}.db"
+    conn = _init(live_path, config)
     try:
-        with pytest.raises(ConnectionError):
-            Controller(conn, config, CrashOnNthPromptAdapter(prompt_number)).run()
-        active = conn.execute(
+        adapter = SnapshotOnNthPromptAdapter(prompt_number, live_path, snapshot_path)
+        assert Controller(conn, config, adapter).run() is RunStatus.COMPLETED, prompt_number
+        assert adapter.snapshot_prompt is not None, prompt_number
+    finally:
+        conn.close()
+    resumed = open_run_db(snapshot_path, artifact_dir=GEO_ARTIFACT_DIR)
+    try:
+        active = resumed.execute(
             "SELECT COUNT(*) c FROM _invocations WHERE status = 'active'"
         ).fetchone()["c"]
         assert active == 1, prompt_number
-    finally:
-        conn.close()
-    resumed_path = tmp_path / f"crash_resumed_{prompt_number}.db"
-    shutil.copyfile(crashed_path, resumed_path)
-    resumed = open_run_db(resumed_path, artifact_dir=GEO_ARTIFACT_DIR)
-    try:
         status = Controller(resumed, config, ScriptedNoOpAdapter()).run()
         assert status is RunStatus.COMPLETED, prompt_number
         assert dump_hash(resumed, _run_id(resumed)) == expected_dump, prompt_number
     finally:
         resumed.close()
-    crashed_path.unlink()
-    resumed_path.unlink()
+    live_path.unlink()
+    snapshot_path.unlink()
+
+
+@pytest.mark.parametrize("slot", range(1, RESUME_SAMPLE_COUNT + 1))
+def test_sampled_mid_prompt_snapshots_resume_to_the_identical_dump(fast_baseline, tmp_path, slot):
+    total = fast_baseline["prompts"]
+    prompt_number = max(1, slot * total // RESUME_SAMPLE_COUNT)
+    _snapshot_resume_and_compare(
+        tmp_path, fast_baseline["config"], prompt_number, fast_baseline["dump"]
+    )
 
 
 @pytest.mark.nightly
@@ -319,11 +335,8 @@ def test_every_boundary_of_the_two_week_run_resumes_to_the_identical_dump(full_r
     config = full_run["config"]
     for boundary in range(1, full_run["steps"]):
         _kill_copy_resume_and_compare(tmp_path, config, boundary, full_run["dump"])
-    invocation_count = full_run["conn"].execute(
-        "SELECT COUNT(*) c FROM _invocations"
-    ).fetchone()["c"]
-    for prompt_number in range(1, invocation_count + 1):
-        _crash_copy_resume_and_compare(tmp_path, config, prompt_number, full_run["dump"])
+    for prompt_number in range(1, full_run["prompts"] + 1):
+        _snapshot_resume_and_compare(tmp_path, config, prompt_number, full_run["dump"])
 
 
 class InterleavingProbeAdapter(ScriptedNoOpAdapter):

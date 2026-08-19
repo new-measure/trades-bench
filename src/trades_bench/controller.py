@@ -5,8 +5,8 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import SPEC_VERSION, calls, clock, constants, db, demand, execution, geo_reader
-from .adapter import AdapterPrompt, HarnessAdapter
+from . import SPEC_VERSION, calls, clock, constants, control, db, demand, execution, geo_reader
+from .adapter import AdapterPrompt, AdapterResponse, HarnessAdapter
 from .config import RunConfig
 from .enums import (
     EVENT_PRIORITY,
@@ -70,6 +70,8 @@ _BLOCK_START_MINUTES = {
 }
 
 _PAYING_EMPLOYMENT_STATUSES = ("active", "pending_termination", "resigning_notice")
+
+CALL_ATTEMPT_LIMIT = 3
 
 
 def _payload_of(row: sqlite3.Row) -> dict:
@@ -357,7 +359,12 @@ def _checkpoint_handler(ctx: TxnContext, row: sqlite3.Row) -> dict | None:
 def _run_finalize_handler(ctx: TxnContext, row: sqlite3.Row) -> dict | None:
     _advance_to_event(ctx, row)
     run_row = ctx.conn.execute("SELECT run_id FROM _run").fetchone()
-    db.set_run_status(ctx.conn, str(run_row["run_id"]), RunStatus.COMPLETED)
+    run_id = str(run_row["run_id"])
+    ctx.conn.execute(
+        "UPDATE _run SET final_score_cents = ? WHERE run_id = ?",
+        (ctx.services.ledger.cash_balance(), run_id),
+    )
+    db.set_run_status(ctx.conn, run_id, RunStatus.COMPLETED)
     return None
 
 
@@ -467,75 +474,152 @@ class Controller:
             )
         _require_ok(self.events.apply(int(row["event_id"]), handler, services=self.services))
 
-    def _last_applied_invocation_event(self) -> sqlite3.Row | None:
-        placeholders = ", ".join("?" for _ in _INVOCATION_EVENT_KINDS)
-        return self.conn.execute(
-            f"SELECT * FROM _events WHERE status = 'applied' AND kind IN ({placeholders}) "
-            "ORDER BY applied_at_ms DESC, event_id DESC LIMIT 1",
-            [k.value for k in _INVOCATION_EVENT_KINDS],
-        ).fetchone()
-
     def _unissued_invocation_event(self) -> sqlite3.Row | None:
-        invocation_rows = int(
-            self.conn.execute("SELECT COUNT(*) c FROM _invocations").fetchone()["c"]
-        )
         placeholders = ", ".join("?" for _ in _INVOCATION_EVENT_KINDS)
-        applied_events = int(
-            self.conn.execute(
-                f"SELECT COUNT(*) c FROM _events "
-                f"WHERE status = 'applied' AND kind IN ({placeholders})",
-                [k.value for k in _INVOCATION_EVENT_KINDS],
-            ).fetchone()["c"]
-        )
-        if applied_events == invocation_rows:
+        rows = self.conn.execute(
+            f"SELECT * FROM _events WHERE status = 'applied' AND kind IN ({placeholders}) "
+            "AND event_id NOT IN "
+            "(SELECT origin_event_id FROM _invocations WHERE origin_event_id IS NOT NULL) "
+            "ORDER BY event_id",
+            [k.value for k in _INVOCATION_EVENT_KINDS],
+        ).fetchall()
+        if not rows:
             return None
-        if applied_events != invocation_rows + 1:
+        if len(rows) > 1:
             raise EngineError(
                 ErrorCode.INVARIANT_VIOLATED,
-                "applied invocation events and invocation rows diverge by more than one",
+                "more than one applied invocation event has no invocation of its own",
             )
-        return self._last_applied_invocation_event()
+        return rows[0]
+
+    def _origin_event_of(self, invocation: sqlite3.Row) -> sqlite3.Row:
+        origin_event_id = invocation["origin_event_id"]
+        if origin_event_id is None:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED,
+                f"invocation {int(invocation['invocation_id'])} has no origin event",
+            )
+        row = self.conn.execute(
+            "SELECT * FROM _events WHERE event_id = ?", (int(origin_event_id),)
+        ).fetchone()
+        if row is None:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED,
+                f"origin event {int(origin_event_id)} of invocation "
+                f"{int(invocation['invocation_id'])} does not exist",
+            )
+        return row
 
     def _issue_invocation(self, row: sqlite3.Row) -> None:
         invocation_type = _INVOCATION_TYPE_BY_KIND[EventKind(row["kind"])]
         ts = max(clock.now(self.conn), int(row["scheduled_at_ms"]))
         event_id = int(row["event_id"])
         opened = self.invocations.open(
-            invocation_type, ts, request_id=f"invocation-open-{event_id}", services=self.services
+            invocation_type,
+            ts,
+            request_id=f"invocation-open-{event_id}",
+            origin_event_id=event_id,
+            services=self.services,
         )
         if isinstance(opened, bytes):
             _require_ok(opened)
             raise EngineError(
                 ErrorCode.INVARIANT_VIOLATED, "invocation open failed without an error response"
             )
-        self.adapter.send(self._build_prompt(invocation_type, ts, row))
-        _require_ok(
-            self.invocations.complete(
-                int(opened), request_id=f"invocation-complete-{event_id}", services=self.services
-            )
-        )
+        self._drive_invocation(invocation_type, ts, row, int(opened))
 
     def _resume_active_invocation(self, active: sqlite3.Row) -> None:
-        row = self._last_applied_invocation_event()
-        if row is None:
-            raise EngineError(
-                ErrorCode.INVARIANT_VIOLATED,
-                "an invocation is active but no applied invocation event exists",
-            )
+        row = self._origin_event_of(active)
         invocation_type = InvocationType(active["type"])
         if _INVOCATION_TYPE_BY_KIND[EventKind(row["kind"])] is not invocation_type:
             raise EngineError(
                 ErrorCode.INVARIANT_VIOLATED,
                 "active invocation type does not match the last applied invocation event",
             )
-        self.adapter.send(self._build_prompt(invocation_type, int(active["ts_ms"]), row))
+        self._drive_invocation(
+            invocation_type, int(active["ts_ms"]), row, int(active["invocation_id"])
+        )
+
+    def _drive_invocation(
+        self, invocation_type: InvocationType, ts: int, row: sqlite3.Row, invocation_id: int
+    ) -> None:
+        if invocation_type is InvocationType.CALL:
+            self._drive_call_invocation(ts, row)
+        else:
+            self._send(self._build_prompt(invocation_type, ts, row))
         event_id = int(row["event_id"])
         _require_ok(
             self.invocations.complete(
-                int(active["invocation_id"]),
+                invocation_id,
                 request_id=f"invocation-complete-{event_id}",
                 services=self.services,
             )
+        )
+
+    def _drive_call_invocation(self, ts: int, row: sqlite3.Row) -> None:
+        call_id = calls.arrived_call_id(self.conn, int(row["event_id"]))
+        attempts = self._recorded_attempt_count(call_id)
+        while not calls.reached_terminal_state(self.conn, call_id):
+            self._send(self._call_prompt(ts, row, call_id, attempts))
+            if calls.reached_terminal_state(self.conn, call_id):
+                return
+            attempts += 1
+            if attempts == CALL_ATTEMPT_LIMIT:
+                _require_ok(
+                    control.record_final_unanswered_attempt_op(
+                        self.services,
+                        self.config,
+                        call_id=call_id,
+                        attempt_number=attempts,
+                        artifact=self.artifact,
+                    )
+                )
+            else:
+                _require_ok(
+                    control.record_call_attempt_op(
+                        self.services, self.config, call_id=call_id, attempt_number=attempts
+                    )
+                )
+
+    def _call_prompt(
+        self, ts: int, row: sqlite3.Row, call_id: int, attempts: int
+    ) -> AdapterPrompt:
+        if attempts == 0:
+            return self._build_prompt(InvocationType.CALL, ts, row)
+        return AdapterPrompt(
+            kind=PromptKind.REMINDER,
+            ts_ms=ts,
+            payload={
+                "call_id": call_id,
+                "attempt": attempts,
+                "final": attempts == CALL_ATTEMPT_LIMIT - 1,
+            },
+        )
+
+    def _recorded_attempt_count(self, call_id: int) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) c FROM _call_attempts WHERE call_id = ? AND outcome = 'incomplete'",
+            (call_id,),
+        ).fetchone()
+        return int(row["c"])
+
+    def _send(self, prompt: AdapterPrompt) -> AdapterResponse:
+        try:
+            return self.adapter.send(prompt)
+        except Exception:
+            self._fail_run()
+            raise
+
+    def _fail_run(self) -> None:
+        if self.status() in RunStatus.terminal():
+            return
+
+        def fn(ctx: TxnContext) -> None:
+            db.set_run_status(ctx.conn, self.run_id, RunStatus.FAILED)
+            return None
+
+        _require_ok(
+            privileged(self.services, privileged_request_id("run_failed", self.run_id), fn)
         )
 
     def _build_prompt(

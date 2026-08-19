@@ -339,7 +339,8 @@ def test_new_caller_arrival_commits_before_the_prompt_renders(tmp_path):
     ).fetchall()
     assert len(rows) == adapter.checked
     for row in rows:
-        assert row["status"] == "active"
+        assert row["status"] == "unanswered"
+        assert row["terminal_reason"] == "unanswered"
         assert row["call_kind"] == "new_job"
         assert row["customer_id"] is None
         assert row["segment"] == row["true_segment"]
@@ -361,12 +362,17 @@ def _arrival_at():
     return clock.phoenix_instant(2026, 10, 1, 9, 0) + next(_arrival_seq) * 60_000
 
 
-def _open_invocation(conn, now, invocation_type="call"):
+def _open_invocation(conn, now, invocation_type="call", *, call_id=None):
+    origin_event_id = None
+    if call_id is not None:
+        origin_event_id = conn.execute(
+            "SELECT arrival_event_id FROM _call_hidden WHERE call_id = ?", (call_id,)
+        ).fetchone()["arrival_event_id"]
     conn.execute(
-        "INSERT INTO _invocations (type, ts_ms, sequence, status) "
+        "INSERT INTO _invocations (type, ts_ms, sequence, status, origin_event_id) "
         "VALUES (?, ?, "
-        "(SELECT COALESCE(MAX(sequence), 0) + 1 FROM _invocations), 'active')",
-        (invocation_type, now),
+        "(SELECT COALESCE(MAX(sequence), 0) + 1 FROM _invocations), 'active', ?)",
+        (invocation_type, now, origin_event_id),
     )
 
 
@@ -399,6 +405,10 @@ def _arrive_applied(conn, rng, pending_id, arrival_at):
         conn.execute(
             "UPDATE _events SET status = 'applied', applied_at_ms = ? WHERE event_id = ?",
             (arrival_at, event_id),
+        )
+        conn.execute(
+            "UPDATE _invocations SET origin_event_id = ? WHERE status = 'active'",
+            (event_id,),
         )
     except BaseException:
         rng.exit_txn()
@@ -982,6 +992,32 @@ def test_reject_unknown_call_id_fails_entity_not_found(tmp_path):
     err = _err(body)
     assert err["code"] == "entity_not_found"
     assert _world_snapshot(conn) == before
+
+
+def test_no_active_invocation_means_no_current_call(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id = _new_caller_call(conn, controller, catalog=catalog)
+    assert calls.current_active_call_id(conn) == call_id
+    _close_active_invocation(conn)
+    assert calls.current_active_call_id(conn) is None
+
+
+def test_current_call_follows_the_active_invocation_not_the_newest_arrival(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog_a, catalog_b = _usable_catalog_rows(conn, 2)
+    call_a = _new_caller_call(
+        conn, controller, catalog=catalog_a, caller_name="Caller A", caller_phone="4805550001"
+    )
+    call_b = _new_caller_call(
+        conn, controller, catalog=catalog_b, caller_name="Caller B", caller_phone="4805550002"
+    )
+    assert call_b > call_a
+    _open_invocation(conn, now, call_id=call_a)
+    assert calls.current_active_call_id(conn) == call_a
 
 
 def test_reject_stale_call_while_a_newer_call_is_current(tmp_path):

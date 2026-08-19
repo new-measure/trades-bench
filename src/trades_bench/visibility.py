@@ -38,6 +38,9 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_run", "harness_version"): V.POST_RUN_ONLY,
     Field("_run", "context_policy"): V.POST_RUN_ONLY,
     Field("_run", "system_prompt_hash"): V.POST_RUN_ONLY,
+    Field("_run", "final_score_cents"): V.POST_RUN_ONLY,
+    Field("_run", "track"): V.POST_RUN_ONLY,
+    Field("_run", "attempt_definition"): V.POST_RUN_ONLY,
 
     Field("_config", "run_id"): V.PRIVATE_ENGINE,
     Field("_config", "config_version"): V.PRIVATE_ENGINE,
@@ -67,6 +70,7 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_invocations", "sequence"): V.POST_RUN_ONLY,
     Field("_invocations", "status"): V.POST_RUN_ONLY,
     Field("_invocations", "prompt_version"): V.POST_RUN_ONLY,
+    Field("_invocations", "origin_event_id"): V.POST_RUN_ONLY,
 
     Field("_rng_state", "stream_name"): V.PRIVATE_ENGINE,
     Field("_rng_state", "seed"): V.PRIVATE_ENGINE,

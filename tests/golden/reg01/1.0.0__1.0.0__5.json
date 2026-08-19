@@ -1,0 +1,4259 @@
+{
+  "spec_version": "1.0.0",
+  "config_version": "1.0.0",
+  "master_seed": 5,
+  "scenarios": {
+    "booking_day": {
+      "event_trace": [
+        {
+          "event_id": 1,
+          "kind": "day_rollover",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 100,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 2,
+          "kind": "employment_transition",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 110,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 3,
+          "kind": "weather_realized",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 120,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 4,
+          "kind": "labor_economy_update",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 130,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 5,
+          "kind": "sickness_draw",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 140,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 6,
+          "kind": "attrition_draw",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 150,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 7,
+          "kind": "training_rates_drawn",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 160,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 8,
+          "kind": "shift_materialization",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 170,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 9,
+          "kind": "demand_generation",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 180,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-01"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 10,
+          "kind": "opening_invocation",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 900,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 11,
+          "kind": "first_block_lock",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 905,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B07_09"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 12,
+          "kind": "first_trip_dispatch",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 906,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 13,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790870400000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B09_11"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 18,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790870640000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 19,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790872080000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 2,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 20,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790872200000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 3,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 21,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790872560000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 4,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 22,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790873160000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 5,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 23,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790874060000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 6,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 24,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790874240000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 7,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 14,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790877600000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B11_13"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 25,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790878620000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 8,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 26,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790880420000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 9,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 27,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790883060000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 10,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 36,
+          "kind": "appointment_dispatch",
+          "scheduled_at_ms": 1790884500000,
+          "priority": 300,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1,
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 15,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790884800000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B13_15"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 37,
+          "kind": "appointment_arrival",
+          "scheduled_at_ms": 1790884800000,
+          "priority": 310,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1,
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 38,
+          "kind": "work_started",
+          "scheduled_at_ms": 1790885220000,
+          "priority": 320,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1,
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 28,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790887260000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 11,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 29,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790888520000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 12,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 30,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790891520000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 13,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 39,
+          "kind": "work_completed",
+          "scheduled_at_ms": 1790891760000,
+          "priority": 330,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1,
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 40,
+          "kind": "technician_return_home",
+          "scheduled_at_ms": 1790891760000,
+          "priority": 350,
+          "entity_type": "technician",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1,
+            "block_index": 3,
+            "service_date": "2026-10-01",
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 16,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790892000000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B15_17"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 35,
+          "kind": "company_no_show",
+          "scheduled_at_ms": 1790892000000,
+          "priority": 335,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 41,
+          "kind": "technician_home_arrival",
+          "scheduled_at_ms": 1790892060000,
+          "priority": 360,
+          "entity_type": "technician",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-01",
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 31,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790892720000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 14,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 32,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790893320000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 15,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 33,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790893560000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 16,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 34,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790894400000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 17,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 17,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790899200000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B17_19"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 42,
+          "kind": "closing_invocation",
+          "scheduled_at_ms": 1790906400000,
+          "priority": 920,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-01"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 43,
+          "kind": "daily_settlement",
+          "scheduled_at_ms": 1790906400000,
+          "priority": 950,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-01"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 44,
+          "kind": "checkpoint",
+          "scheduled_at_ms": 1790906400000,
+          "priority": 960,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-01"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 45,
+          "kind": "run_finalize",
+          "scheduled_at_ms": 1790906400000,
+          "priority": 970,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        }
+      ],
+      "prompt_trace": [
+        {
+          "kind": "opening",
+          "ts_ms": 1790862300000,
+          "payload": {
+            "service_date": "2026-10-01",
+            "time": "2026-10-01T06:45:00-07:00"
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790870640000,
+          "payload": {
+            "time": "2026-10-01T09:04:00-07:00",
+            "call_id": 1,
+            "caller": "Ronald Hill",
+            "phone": "480-555-0178",
+            "address": "429 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Appliance repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872080000,
+          "payload": {
+            "time": "2026-10-01T09:28:00-07:00",
+            "call_id": 2,
+            "caller": "Joseph Rodriguez",
+            "phone": "623-555-0182",
+            "address": "713 E Wesleyan Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872200000,
+          "payload": {
+            "time": "2026-10-01T09:30:00-07:00",
+            "call_id": 3,
+            "caller": "George King",
+            "phone": "623-555-0114",
+            "address": "529 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872560000,
+          "payload": {
+            "time": "2026-10-01T09:36:00-07:00",
+            "call_id": 4,
+            "caller": "David Harris",
+            "phone": "623-555-0156",
+            "address": "2707 S College Ave, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790873160000,
+          "payload": {
+            "time": "2026-10-01T09:46:00-07:00",
+            "call_id": 5,
+            "caller": "Linda Jones",
+            "phone": "602-555-0141",
+            "address": "521 E Fairmont Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC installation",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790874060000,
+          "payload": {
+            "time": "2026-10-01T10:01:00-07:00",
+            "call_id": 6,
+            "caller": "Kevin Miller",
+            "phone": "623-555-0183",
+            "address": "2034 S College Ave, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790874240000,
+          "payload": {
+            "time": "2026-10-01T10:04:00-07:00",
+            "call_id": 7,
+            "caller": "Zephyrmesa Bravemark LLC",
+            "phone": "623-555-0179",
+            "address": "917 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "Appliance repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790878620000,
+          "payload": {
+            "time": "2026-10-01T11:17:00-07:00",
+            "call_id": 8,
+            "caller": "Rustvale Stormcrest Enterprises",
+            "phone": "480-555-0186",
+            "address": "2525 S Rural Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790880420000,
+          "payload": {
+            "time": "2026-10-01T11:47:00-07:00",
+            "call_id": 9,
+            "caller": "Carol Moore",
+            "phone": "602-555-0142",
+            "address": "539 E Fairmont Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790883060000,
+          "payload": {
+            "time": "2026-10-01T12:31:00-07:00",
+            "call_id": 10,
+            "caller": "Mark Green",
+            "phone": "480-555-0179",
+            "address": "449 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790887260000,
+          "payload": {
+            "time": "2026-10-01T13:41:00-07:00",
+            "call_id": 11,
+            "caller": "Jennifer Smith",
+            "phone": "602-555-0174",
+            "address": "320 E Cairo Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790888520000,
+          "payload": {
+            "time": "2026-10-01T14:02:00-07:00",
+            "call_id": 12,
+            "caller": "Sandra Garcia",
+            "phone": "480-555-0142",
+            "address": "332 E El Parque Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Garage-door repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790891520000,
+          "payload": {
+            "time": "2026-10-01T14:52:00-07:00",
+            "call_id": 13,
+            "caller": "David Thompson",
+            "phone": "602-555-0119",
+            "address": "403 E Alameda Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790892720000,
+          "payload": {
+            "time": "2026-10-01T15:12:00-07:00",
+            "call_id": 14,
+            "caller": "Brian Miller",
+            "phone": "602-555-0143",
+            "address": "413 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790893320000,
+          "payload": {
+            "time": "2026-10-01T15:22:00-07:00",
+            "call_id": 15,
+            "caller": "James Davis",
+            "phone": "602-555-0146",
+            "address": "136 E Palmcroft Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790893560000,
+          "payload": {
+            "time": "2026-10-01T15:26:00-07:00",
+            "call_id": 16,
+            "caller": "Daniel Robinson",
+            "phone": "623-555-0179",
+            "address": "525 E Wesleyan Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790894400000,
+          "payload": {
+            "time": "2026-10-01T15:40:00-07:00",
+            "call_id": 17,
+            "caller": "Lisa Johnson",
+            "phone": "623-555-0187",
+            "address": "134 E Del Rio Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "closing",
+          "ts_ms": 1790906400000,
+          "payload": {
+            "service_date": "2026-10-01",
+            "time": "2026-10-01T19:00:00-07:00"
+          }
+        }
+      ],
+      "logical_dump_sha256": "28045acf4633579aa9cfec40d8b92aee5da8b45fdb11af48f785873fcbe82fb8"
+    },
+    "cancellation_day_acknowledged_and_auto_finalized": {
+      "event_trace": [
+        {
+          "event_id": 44,
+          "kind": "day_rollover",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 100,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 45,
+          "kind": "employment_transition",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 110,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 46,
+          "kind": "weather_realized",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 120,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 47,
+          "kind": "labor_economy_update",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 130,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 48,
+          "kind": "sickness_draw",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 140,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 49,
+          "kind": "attrition_draw",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 150,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 50,
+          "kind": "training_rates_drawn",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 160,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 51,
+          "kind": "shift_materialization",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 170,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 52,
+          "kind": "demand_generation",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 180,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-02"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 53,
+          "kind": "opening_invocation",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 900,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 54,
+          "kind": "first_block_lock",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 905,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B07_09"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 55,
+          "kind": "first_trip_dispatch",
+          "scheduled_at_ms": 1790948700000,
+          "priority": 906,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 61,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790953380000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 62,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790953680000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 2,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 56,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790956800000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B09_11"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 63,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790957040000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 3,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 64,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790958180000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 4,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 65,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790959800000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 5,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 66,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790960700000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 6,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 67,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790960820000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 7,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 40,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790962740000,
+          "priority": 910,
+          "entity_type": "appointment",
+          "entity_id": 2,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 2
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 57,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790964000000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B11_13"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 68,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790964900000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 8,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 69,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790967120000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 9,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 70,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790967480000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 10,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 71,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790970960000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 11,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 58,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790971200000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B13_15"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 72,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790978160000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 12,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 59,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790978400000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B15_17"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 73,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790978940000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 13,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 74,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790979060000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 14,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 75,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790979120000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 15,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 76,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790981040000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 16,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 77,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790982060000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 17,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 60,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790985600000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B17_19"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 78,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790988540000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 18,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 79,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790988840000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 19,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 37,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790989500000,
+          "priority": 910,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 80,
+          "kind": "closing_invocation",
+          "scheduled_at_ms": 1790992800000,
+          "priority": 920,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-02"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 81,
+          "kind": "daily_settlement",
+          "scheduled_at_ms": 1790992800000,
+          "priority": 950,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-02"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 82,
+          "kind": "checkpoint",
+          "scheduled_at_ms": 1790992800000,
+          "priority": 960,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-02"
+          },
+          "status": "applied"
+        }
+      ],
+      "prompt_trace": [
+        {
+          "kind": "opening",
+          "ts_ms": 1790862300000,
+          "payload": {
+            "service_date": "2026-10-01",
+            "time": "2026-10-01T06:45:00-07:00"
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790870640000,
+          "payload": {
+            "time": "2026-10-01T09:04:00-07:00",
+            "call_id": 1,
+            "caller": "Ronald Hill",
+            "phone": "480-555-0178",
+            "address": "429 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Appliance repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872080000,
+          "payload": {
+            "time": "2026-10-01T09:28:00-07:00",
+            "call_id": 2,
+            "caller": "Joseph Rodriguez",
+            "phone": "623-555-0182",
+            "address": "713 E Wesleyan Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872200000,
+          "payload": {
+            "time": "2026-10-01T09:30:00-07:00",
+            "call_id": 3,
+            "caller": "George King",
+            "phone": "623-555-0114",
+            "address": "529 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872560000,
+          "payload": {
+            "time": "2026-10-01T09:36:00-07:00",
+            "call_id": 4,
+            "caller": "David Harris",
+            "phone": "623-555-0156",
+            "address": "2707 S College Ave, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790873160000,
+          "payload": {
+            "time": "2026-10-01T09:46:00-07:00",
+            "call_id": 5,
+            "caller": "Linda Jones",
+            "phone": "602-555-0141",
+            "address": "521 E Fairmont Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC installation",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790874060000,
+          "payload": {
+            "time": "2026-10-01T10:01:00-07:00",
+            "call_id": 6,
+            "caller": "Kevin Miller",
+            "phone": "623-555-0183",
+            "address": "2034 S College Ave, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790874240000,
+          "payload": {
+            "time": "2026-10-01T10:04:00-07:00",
+            "call_id": 7,
+            "caller": "Zephyrmesa Bravemark LLC",
+            "phone": "623-555-0179",
+            "address": "917 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "Appliance repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790878620000,
+          "payload": {
+            "time": "2026-10-01T11:17:00-07:00",
+            "call_id": 8,
+            "caller": "Rustvale Stormcrest Enterprises",
+            "phone": "480-555-0186",
+            "address": "2525 S Rural Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790880420000,
+          "payload": {
+            "time": "2026-10-01T11:47:00-07:00",
+            "call_id": 9,
+            "caller": "Carol Moore",
+            "phone": "602-555-0142",
+            "address": "539 E Fairmont Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790883060000,
+          "payload": {
+            "time": "2026-10-01T12:31:00-07:00",
+            "call_id": 10,
+            "caller": "Mark Green",
+            "phone": "480-555-0179",
+            "address": "449 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790887260000,
+          "payload": {
+            "time": "2026-10-01T13:41:00-07:00",
+            "call_id": 11,
+            "caller": "Jennifer Smith",
+            "phone": "602-555-0174",
+            "address": "320 E Cairo Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790888520000,
+          "payload": {
+            "time": "2026-10-01T14:02:00-07:00",
+            "call_id": 12,
+            "caller": "Sandra Garcia",
+            "phone": "480-555-0142",
+            "address": "332 E El Parque Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Garage-door repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790891520000,
+          "payload": {
+            "time": "2026-10-01T14:52:00-07:00",
+            "call_id": 13,
+            "caller": "David Thompson",
+            "phone": "602-555-0119",
+            "address": "403 E Alameda Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790892720000,
+          "payload": {
+            "time": "2026-10-01T15:12:00-07:00",
+            "call_id": 14,
+            "caller": "Brian Miller",
+            "phone": "602-555-0143",
+            "address": "413 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790893320000,
+          "payload": {
+            "time": "2026-10-01T15:22:00-07:00",
+            "call_id": 15,
+            "caller": "James Davis",
+            "phone": "602-555-0146",
+            "address": "136 E Palmcroft Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790893560000,
+          "payload": {
+            "time": "2026-10-01T15:26:00-07:00",
+            "call_id": 16,
+            "caller": "Daniel Robinson",
+            "phone": "623-555-0179",
+            "address": "525 E Wesleyan Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790894400000,
+          "payload": {
+            "time": "2026-10-01T15:40:00-07:00",
+            "call_id": 17,
+            "caller": "Lisa Johnson",
+            "phone": "623-555-0187",
+            "address": "134 E Del Rio Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "closing",
+          "ts_ms": 1790906400000,
+          "payload": {
+            "service_date": "2026-10-01",
+            "time": "2026-10-01T19:00:00-07:00"
+          }
+        },
+        {
+          "kind": "opening",
+          "ts_ms": 1790948700000,
+          "payload": {
+            "service_date": "2026-10-02",
+            "time": "2026-10-02T06:45:00-07:00"
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790953380000,
+          "payload": {
+            "time": "2026-10-02T08:03:00-07:00",
+            "call_id": 18,
+            "caller": "Betty Rodriguez",
+            "phone": "623-555-0191",
+            "address": "30 E Cairo Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790953680000,
+          "payload": {
+            "time": "2026-10-02T08:08:00-07:00",
+            "call_id": 19,
+            "caller": "Steven Flores",
+            "phone": "623-555-0151",
+            "address": "328 E Balboa Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790957040000,
+          "payload": {
+            "time": "2026-10-02T09:04:00-07:00",
+            "call_id": 20,
+            "caller": "Margaret Thompson",
+            "phone": "480-555-0170",
+            "address": "442 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790958180000,
+          "payload": {
+            "time": "2026-10-02T09:23:00-07:00",
+            "call_id": 21,
+            "caller": "Cinderbrook Falconworks Inc.",
+            "phone": "480-555-0121",
+            "address": "45 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790959800000,
+          "payload": {
+            "time": "2026-10-02T09:50:00-07:00",
+            "call_id": 22,
+            "caller": "Verdantholt Fairhaven Inc.",
+            "phone": "602-555-0171",
+            "address": "2211 S Mill Ave, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790960700000,
+          "payload": {
+            "time": "2026-10-02T10:05:00-07:00",
+            "call_id": 23,
+            "caller": "Cinderbrook Clearwell Inc.",
+            "phone": "480-555-0136",
+            "address": "2226 S Rural Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC installation",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790960820000,
+          "payload": {
+            "time": "2026-10-02T10:07:00-07:00",
+            "call_id": 24,
+            "caller": "George Hernandez",
+            "phone": "480-555-0143",
+            "address": "530 E Erie Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790964900000,
+          "payload": {
+            "time": "2026-10-02T11:15:00-07:00",
+            "call_id": 26,
+            "caller": "Joseph Robinson",
+            "phone": "623-555-0198",
+            "address": "120 E Erie Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC installation",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790967120000,
+          "payload": {
+            "time": "2026-10-02T11:52:00-07:00",
+            "call_id": 27,
+            "caller": "Anthony Lee",
+            "phone": "480-555-0143",
+            "address": "809 E Campus Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790967480000,
+          "payload": {
+            "time": "2026-10-02T11:58:00-07:00",
+            "call_id": 28,
+            "caller": "Steven Scott",
+            "phone": "602-555-0103",
+            "address": "204 E Del Rio Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790970960000,
+          "payload": {
+            "time": "2026-10-02T12:56:00-07:00",
+            "call_id": 29,
+            "caller": "Sundrift Clearwell Property Management",
+            "phone": "623-555-0114",
+            "address": "2525 S Rural Rd, Tempe, AZ 85282",
+            "customer_type": "apartment",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790978160000,
+          "payload": {
+            "time": "2026-10-02T14:56:00-07:00",
+            "call_id": 30,
+            "caller": "Dorothy Johnson",
+            "phone": "623-555-0116",
+            "address": "528 E Balboa Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790978940000,
+          "payload": {
+            "time": "2026-10-02T15:09:00-07:00",
+            "call_id": 31,
+            "caller": "Verdantholt Corestead Property Management",
+            "phone": "602-555-0193",
+            "address": "151 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "apartment",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790979060000,
+          "payload": {
+            "time": "2026-10-02T15:11:00-07:00",
+            "call_id": 32,
+            "caller": "John Gonzalez",
+            "phone": "602-555-0176",
+            "address": "433 E Alameda Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790979120000,
+          "payload": {
+            "time": "2026-10-02T15:12:00-07:00",
+            "call_id": 33,
+            "caller": "David Harris",
+            "phone": "623-555-0156",
+            "address": "38 E Geneva Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790981040000,
+          "payload": {
+            "time": "2026-10-02T15:44:00-07:00",
+            "call_id": 34,
+            "caller": "Mirageholt Corestead Group",
+            "phone": "623-555-0111",
+            "address": "35 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC installation",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790982060000,
+          "payload": {
+            "time": "2026-10-02T16:01:00-07:00",
+            "call_id": 35,
+            "caller": "Andrew Thompson",
+            "phone": "480-555-0169",
+            "address": "736 E Campus Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790988540000,
+          "payload": {
+            "time": "2026-10-02T17:49:00-07:00",
+            "call_id": 36,
+            "caller": "Emily Perez",
+            "phone": "602-555-0141",
+            "address": "637 E Wesleyan Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790988840000,
+          "payload": {
+            "time": "2026-10-02T17:54:00-07:00",
+            "call_id": 37,
+            "caller": "Mirageholt Stormcrest LLC",
+            "phone": "480-555-0134",
+            "address": "3110 S Rural Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790989500000,
+          "payload": {
+            "time": "2026-10-02T18:05:00-07:00",
+            "call_id": 38,
+            "caller": "Joseph Rodriguez",
+            "customer_id": 1,
+            "location_id": 1,
+            "appointment_id": 1,
+            "scheduled": "2026-10-03T07:00:00-07:00",
+            "scheduled_end": "2026-10-03T09:00:00-07:00"
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790989500000,
+          "payload": {
+            "call_id": 38,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790989500000,
+          "payload": {
+            "call_id": 38,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "closing",
+          "ts_ms": 1790992800000,
+          "payload": {
+            "service_date": "2026-10-02",
+            "time": "2026-10-02T19:00:00-07:00"
+          }
+        },
+        {
+          "kind": "opening",
+          "ts_ms": 1791035100000,
+          "payload": {
+            "service_date": "2026-10-03",
+            "time": "2026-10-03T06:45:00-07:00"
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1791044100000,
+          "payload": {
+            "time": "2026-10-03T09:15:00-07:00",
+            "call_id": 39,
+            "caller": "Daniel Thompson",
+            "phone": "480-555-0148",
+            "address": "731 E Wesleyan Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1791072360000,
+          "payload": {
+            "time": "2026-10-03T17:06:00-07:00",
+            "call_id": 40,
+            "caller": "Windforge Falconworks Partners",
+            "phone": "602-555-0166",
+            "address": "45 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "closing",
+          "ts_ms": 1791079200000,
+          "payload": {
+            "service_date": "2026-10-03",
+            "time": "2026-10-03T19:00:00-07:00"
+          }
+        }
+      ],
+      "logical_dump_sha256": "18309b4143652fa99578546191aa2beacc7ac1acb59b206cc19d28058524e72c"
+    },
+    "overrun_past_1900_day": {
+      "event_trace": [
+        {
+          "event_id": 1,
+          "kind": "day_rollover",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 100,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 2,
+          "kind": "employment_transition",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 110,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 3,
+          "kind": "weather_realized",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 120,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 4,
+          "kind": "labor_economy_update",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 130,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 5,
+          "kind": "sickness_draw",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 140,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 6,
+          "kind": "attrition_draw",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 150,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 7,
+          "kind": "training_rates_drawn",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 160,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 8,
+          "kind": "shift_materialization",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 170,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 9,
+          "kind": "demand_generation",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 180,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-01"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 10,
+          "kind": "opening_invocation",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 900,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 11,
+          "kind": "first_block_lock",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 905,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B07_09"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 12,
+          "kind": "first_trip_dispatch",
+          "scheduled_at_ms": 1790862300000,
+          "priority": 906,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 13,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790870400000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B09_11"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 18,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790870640000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 19,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790872080000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 2,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 20,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790872200000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 3,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 21,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790872560000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 4,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 22,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790873160000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 5,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 23,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790874060000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 6,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 24,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790874240000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 7,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 36,
+          "kind": "appointment_dispatch",
+          "scheduled_at_ms": 1790877300000,
+          "priority": 300,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1,
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 14,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790877600000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B11_13"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 38,
+          "kind": "appointment_arrival",
+          "scheduled_at_ms": 1790877600000,
+          "priority": 310,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1,
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 39,
+          "kind": "work_started",
+          "scheduled_at_ms": 1790878020000,
+          "priority": 320,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1,
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 25,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790878620000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 8,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 26,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790880420000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 9,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 27,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790883060000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 10,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 15,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790884800000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B13_15"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 35,
+          "kind": "company_no_show",
+          "scheduled_at_ms": 1790884800000,
+          "priority": 335,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 28,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790887260000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 11,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 29,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790888520000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 12,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 30,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790891520000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 13,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 16,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790892000000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B15_17"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 31,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790892720000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 14,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 32,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790893320000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 15,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 33,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790893560000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 16,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 34,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1790894400000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 17,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 17,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1790899200000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B17_19"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 37,
+          "kind": "company_no_show",
+          "scheduled_at_ms": 1790899200000,
+          "priority": 335,
+          "entity_type": "appointment",
+          "entity_id": 2,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 2
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 40,
+          "kind": "work_completed",
+          "scheduled_at_ms": 1790914020000,
+          "priority": 330,
+          "entity_type": "appointment",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1,
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 41,
+          "kind": "technician_return_home",
+          "scheduled_at_ms": 1790914020000,
+          "priority": 350,
+          "entity_type": "technician",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "appointment_id": 1,
+            "block_index": 2,
+            "service_date": "2026-10-01",
+            "technician_id": 1
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 43,
+          "kind": "closing_invocation",
+          "scheduled_at_ms": 1790914020000,
+          "priority": 920,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-01"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 44,
+          "kind": "daily_settlement",
+          "scheduled_at_ms": 1790914020000,
+          "priority": 950,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-01"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 45,
+          "kind": "checkpoint",
+          "scheduled_at_ms": 1790914020000,
+          "priority": 960,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-01"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 46,
+          "kind": "run_finalize",
+          "scheduled_at_ms": 1790914020000,
+          "priority": 970,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 42,
+          "kind": "technician_home_arrival",
+          "scheduled_at_ms": 1790914320000,
+          "priority": 360,
+          "entity_type": "technician",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-01",
+            "technician_id": 1
+          },
+          "status": "pending"
+        }
+      ],
+      "prompt_trace": [
+        {
+          "kind": "opening",
+          "ts_ms": 1790862300000,
+          "payload": {
+            "service_date": "2026-10-01",
+            "time": "2026-10-01T06:45:00-07:00"
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790870640000,
+          "payload": {
+            "time": "2026-10-01T09:04:00-07:00",
+            "call_id": 1,
+            "caller": "Ronald Hill",
+            "phone": "480-555-0178",
+            "address": "429 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Appliance repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872080000,
+          "payload": {
+            "time": "2026-10-01T09:28:00-07:00",
+            "call_id": 2,
+            "caller": "Joseph Rodriguez",
+            "phone": "623-555-0182",
+            "address": "713 E Wesleyan Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872200000,
+          "payload": {
+            "time": "2026-10-01T09:30:00-07:00",
+            "call_id": 3,
+            "caller": "George King",
+            "phone": "623-555-0114",
+            "address": "529 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872560000,
+          "payload": {
+            "time": "2026-10-01T09:36:00-07:00",
+            "call_id": 4,
+            "caller": "David Harris",
+            "phone": "623-555-0156",
+            "address": "2707 S College Ave, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790873160000,
+          "payload": {
+            "time": "2026-10-01T09:46:00-07:00",
+            "call_id": 5,
+            "caller": "Linda Jones",
+            "phone": "602-555-0141",
+            "address": "521 E Fairmont Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC installation",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790874060000,
+          "payload": {
+            "time": "2026-10-01T10:01:00-07:00",
+            "call_id": 6,
+            "caller": "Kevin Miller",
+            "phone": "623-555-0183",
+            "address": "2034 S College Ave, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790874240000,
+          "payload": {
+            "time": "2026-10-01T10:04:00-07:00",
+            "call_id": 7,
+            "caller": "Zephyrmesa Bravemark LLC",
+            "phone": "623-555-0179",
+            "address": "917 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "Appliance repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790878620000,
+          "payload": {
+            "time": "2026-10-01T11:17:00-07:00",
+            "call_id": 8,
+            "caller": "Rustvale Stormcrest Enterprises",
+            "phone": "480-555-0186",
+            "address": "2525 S Rural Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790880420000,
+          "payload": {
+            "time": "2026-10-01T11:47:00-07:00",
+            "call_id": 9,
+            "caller": "Carol Moore",
+            "phone": "602-555-0142",
+            "address": "539 E Fairmont Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790883060000,
+          "payload": {
+            "time": "2026-10-01T12:31:00-07:00",
+            "call_id": 10,
+            "caller": "Mark Green",
+            "phone": "480-555-0179",
+            "address": "449 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790887260000,
+          "payload": {
+            "time": "2026-10-01T13:41:00-07:00",
+            "call_id": 11,
+            "caller": "Jennifer Smith",
+            "phone": "602-555-0174",
+            "address": "320 E Cairo Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790888520000,
+          "payload": {
+            "time": "2026-10-01T14:02:00-07:00",
+            "call_id": 12,
+            "caller": "Sandra Garcia",
+            "phone": "480-555-0142",
+            "address": "332 E El Parque Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Garage-door repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790891520000,
+          "payload": {
+            "time": "2026-10-01T14:52:00-07:00",
+            "call_id": 13,
+            "caller": "David Thompson",
+            "phone": "602-555-0119",
+            "address": "403 E Alameda Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790892720000,
+          "payload": {
+            "time": "2026-10-01T15:12:00-07:00",
+            "call_id": 14,
+            "caller": "Brian Miller",
+            "phone": "602-555-0143",
+            "address": "413 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790893320000,
+          "payload": {
+            "time": "2026-10-01T15:22:00-07:00",
+            "call_id": 15,
+            "caller": "James Davis",
+            "phone": "602-555-0146",
+            "address": "136 E Palmcroft Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790893560000,
+          "payload": {
+            "time": "2026-10-01T15:26:00-07:00",
+            "call_id": 16,
+            "caller": "Daniel Robinson",
+            "phone": "623-555-0179",
+            "address": "525 E Wesleyan Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790894400000,
+          "payload": {
+            "time": "2026-10-01T15:40:00-07:00",
+            "call_id": 17,
+            "caller": "Lisa Johnson",
+            "phone": "623-555-0187",
+            "address": "134 E Del Rio Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "closing",
+          "ts_ms": 1790914020000,
+          "payload": {
+            "service_date": "2026-10-01",
+            "time": "2026-10-01T21:07:00-07:00"
+          }
+        }
+      ],
+      "logical_dump_sha256": "585ffa517f510d1b21e3e1c358dbb8aea8f9f2fc310f1bd75c03bc9547748f5d"
+    },
+    "zero_job_weekend_day": {
+      "event_trace": [
+        {
+          "event_id": 77,
+          "kind": "day_rollover",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 100,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 78,
+          "kind": "employment_transition",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 110,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 79,
+          "kind": "weather_realized",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 120,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 80,
+          "kind": "labor_economy_update",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 130,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 81,
+          "kind": "sickness_draw",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 140,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 82,
+          "kind": "attrition_draw",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 150,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 83,
+          "kind": "training_rates_drawn",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 160,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 84,
+          "kind": "shift_materialization",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 170,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 85,
+          "kind": "demand_generation",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 180,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-03"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 86,
+          "kind": "opening_invocation",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 900,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 87,
+          "kind": "first_block_lock",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 905,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B07_09"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 88,
+          "kind": "first_trip_dispatch",
+          "scheduled_at_ms": 1791035100000,
+          "priority": 906,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 89,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1791043200000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B09_11"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 94,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1791044100000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 1,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 90,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1791050400000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B11_13"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 91,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1791057600000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B13_15"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 92,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1791064800000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B15_17"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 93,
+          "kind": "block_lock",
+          "scheduled_at_ms": 1791072000000,
+          "priority": 200,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "block_code": "B17_19"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 95,
+          "kind": "call_invocation",
+          "scheduled_at_ms": 1791072360000,
+          "priority": 910,
+          "entity_type": "pending_call",
+          "entity_id": 2,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        },
+        {
+          "event_id": 96,
+          "kind": "closing_invocation",
+          "scheduled_at_ms": 1791079200000,
+          "priority": 920,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-03"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 97,
+          "kind": "daily_settlement",
+          "scheduled_at_ms": 1791079200000,
+          "priority": 950,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-03"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 98,
+          "kind": "checkpoint",
+          "scheduled_at_ms": 1791079200000,
+          "priority": 960,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": {
+            "service_date": "2026-10-03"
+          },
+          "status": "applied"
+        },
+        {
+          "event_id": 99,
+          "kind": "run_finalize",
+          "scheduled_at_ms": 1791079200000,
+          "priority": 970,
+          "entity_type": null,
+          "entity_id": null,
+          "payload_version": 1,
+          "payload": null,
+          "status": "applied"
+        }
+      ],
+      "prompt_trace": [
+        {
+          "kind": "opening",
+          "ts_ms": 1790862300000,
+          "payload": {
+            "service_date": "2026-10-01",
+            "time": "2026-10-01T06:45:00-07:00"
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790870640000,
+          "payload": {
+            "time": "2026-10-01T09:04:00-07:00",
+            "call_id": 1,
+            "caller": "Ronald Hill",
+            "phone": "480-555-0178",
+            "address": "429 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Appliance repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790870640000,
+          "payload": {
+            "call_id": 1,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790870640000,
+          "payload": {
+            "call_id": 1,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872080000,
+          "payload": {
+            "time": "2026-10-01T09:28:00-07:00",
+            "call_id": 2,
+            "caller": "Joseph Rodriguez",
+            "phone": "623-555-0182",
+            "address": "713 E Wesleyan Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790872080000,
+          "payload": {
+            "call_id": 2,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790872080000,
+          "payload": {
+            "call_id": 2,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872200000,
+          "payload": {
+            "time": "2026-10-01T09:30:00-07:00",
+            "call_id": 3,
+            "caller": "George King",
+            "phone": "623-555-0114",
+            "address": "529 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790872200000,
+          "payload": {
+            "call_id": 3,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790872200000,
+          "payload": {
+            "call_id": 3,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790872560000,
+          "payload": {
+            "time": "2026-10-01T09:36:00-07:00",
+            "call_id": 4,
+            "caller": "David Harris",
+            "phone": "623-555-0156",
+            "address": "2707 S College Ave, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790872560000,
+          "payload": {
+            "call_id": 4,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790872560000,
+          "payload": {
+            "call_id": 4,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790873160000,
+          "payload": {
+            "time": "2026-10-01T09:46:00-07:00",
+            "call_id": 5,
+            "caller": "Linda Jones",
+            "phone": "602-555-0141",
+            "address": "521 E Fairmont Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC installation",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790873160000,
+          "payload": {
+            "call_id": 5,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790873160000,
+          "payload": {
+            "call_id": 5,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790874060000,
+          "payload": {
+            "time": "2026-10-01T10:01:00-07:00",
+            "call_id": 6,
+            "caller": "Kevin Miller",
+            "phone": "623-555-0183",
+            "address": "2034 S College Ave, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790874060000,
+          "payload": {
+            "call_id": 6,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790874060000,
+          "payload": {
+            "call_id": 6,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790874240000,
+          "payload": {
+            "time": "2026-10-01T10:04:00-07:00",
+            "call_id": 7,
+            "caller": "Zephyrmesa Bravemark LLC",
+            "phone": "623-555-0179",
+            "address": "917 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "Appliance repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790874240000,
+          "payload": {
+            "call_id": 7,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790874240000,
+          "payload": {
+            "call_id": 7,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790878620000,
+          "payload": {
+            "time": "2026-10-01T11:17:00-07:00",
+            "call_id": 8,
+            "caller": "Rustvale Stormcrest Enterprises",
+            "phone": "480-555-0186",
+            "address": "2525 S Rural Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790878620000,
+          "payload": {
+            "call_id": 8,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790878620000,
+          "payload": {
+            "call_id": 8,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790880420000,
+          "payload": {
+            "time": "2026-10-01T11:47:00-07:00",
+            "call_id": 9,
+            "caller": "Carol Moore",
+            "phone": "602-555-0142",
+            "address": "539 E Fairmont Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790880420000,
+          "payload": {
+            "call_id": 9,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790880420000,
+          "payload": {
+            "call_id": 9,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790883060000,
+          "payload": {
+            "time": "2026-10-01T12:31:00-07:00",
+            "call_id": 10,
+            "caller": "Mark Green",
+            "phone": "480-555-0179",
+            "address": "449 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790883060000,
+          "payload": {
+            "call_id": 10,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790883060000,
+          "payload": {
+            "call_id": 10,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790887260000,
+          "payload": {
+            "time": "2026-10-01T13:41:00-07:00",
+            "call_id": 11,
+            "caller": "Jennifer Smith",
+            "phone": "602-555-0174",
+            "address": "320 E Cairo Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790887260000,
+          "payload": {
+            "call_id": 11,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790887260000,
+          "payload": {
+            "call_id": 11,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790888520000,
+          "payload": {
+            "time": "2026-10-01T14:02:00-07:00",
+            "call_id": 12,
+            "caller": "Sandra Garcia",
+            "phone": "480-555-0142",
+            "address": "332 E El Parque Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Garage-door repair",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790888520000,
+          "payload": {
+            "call_id": 12,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790888520000,
+          "payload": {
+            "call_id": 12,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790891520000,
+          "payload": {
+            "time": "2026-10-01T14:52:00-07:00",
+            "call_id": 13,
+            "caller": "David Thompson",
+            "phone": "602-555-0119",
+            "address": "403 E Alameda Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790891520000,
+          "payload": {
+            "call_id": 13,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790891520000,
+          "payload": {
+            "call_id": 13,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790892720000,
+          "payload": {
+            "time": "2026-10-01T15:12:00-07:00",
+            "call_id": 14,
+            "caller": "Brian Miller",
+            "phone": "602-555-0143",
+            "address": "413 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790892720000,
+          "payload": {
+            "call_id": 14,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790892720000,
+          "payload": {
+            "call_id": 14,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790893320000,
+          "payload": {
+            "time": "2026-10-01T15:22:00-07:00",
+            "call_id": 15,
+            "caller": "James Davis",
+            "phone": "602-555-0146",
+            "address": "136 E Palmcroft Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790893320000,
+          "payload": {
+            "call_id": 15,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790893320000,
+          "payload": {
+            "call_id": 15,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790893560000,
+          "payload": {
+            "time": "2026-10-01T15:26:00-07:00",
+            "call_id": 16,
+            "caller": "Daniel Robinson",
+            "phone": "623-555-0179",
+            "address": "525 E Wesleyan Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790893560000,
+          "payload": {
+            "call_id": 16,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790893560000,
+          "payload": {
+            "call_id": 16,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790894400000,
+          "payload": {
+            "time": "2026-10-01T15:40:00-07:00",
+            "call_id": 17,
+            "caller": "Lisa Johnson",
+            "phone": "623-555-0187",
+            "address": "134 E Del Rio Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790894400000,
+          "payload": {
+            "call_id": 17,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790894400000,
+          "payload": {
+            "call_id": 17,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "closing",
+          "ts_ms": 1790906400000,
+          "payload": {
+            "service_date": "2026-10-01",
+            "time": "2026-10-01T19:00:00-07:00"
+          }
+        },
+        {
+          "kind": "opening",
+          "ts_ms": 1790948700000,
+          "payload": {
+            "service_date": "2026-10-02",
+            "time": "2026-10-02T06:45:00-07:00"
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790953380000,
+          "payload": {
+            "time": "2026-10-02T08:03:00-07:00",
+            "call_id": 18,
+            "caller": "Betty Rodriguez",
+            "phone": "623-555-0191",
+            "address": "120 E Balboa Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790953380000,
+          "payload": {
+            "call_id": 18,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790953380000,
+          "payload": {
+            "call_id": 18,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790953680000,
+          "payload": {
+            "time": "2026-10-02T08:08:00-07:00",
+            "call_id": 19,
+            "caller": "Steven Flores",
+            "phone": "623-555-0151",
+            "address": "208 E Balboa Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790953680000,
+          "payload": {
+            "call_id": 19,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790953680000,
+          "payload": {
+            "call_id": 19,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790957040000,
+          "payload": {
+            "time": "2026-10-02T09:04:00-07:00",
+            "call_id": 20,
+            "caller": "Margaret Thompson",
+            "phone": "480-555-0170",
+            "address": "745 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790957040000,
+          "payload": {
+            "call_id": 20,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790957040000,
+          "payload": {
+            "call_id": 20,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790958180000,
+          "payload": {
+            "time": "2026-10-02T09:23:00-07:00",
+            "call_id": 21,
+            "caller": "Cinderbrook Falconworks Inc.",
+            "phone": "480-555-0121",
+            "address": "45 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790958180000,
+          "payload": {
+            "call_id": 21,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790958180000,
+          "payload": {
+            "call_id": 21,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790959800000,
+          "payload": {
+            "time": "2026-10-02T09:50:00-07:00",
+            "call_id": 22,
+            "caller": "Verdantholt Fairhaven Inc.",
+            "phone": "602-555-0171",
+            "address": "2211 S Mill Ave, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790959800000,
+          "payload": {
+            "call_id": 22,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790959800000,
+          "payload": {
+            "call_id": 22,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790960700000,
+          "payload": {
+            "time": "2026-10-02T10:05:00-07:00",
+            "call_id": 23,
+            "caller": "Cinderbrook Clearwell Inc.",
+            "phone": "480-555-0136",
+            "address": "2226 S Rural Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC installation",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790960700000,
+          "payload": {
+            "call_id": 23,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790960700000,
+          "payload": {
+            "call_id": 23,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790960820000,
+          "payload": {
+            "time": "2026-10-02T10:07:00-07:00",
+            "call_id": 24,
+            "caller": "George Hernandez",
+            "phone": "480-555-0143",
+            "address": "115 E Balboa Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Electrical",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790960820000,
+          "payload": {
+            "call_id": 24,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790960820000,
+          "payload": {
+            "call_id": 24,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790964900000,
+          "payload": {
+            "time": "2026-10-02T11:15:00-07:00",
+            "call_id": 25,
+            "caller": "Joseph Robinson",
+            "phone": "623-555-0198",
+            "address": "12 E Palmcroft Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC installation",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790964900000,
+          "payload": {
+            "call_id": 25,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790964900000,
+          "payload": {
+            "call_id": 25,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790967120000,
+          "payload": {
+            "time": "2026-10-02T11:52:00-07:00",
+            "call_id": 26,
+            "caller": "Anthony Lee",
+            "phone": "480-555-0143",
+            "address": "724 E Balboa Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790967120000,
+          "payload": {
+            "call_id": 26,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790967120000,
+          "payload": {
+            "call_id": 26,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790967480000,
+          "payload": {
+            "time": "2026-10-02T11:58:00-07:00",
+            "call_id": 27,
+            "caller": "Steven Scott",
+            "phone": "602-555-0103",
+            "address": "38 E Geneva Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790967480000,
+          "payload": {
+            "call_id": 27,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790967480000,
+          "payload": {
+            "call_id": 27,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790970960000,
+          "payload": {
+            "time": "2026-10-02T12:56:00-07:00",
+            "call_id": 28,
+            "caller": "Sundrift Clearwell Property Management",
+            "phone": "623-555-0114",
+            "address": "2525 S Rural Rd, Tempe, AZ 85282",
+            "customer_type": "apartment",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790970960000,
+          "payload": {
+            "call_id": 28,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790970960000,
+          "payload": {
+            "call_id": 28,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790978160000,
+          "payload": {
+            "time": "2026-10-02T14:56:00-07:00",
+            "call_id": 29,
+            "caller": "Dorothy Johnson",
+            "phone": "623-555-0116",
+            "address": "735 E Loyola Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790978160000,
+          "payload": {
+            "call_id": 29,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790978160000,
+          "payload": {
+            "call_id": 29,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790978940000,
+          "payload": {
+            "time": "2026-10-02T15:09:00-07:00",
+            "call_id": 30,
+            "caller": "Verdantholt Corestead Property Management",
+            "phone": "602-555-0193",
+            "address": "151 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "apartment",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790978940000,
+          "payload": {
+            "call_id": 30,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790978940000,
+          "payload": {
+            "call_id": 30,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790979060000,
+          "payload": {
+            "time": "2026-10-02T15:11:00-07:00",
+            "call_id": 31,
+            "caller": "John Gonzalez",
+            "phone": "602-555-0176",
+            "address": "303 E Del Rio Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790979060000,
+          "payload": {
+            "call_id": 31,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790979060000,
+          "payload": {
+            "call_id": 31,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790979120000,
+          "payload": {
+            "time": "2026-10-02T15:12:00-07:00",
+            "call_id": 32,
+            "caller": "Sandra Garcia",
+            "phone": "480-555-0142",
+            "address": "3019 S Palm Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790979120000,
+          "payload": {
+            "call_id": 32,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790979120000,
+          "payload": {
+            "call_id": 32,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790981040000,
+          "payload": {
+            "time": "2026-10-02T15:44:00-07:00",
+            "call_id": 33,
+            "caller": "Mirageholt Corestead Group",
+            "phone": "623-555-0111",
+            "address": "35 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC installation",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790981040000,
+          "payload": {
+            "call_id": 33,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790981040000,
+          "payload": {
+            "call_id": 33,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790982060000,
+          "payload": {
+            "time": "2026-10-02T16:01:00-07:00",
+            "call_id": 34,
+            "caller": "Andrew Thompson",
+            "phone": "480-555-0169",
+            "address": "2034 S College Ave, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790982060000,
+          "payload": {
+            "call_id": 34,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790982060000,
+          "payload": {
+            "call_id": 34,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790988540000,
+          "payload": {
+            "time": "2026-10-02T17:49:00-07:00",
+            "call_id": 35,
+            "caller": "Emily Perez",
+            "phone": "602-555-0141",
+            "address": "401 E Fairmont Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790988540000,
+          "payload": {
+            "call_id": 35,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790988540000,
+          "payload": {
+            "call_id": 35,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1790988840000,
+          "payload": {
+            "time": "2026-10-02T17:54:00-07:00",
+            "call_id": 36,
+            "caller": "Mirageholt Stormcrest LLC",
+            "phone": "480-555-0134",
+            "address": "3110 S Rural Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "HVAC service",
+            "urgent": true
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790988840000,
+          "payload": {
+            "call_id": 36,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1790988840000,
+          "payload": {
+            "call_id": 36,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "closing",
+          "ts_ms": 1790992800000,
+          "payload": {
+            "service_date": "2026-10-02",
+            "time": "2026-10-02T19:00:00-07:00"
+          }
+        },
+        {
+          "kind": "opening",
+          "ts_ms": 1791035100000,
+          "payload": {
+            "service_date": "2026-10-03",
+            "time": "2026-10-03T06:45:00-07:00"
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1791044100000,
+          "payload": {
+            "time": "2026-10-03T09:15:00-07:00",
+            "call_id": 37,
+            "caller": "Daniel Thompson",
+            "phone": "480-555-0148",
+            "address": "423 E Fairmont Dr, Tempe, AZ 85282",
+            "customer_type": "residential",
+            "requested_service": "HVAC service",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1791044100000,
+          "payload": {
+            "call_id": 37,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1791044100000,
+          "payload": {
+            "call_id": 37,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "call",
+          "ts_ms": 1791072360000,
+          "payload": {
+            "time": "2026-10-03T17:06:00-07:00",
+            "call_id": 38,
+            "caller": "Windforge Falconworks Partners",
+            "phone": "602-555-0166",
+            "address": "45 E Broadway Rd, Tempe, AZ 85282",
+            "customer_type": "commercial",
+            "requested_service": "Plumbing",
+            "urgent": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1791072360000,
+          "payload": {
+            "call_id": 38,
+            "attempt": 1,
+            "final": false
+          }
+        },
+        {
+          "kind": "reminder",
+          "ts_ms": 1791072360000,
+          "payload": {
+            "call_id": 38,
+            "attempt": 2,
+            "final": true
+          }
+        },
+        {
+          "kind": "closing",
+          "ts_ms": 1791079200000,
+          "payload": {
+            "service_date": "2026-10-03",
+            "time": "2026-10-03T19:00:00-07:00"
+          }
+        }
+      ],
+      "logical_dump_sha256": "b98fe55ea5e4eedf2fb6c0c9de7f2e8596cdfb2adebefcd393c44f33a53fb0c5"
+    }
+  },
+  "excluded_scenarios": [
+    "callback_warranty_rework_day",
+    "sickness_and_walk_off_day",
+    "hire_train_terminate_day"
+  ]
+}

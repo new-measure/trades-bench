@@ -203,6 +203,10 @@ def _arrive_applied(conn, rng, pending_id, arrival_at):
             "UPDATE _events SET status = 'applied', applied_at_ms = ? WHERE event_id = ?",
             (arrival_at, event_id),
         )
+        conn.execute(
+            "UPDATE _invocations SET origin_event_id = ? WHERE status = 'active'",
+            (event_id,),
+        )
     except BaseException:
         rng.exit_txn()
         db.rollback(conn)

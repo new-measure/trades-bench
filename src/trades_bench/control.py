@@ -172,9 +172,56 @@ def mark_call_unanswered_op(
     )
 
 
+def record_final_unanswered_attempt(
+    ctx: TxnContext,
+    config: RunConfig,
+    *,
+    call_id: int,
+    attempt_number: int,
+    artifact: GeoArtifact | None = None,
+) -> dict:
+    attempt = record_call_attempt(
+        ctx, config, call_id=call_id, attempt_number=attempt_number
+    )
+    unanswered = mark_call_unanswered(ctx, config, call_id=call_id, artifact=artifact)
+    return {**attempt, **unanswered}
+
+
+def record_final_unanswered_attempt_op(
+    services: Services,
+    config: RunConfig,
+    *,
+    call_id: int,
+    attempt_number: int,
+    artifact: GeoArtifact | None = None,
+) -> bytes:
+    try:
+        surface.require_id("call_id", call_id)
+        surface.require_id("attempt_number", attempt_number)
+    except EngineError as exc:
+        return exc.to_response()
+    request_id = privileged_request_id(
+        "record_final_unanswered_attempt", f"{call_id}:{attempt_number}"
+    )
+    return privileged(
+        services,
+        request_id,
+        lambda ctx: record_final_unanswered_attempt(
+            ctx,
+            config,
+            call_id=call_id,
+            attempt_number=attempt_number,
+            artifact=artifact,
+        ),
+        require_active_invocation=True,
+    )
+
+
 __all__ = [
     "mark_call_unanswered",
     "mark_call_unanswered_op",
     "record_call_attempt",
     "record_call_attempt_op",
+    "record_final_unanswered_attempt",
+    "record_final_unanswered_attempt_op",
 ]

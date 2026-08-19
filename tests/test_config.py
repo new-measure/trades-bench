@@ -64,7 +64,7 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
     assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    assert len(rc.resolved) == 157
+    assert len(rc.resolved) == 158
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     with pytest.raises(TypeError):
         rc.resolved["constants.opening_hour"] = 9  # type: ignore[index]
@@ -800,6 +800,58 @@ def test_reject_served_well_repeat_multiplier_at_boundary():
         '{"keys": {"competitors.served_well_repeat_multiplier": 1}}',
         ErrorCode.CONFIG_VALUE_INVALID,
     )
+
+
+def test_reject_heavy_reject_probability_default_is_strictly_inside_the_unit_interval():
+    rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
+    value = rc.get_decimal("reference_policies.reject_heavy.reject_probability")
+    assert value == Decimal("0.80")
+    assert Decimal(0) < value < Decimal(1)
+
+
+def test_reject_heavy_reject_probability_is_not_a_deferred_manifest_item():
+    paths = {
+        path
+        for item in json.loads(build_deferred_manifest())["items"]
+        for path in item["key_paths"]
+    }
+    assert "reference_policies.reject_heavy.reject_probability" not in paths
+    assert not any(path.startswith("reference_policies.") for path in paths)
+
+
+def test_reject_heavy_reject_probability_rejects_zero():
+    _bad(
+        '{"keys": {"reference_policies.reject_heavy.reject_probability": 0}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_heavy_reject_probability_rejects_one():
+    _bad(
+        '{"keys": {"reference_policies.reject_heavy.reject_probability": 1}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_heavy_reject_probability_rejects_above_one():
+    _bad(
+        '{"keys": {"reference_policies.reject_heavy.reject_probability": 1.5}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_heavy_reject_probability_rejects_negative():
+    _bad(
+        '{"keys": {"reference_policies.reject_heavy.reject_probability": -0.1}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_heavy_reject_probability_has_a_keyed_integer_threshold():
+    rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
+    threshold = rc.get_prob_threshold("reference_policies.reject_heavy.reject_probability")
+    assert isinstance(threshold, int)
+    assert threshold == probability_threshold(Decimal("0.80"))
 
 
 def test_reject_segment_weights_missing_a_segment():

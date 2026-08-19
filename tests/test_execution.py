@@ -504,11 +504,13 @@ def test_happy_path_office_day_full_chain_and_settlement(tmp_path):
     assert appt["actual_end"] == expected_completion
 
     day = conn.execute(
-        "SELECT unresolved_execution_count, closing_at FROM _day_state WHERE service_date = ?",
+        "SELECT unresolved_execution_count, closing_at, last_execution_completed_at "
+        "FROM _day_state WHERE service_date = ?",
         (WEEKDAY,),
     ).fetchone()
     assert day["unresolved_execution_count"] == 0
     assert day["closing_at"] == clock.phoenix_instant(2026, 10, 1, 19, 0)
+    assert day["last_execution_completed_at"] == expected_completion
 
     starting_cash = cfg.get_int("finance.starting_cash")
     overhead = cfg.get_int("finance.daily_operating_overhead")
@@ -651,11 +653,13 @@ def test_completion_past_midnight_keeps_service_date_on_the_scheduled_day(tmp_pa
     assert started_event["service_date"] == WEEKDAY
 
     day = conn.execute(
-        "SELECT unresolved_execution_count, closing_at FROM _day_state WHERE service_date = ?",
+        "SELECT unresolved_execution_count, closing_at, last_execution_completed_at "
+        "FROM _day_state WHERE service_date = ?",
         (WEEKDAY,),
     ).fetchone()
     assert day["unresolved_execution_count"] == 0
     assert day["closing_at"] == appt["actual_end"]
+    assert day["last_execution_completed_at"] == appt["actual_end"]
 
 
 def test_consecutive_chain_departs_from_previous_job_at_actual_finish(tmp_path):
@@ -1571,9 +1575,17 @@ def _hold_count(conn, appointment_id):
 
 def _day_state_row(conn, service_date):
     return conn.execute(
-        "SELECT unresolved_execution_count, closing_at FROM _day_state WHERE service_date = ?",
+        "SELECT * FROM _day_state WHERE service_date = ?",
         (service_date,),
     ).fetchone()
+
+
+def _latest_terminal_execution_at(conn, service_date):
+    return conn.execute(
+        "SELECT MAX(occurred_at) AS latest FROM _appointment_events WHERE service_date = ? "
+        "AND event_type IN ('work_completed', 'work_failed', 'no_show', 'cancelled')",
+        (service_date,),
+    ).fetchone()["latest"]
 
 
 def _move_pending_event(conn, event_id, scheduled_at_ms):
@@ -1782,9 +1794,9 @@ def test_no_show_with_no_remaining_appointment_plans_nothing(tmp_path):
     events = _appointment_event_rows(conn, appointment_id)
     assert [(e["event_type"], e["occurred_at"]) for e in events] == [("no_show", cutoff)]
     assert _technician_location_row(conn, 1)["location_state"] == "home"
-    assert _day_state_row(conn, WEEKDAY)["closing_at"] == clock.phoenix_instant(
-        2026, 10, 1, 19, 0
-    )
+    day = _day_state_row(conn, WEEKDAY)
+    assert day["closing_at"] == clock.phoenix_instant(2026, 10, 1, 19, 0)
+    assert day["last_execution_completed_at"] == cutoff
 
 
 def test_arrival_after_cutoff_completes_movement_and_chains_to_the_consecutive_block(tmp_path):
@@ -2334,6 +2346,8 @@ def test_unsupported_category_leg_burns_visit_minutes_then_fails_and_cascades(tm
 
     day = _day_state_row(conn, WEEKDAY)
     assert day["unresolved_execution_count"] == 0
+    assert day["last_execution_completed_at"] == _latest_terminal_execution_at(conn, WEEKDAY)
+    assert day["last_execution_completed_at"] > failed_at
 
 
 def test_failed_visit_minutes_config_key_governs_the_work_failed_gap(tmp_path):

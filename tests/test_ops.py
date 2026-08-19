@@ -437,6 +437,10 @@ def _manufacture_cancellation_call(
             "prospect_id, arrival_event_id, created_at) VALUES (?, 'residential', 2, NULL, ?, ?)",
             (call_id, fake_event_id, now),
         )
+        conn.execute(
+            "UPDATE _invocations SET origin_event_id = ? WHERE status = 'active'",
+            (fake_event_id,),
+        )
     except BaseException:
         db.rollback(conn)
         raise
@@ -525,6 +529,10 @@ def _arrive_call(conn, rng, pending_id, arrival_at):
         conn.execute(
             "UPDATE _events SET status = 'applied', applied_at_ms = ? WHERE event_id = ?",
             (arrival_at, event_id),
+        )
+        conn.execute(
+            "UPDATE _invocations SET origin_event_id = ? WHERE status = 'active'",
+            (event_id,),
         )
     except BaseException:
         rng.exit_txn()

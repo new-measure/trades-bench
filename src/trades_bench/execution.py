@@ -415,6 +415,16 @@ def first_trip_dispatch_applied(conn: sqlite3.Connection, service_date: str) -> 
     return row is not None
 
 
+def record_execution_terminal(
+    conn: sqlite3.Connection, *, service_date: str, occurred_at_ms: int
+) -> None:
+    conn.execute(
+        "UPDATE _day_state SET unresolved_execution_count = unresolved_execution_count - 1, "
+        "last_execution_completed_at = ? WHERE service_date = ?",
+        (occurred_at_ms, service_date),
+    )
+
+
 def _pending_dispatch_event(conn: sqlite3.Connection, appointment_id: int) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT event_id, payload FROM _events WHERE kind = ? AND status = 'pending' "
@@ -1274,11 +1284,7 @@ def company_no_show_handler(config: RunConfig, artifact: GeoArtifact | None) -> 
                     from_appointment_id=appointment_id, from_location=origin,
                     from_block_index=final_block_index, departure_ms=now,
                 )
-        conn.execute(
-            "UPDATE _day_state SET unresolved_execution_count = unresolved_execution_count - 1 "
-            "WHERE service_date = ?",
-            (service_date,),
-        )
+        record_execution_terminal(conn, service_date=service_date, occurred_at_ms=now)
         return None
 
     return handler
@@ -1431,11 +1437,7 @@ def work_completed_handler(config: RunConfig, artifact: GeoArtifact | None) -> E
             conn, technician_id, state="on_site",
             latitude=float(loc["latitude"]), longitude=float(loc["longitude"]), updated_at=now,
         )
-        conn.execute(
-            "UPDATE _day_state SET unresolved_execution_count = unresolved_execution_count - 1 "
-            "WHERE service_date = ?",
-            (service_date,),
-        )
+        record_execution_terminal(conn, service_date=service_date, occurred_at_ms=now)
 
         blocks = _appointment_blocks(conn, appointment_id)
         final_block_index = block_index(blocks[-1]["block_code"])
@@ -1489,11 +1491,7 @@ def work_failed_handler(config: RunConfig, artifact: GeoArtifact | None) -> Even
             conn, technician_id, state="on_site",
             latitude=float(loc["latitude"]), longitude=float(loc["longitude"]), updated_at=now,
         )
-        conn.execute(
-            "UPDATE _day_state SET unresolved_execution_count = unresolved_execution_count - 1 "
-            "WHERE service_date = ?",
-            (service_date,),
-        )
+        record_execution_terminal(conn, service_date=service_date, occurred_at_ms=now)
 
         blocks = _appointment_blocks(conn, appointment_id)
         final_block_index = block_index(blocks[-1]["block_code"])

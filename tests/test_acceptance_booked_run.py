@@ -15,39 +15,40 @@ from _helpers import (
     geo_artifact_sha256,
     register_conn,
 )
-from trades_bench import appointments, clock, constants, demand, geo_reader
+from trades_bench import appointments, booking, calls, clock, constants, crm, geo_reader
 from trades_bench._dump import dump_hash
+from trades_bench.adapter import AdapterResponse
 from trades_bench.config import load_run_config
 from trades_bench.controller import Controller
 from trades_bench.enums import RunStatus
 from trades_bench.run_init import initialize_run, open_run_db
-from trades_bench.txn import privileged, privileged_request_id
 
 SEED = 5
 DAY_ONE = "2026-10-01"
 DAY_TWO = "2026-10-02"
 DAY_THREE = "2026-10-03"
 STARTING_CASH = 20_000_000
-FINAL_CASH = 20_293_533
+FINAL_CASH = 19_914_612
 MIN_TRAVEL_MINUTES = 20
 SINGLE_BLOCK_HOURS = 2
 OVERRUN_DURATION_MINUTES = 600
 RESUME_SAMPLE_COUNT = 16
 
 ARTIFACT = geo_reader.load_artifact(GEO_ARTIFACT_DIR)
-CATALOG_BY_ADDRESS_ID = {row.address_id: row for row in ARTIFACT.catalog}
-
 COMPLETED_CHAIN = ["dispatched", "arrived", "work_started", "work_completed"]
 
-_JOB_TYPE_TO_CATEGORY_ID = {1: 2, 2: 1, 3: 3, 4: 4}
+_JOB_TYPE_BY_SERVICE = {
+    "hvac service": 1,
+    "hvac installation": 2,
+    "plumbing": 3,
+    "electrical": 4,
+}
 
 
 @dataclass(frozen=True)
 class BookingOrder:
 
     key: str
-    crm_id: int
-    address_id: int
     technician_id: int
     job_type_id: int
     service: str
@@ -57,18 +58,18 @@ class BookingOrder:
 
 BOOKED_RUN_ORDERS: dict[str, tuple[BookingOrder, ...]] = {
     DAY_ONE: (
-        BookingOrder("chain-first", 9101, 40, 1, 1, "HVAC Service", DAY_ONE, "B13_15"),
-        BookingOrder("chain-second", 9102, 610, 1, 1, "HVAC Service", DAY_ONE, "B15_17"),
-        BookingOrder("install", 9103, 150, 2, 2, "HVAC Installation", DAY_ONE, "B13_15"),
-        BookingOrder("after-hours", 9104, 380, 4, 4, "Electrical", DAY_ONE, "B17_19"),
-        BookingOrder("next-morning-hvac", 9105, 90, 1, 1, "HVAC Service", DAY_TWO, "B07_09"),
-        BookingOrder("next-morning-plumbing", 9106, 520, 3, 3, "Plumbing", DAY_TWO, "B07_09"),
+        BookingOrder("chain-first", 1, 1, "HVAC Service", DAY_ONE, "B13_15"),
+        BookingOrder("chain-second", 1, 1, "HVAC Service", DAY_ONE, "B15_17"),
+        BookingOrder("install", 2, 2, "HVAC Installation", DAY_ONE, "B13_15"),
+        BookingOrder("after-hours", 4, 4, "Electrical", DAY_ONE, "B17_19"),
+        BookingOrder("next-morning-hvac", 1, 1, "HVAC Service", DAY_TWO, "B07_09"),
+        BookingOrder("next-morning-plumbing", 3, 3, "Plumbing", DAY_TWO, "B07_09"),
     ),
     DAY_TWO: (
-        BookingOrder("midday-idle", 9107, 260, 2, 1, "HVAC Service", DAY_TWO, "B13_15"),
+        BookingOrder("midday-idle", 2, 1, "HVAC Service", DAY_TWO, "B13_15"),
     ),
     DAY_THREE: (
-        BookingOrder("weekend", 9108, 2, 3, 3, "Plumbing", DAY_THREE, "B13_15"),
+        BookingOrder("weekend", 3, 3, "Plumbing", DAY_THREE, "B13_15"),
     ),
 }
 
@@ -89,8 +90,8 @@ BOOKING_SEQUENCE = [
 
 NO_SHOW_ORDERS: dict[str, tuple[BookingOrder, ...]] = {
     DAY_ONE: (
-        BookingOrder("overrun", 9201, 40, 1, 1, "HVAC Service", DAY_ONE, "B11_13"),
-        BookingOrder("starved", 9202, 610, 1, 1, "HVAC Service", DAY_ONE, "B15_17"),
+        BookingOrder("overrun", 1, 1, "HVAC Service", DAY_ONE, "B11_13"),
+        BookingOrder("starved", 1, 1, "HVAC Service", DAY_ONE, "B15_17"),
     ),
 }
 
@@ -110,7 +111,8 @@ DAY_TWO_TRACE = [
     ("appointment_arrival", "2026-10-02T07:05:00-07:00", 310),
     ("appointment_arrival", "2026-10-02T07:05:00-07:00", 310),
     ("work_started", "2026-10-02T07:05:00-07:00", 320),
-    ("work_started", "2026-10-02T07:10:00-07:00", 320),
+    ("work_started", "2026-10-02T07:05:00-07:00", 320),
+    ("call_invocation", "2026-10-02T07:25:00-07:00", 910),
     ("call_invocation", "2026-10-02T08:03:00-07:00", 910),
     ("call_invocation", "2026-10-02T08:08:00-07:00", 910),
     ("block_lock", "2026-10-02T09:00:00-07:00", 200),
@@ -119,11 +121,11 @@ DAY_TWO_TRACE = [
     ("company_no_show", "2026-10-02T09:00:00-07:00", 335),
     ("technician_return_home", "2026-10-02T09:00:00-07:00", 350),
     ("call_invocation", "2026-10-02T09:04:00-07:00", 910),
-    ("work_completed", "2026-10-02T09:08:00-07:00", 330),
-    ("technician_return_home", "2026-10-02T09:08:00-07:00", 350),
+    ("work_completed", "2026-10-02T09:05:00-07:00", 330),
+    ("technician_return_home", "2026-10-02T09:05:00-07:00", 350),
     ("technician_home_arrival", "2026-10-02T09:20:00-07:00", 360),
     ("call_invocation", "2026-10-02T09:23:00-07:00", 910),
-    ("technician_home_arrival", "2026-10-02T09:28:00-07:00", 360),
+    ("technician_home_arrival", "2026-10-02T09:25:00-07:00", 360),
     ("call_invocation", "2026-10-02T09:50:00-07:00", 910),
     ("call_invocation", "2026-10-02T10:05:00-07:00", 910),
     ("call_invocation", "2026-10-02T10:07:00-07:00", 910),
@@ -135,16 +137,16 @@ DAY_TWO_TRACE = [
     ("call_invocation", "2026-10-02T12:56:00-07:00", 910),
     ("block_lock", "2026-10-02T13:00:00-07:00", 200),
     ("appointment_arrival", "2026-10-02T13:00:00-07:00", 310),
-    ("work_started", "2026-10-02T13:00:00-07:00", 320),
+    ("work_started", "2026-10-02T13:06:00-07:00", 320),
     ("call_invocation", "2026-10-02T14:56:00-07:00", 910),
     ("block_lock", "2026-10-02T15:00:00-07:00", 200),
     ("company_no_show", "2026-10-02T15:00:00-07:00", 335),
-    ("work_completed", "2026-10-02T15:04:00-07:00", 330),
-    ("technician_return_home", "2026-10-02T15:04:00-07:00", 350),
+    ("work_completed", "2026-10-02T15:03:00-07:00", 330),
+    ("technician_return_home", "2026-10-02T15:03:00-07:00", 350),
     ("call_invocation", "2026-10-02T15:09:00-07:00", 910),
     ("call_invocation", "2026-10-02T15:11:00-07:00", 910),
     ("call_invocation", "2026-10-02T15:12:00-07:00", 910),
-    ("technician_home_arrival", "2026-10-02T15:24:00-07:00", 360),
+    ("technician_home_arrival", "2026-10-02T15:23:00-07:00", 360),
     ("call_invocation", "2026-10-02T15:44:00-07:00", 910),
     ("call_invocation", "2026-10-02T16:01:00-07:00", 910),
     ("block_lock", "2026-10-02T17:00:00-07:00", 200),
@@ -156,83 +158,105 @@ DAY_TWO_TRACE = [
 ]
 
 
-def _insert_customer_location_call(conn, config, order: BookingOrder, now_ms: int) -> int:
-    crm_id = order.crm_id
-    address = CATALOG_BY_ADDRESS_ID[order.address_id]
-    conn.execute(
-        "INSERT INTO _customers (id, name, segment, status, created_at, modified_at) "
-        "VALUES (?, ?, 'residential', 'active', ?, ?)",
-        (crm_id, f"Customer {crm_id}", now_ms, now_ms),
-    )
-    demand.register_customer_repeat_state(
-        conn, config, customer_id=crm_id, segment="residential", now_ms=now_ms
-    )
-    conn.execute(
-        "INSERT INTO _locations (id, customer_id, name, street, unit, city, state, "
-        "postal_code, latitude, longitude, active, created_at, modified_at, "
-        "effective_zone_id, address_catalog_id) "
-        "VALUES (?, ?, 'Home', ?, '', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
-        (
-            crm_id, crm_id, address.street, address.city, address.state,
-            address.postal_code, address.latitude, address.longitude,
-            now_ms, now_ms, address.effective_zone_id, address.address_id,
-        ),
-    )
-    cur = conn.execute(
-        "INSERT INTO _calls (arrived_at, service_date, call_kind, status, "
-        "caller_name, caller_phone, requested_service_name, urgent, created_at) "
-        "VALUES (?, ?, 'new_job', 'booked', ?, '555-0100', ?, 0, ?)",
-        (now_ms, order.service_date, f"Caller {crm_id}", order.service, now_ms),
-    )
-    call_id = int(cur.lastrowid)
-    conn.execute(
-        "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
-        "prospect_id, acceptance_result, created_at) "
-        "VALUES (?, 'residential', ?, NULL, NULL, ?)",
-        (call_id, _JOB_TYPE_TO_CATEGORY_ID[order.job_type_id], now_ms),
-    )
-    return call_id
-
-
 class ScriptedBookingAdapter(ScriptedNoOpAdapter):
 
     def __init__(self, orders_by_prompt_date: dict[str, tuple[BookingOrder, ...]]) -> None:
         super().__init__()
         self.controller = None
-        self.orders_by_prompt_date = orders_by_prompt_date
+        self.orders = [order for day in orders_by_prompt_date.values() for order in day]
 
     def send(self, prompt):
         if prompt.kind.value == "call":
-            prompt_date = clock.service_date_for_ms(prompt.ts_ms)
-            for order in self.orders_by_prompt_date.get(prompt_date, ()):
-                self._book(order)
-        return super().send(prompt)
+            if "appointment_id" in prompt.payload:
+                self._acknowledge_cancellation(int(prompt.payload["call_id"]))
+            else:
+                order = self._matching_order(prompt)
+                if order is None:
+                    self._reject(int(prompt.payload["call_id"]))
+                else:
+                    self._book(prompt, order)
+        self.prompts.append(prompt)
+        return AdapterResponse(text="", terminal_action_taken=True)
 
-    def _book(self, order: BookingOrder) -> None:
+    def _matching_order(self, prompt):
+        prompt_date = clock.service_date_for_ms(prompt.ts_ms)
+        service = str(prompt.payload["requested_service"]).casefold()
+        for order in self.orders:
+            if self._already_booked(order):
+                continue
+            if order.service_date >= prompt_date and order.service.casefold() == service:
+                self.orders.remove(order)
+                return order
+        return None
+
+    def _already_booked(self, order):
+        hour = int(order.first_block_code[1:3])
+        row = self.controller.conn.execute(
+            "SELECT 1 FROM _appointments a JOIN _appointment_assignments aa "
+            "ON aa.appointment_id = a.id WHERE a.scheduled_start = ? "
+            "AND aa.technician_id = ? LIMIT 1",
+            (_ms(order.service_date, hour, 0), order.technician_id),
+        ).fetchone()
+        return row is not None
+
+    def _result(self, response):
+        body = json.loads(response)
+        assert body["ok"], body
+        return body["result"]
+
+    def _book(self, prompt, order: BookingOrder) -> None:
         controller = self.controller
-        config = controller.config
-        artifact = controller.artifact
-
-        def fn(ctx):
-            call_id = _insert_customer_location_call(ctx.conn, config, order, ctx.now())
-            return appointments.book(
-                ctx, config, artifact=artifact,
-                call_id=call_id, customer_id=order.crm_id, location_id=order.crm_id,
-                job_type_id=order.job_type_id, requested_service_name=order.service,
-                priority="normal", summary=order.key, technician_id=order.technician_id,
-                service_date=order.service_date, first_block_code=order.first_block_code,
-            )
-
-        body = json.loads(
-            privileged(
-                controller.services, privileged_request_id("scripted_booking", order.key), fn
+        call_id = int(prompt.payload["call_id"])
+        customer_id = prompt.payload.get("customer_id")
+        location_id = prompt.payload.get("location_id")
+        if customer_id is None:
+            customer_id = self._result(
+                crm.create_customer_command(
+                    controller.services, f"script-{call_id}-customer", controller.config,
+                    call_id=call_id, name=str(prompt.payload["caller"]),
+                    segment=str(prompt.payload["customer_type"]),
+                    contacts=[{"contact_type": "phone", "value": prompt.payload["phone"]}],
+                )
+            )["customer_id"]
+        if location_id is None:
+            location_id = self._result(
+                crm.create_location_command(
+                    controller.services, f"script-{call_id}-location", controller.config,
+                    call_id=call_id, customer_id=int(customer_id),
+                    address=str(prompt.payload["address"]), artifact=controller.artifact,
+                )
+            )["location_id"]
+        result = self._result(
+            booking.book_command(
+                controller.services, f"script-{call_id}-book", controller.config,
+                call_id=call_id, customer_id=int(customer_id), location_id=int(location_id),
+                job_type_id=_JOB_TYPE_BY_SERVICE[order.service.casefold()],
+                service_date=order.service_date,
+                block_start=order.first_block_code[1:3] + ":00",
+                technician_id=order.technician_id, artifact=controller.artifact,
             )
         )
-        assert body["ok"], body
+        assert result["outcome"] == "accepted", result
+
+    def _reject(self, call_id):
+        controller = self.controller
+        self._result(calls.reject_command(
+            controller.services, f"script-{call_id}-reject", controller.config, call_id=call_id
+        ))
+
+    def _acknowledge_cancellation(self, call_id):
+        controller = self.controller
+        self._result(appointments.acknowledge_cancellation_command(
+            controller.services, f"script-{call_id}-cancel", controller.config,
+            call_id=call_id, artifact=controller.artifact,
+        ))
 
 
 def _config(**overrides):
     keys = {
+        "acceptance.base_probability_by_urgency": {"standard": 1, "urgent": 1},
+        "acceptance.floor_probability_by_urgency": {"standard": 1, "urgent": 1},
+        "acceptance.lead_time_decay_by_urgency": {"standard": 0, "urgent": 0},
         "geography.artifact_id": GEO_ARTIFACT_ID,
         "geography.artifact_sha256": geo_artifact_sha256(),
         "demand.zone_weights": GEO_FIXTURE_ZONE_WEIGHTS,
@@ -276,13 +300,31 @@ def _run_counting_steps(conn, config, orders):
 
 
 def _appointment_id(conn, key):
+    order = ORDERS_BY_KEY.get(key)
+    if order is None:
+        order = next(order for orders in NO_SHOW_ORDERS.values() for order in orders if order.key == key)
+    hour = int(order.first_block_code[1:3])
     return int(
         conn.execute(
             "SELECT a.id AS appointment_id FROM _appointments a "
-            "JOIN _jobs j ON j.id = a.job_id WHERE j.summary = ?",
-            (key,),
+            "JOIN _appointment_assignments aa ON aa.appointment_id = a.id "
+            "WHERE a.scheduled_start = ? AND aa.technician_id = ? ORDER BY aa.id LIMIT 1",
+            (_ms(order.service_date, hour, 0), order.technician_id),
         ).fetchone()["appointment_id"]
     )
+
+
+TERMINAL_EXECUTION_EVENT_TYPES = ("work_completed", "work_failed", "no_show")
+
+
+def _latest_terminal_execution_at(conn, service_date):
+    placeholders = ", ".join("?" for _ in TERMINAL_EXECUTION_EVENT_TYPES)
+    row = conn.execute(
+        f"SELECT MAX(occurred_at) AS latest FROM _appointment_events "
+        f"WHERE service_date = ? AND event_type IN ({placeholders})",
+        (service_date, *TERMINAL_EXECUTION_EVENT_TYPES),
+    ).fetchone()
+    return row["latest"]
 
 
 def _event_chain(conn, appointment_id):
@@ -368,9 +410,7 @@ def test_final_cash_matches_the_hand_derived_booked_arithmetic(booked_run):
     overhead = config.get_int("finance.daily_operating_overhead")
     bonus = config.get_int("payroll.off_hours_bonus_per_job")
     after_hours_technician = ORDERS_BY_KEY["after-hours"].technician_id
-    weekend_technician = ORDERS_BY_KEY["weekend"].technician_id
     after_hours_job_pay = SINGLE_BLOCK_HOURS * wages[after_hours_technician] + bonus
-    weekend_job_pay = SINGLE_BLOCK_HOURS * wages[weekend_technician] + bonus
     invoice_totals = conn.execute(
         "SELECT COALESCE(SUM(total_cents), 0) revenue, "
         "COALESCE(SUM(material_cost_cents), 0) materials FROM _invoices"
@@ -382,7 +422,6 @@ def test_final_cash_matches_the_hand_derived_booked_arithmetic(booked_run):
         - weekday_count * daily_payroll
         - day_count * overhead
         - after_hours_job_pay
-        - weekend_job_pay
     )
     assert expected == FINAL_CASH
     balance = conn.execute(
@@ -401,43 +440,58 @@ def test_final_cash_matches_the_hand_derived_booked_arithmetic(booked_run):
             after_hours_technician,
         ),
         ("payroll_off_hours_bonus", -bonus, DAY_ONE, after_hours_technician),
-        (
-            "payroll_off_hours",
-            -SINGLE_BLOCK_HOURS * wages[weekend_technician],
-            DAY_THREE,
-            weekend_technician,
-        ),
-        ("payroll_off_hours_bonus", -bonus, DAY_THREE, weekend_technician),
     ]
 
 
-def test_every_booked_appointment_completes_with_a_legal_event_chain(booked_run):
+def test_booked_appointments_complete_or_are_acknowledged_as_cancelled(booked_run):
     conn = booked_run["conn"]
     rows = conn.execute(
         "SELECT a.id, a.status, a.actual_start, a.actual_end, a.lateness_minutes, "
         "j.summary FROM _appointments a JOIN _jobs j ON j.id = a.job_id ORDER BY a.id"
     ).fetchall()
-    assert [row["summary"] for row in rows] == BOOKING_SEQUENCE
+    assert [row["summary"] for row in rows] == [
+        "Plumbing", "HVAC service", "Plumbing", "HVAC installation",
+        "HVAC service", "HVAC service", "Electrical", "HVAC service",
+    ]
     for row in rows:
-        assert row["status"] == "completed"
-        assert row["actual_start"] is not None
-        assert row["actual_end"] is not None
-        assert int(row["actual_end"]) > int(row["actual_start"])
-        assert int(row["lateness_minutes"]) >= 0
-        assert _event_chain(conn, int(row["id"])) == COMPLETED_CHAIN
-    assert [int(row["lateness_minutes"]) for row in rows] == [0, 6, 0, 0, 0, 0, 0, 0]
+        if row["status"] == "cancelled":
+            assert row["actual_start"] is None
+            assert row["actual_end"] is None
+            assert _event_chain(conn, int(row["id"])) == ["cancelled"]
+        else:
+            assert row["status"] == "completed"
+            assert row["actual_start"] is not None
+            assert row["actual_end"] is not None
+            assert int(row["actual_end"]) > int(row["actual_start"])
+            assert int(row["lateness_minutes"]) >= 0
+            assert _event_chain(conn, int(row["id"])) == COMPLETED_CHAIN
+    assert [row["status"] for row in rows] == [
+        "completed", "completed", "cancelled", "cancelled",
+        "completed", "completed", "completed", "completed",
+    ]
+    assert [row["lateness_minutes"] for row in rows] == [0, 0, None, None, 9, 0, 0, 0]
     guard_rows = conn.execute(
         "SELECT entity_id, status FROM _events WHERE kind = 'company_no_show' ORDER BY event_id"
     ).fetchall()
-    assert [row["status"] for row in guard_rows] == ["applied"] * len(rows)
-    assert sorted(int(row["entity_id"]) for row in guard_rows) == [int(row["id"]) for row in rows]
-    assert conn.execute("SELECT COUNT(*) c FROM _notifications").fetchone()["c"] == 0
+    appointment_statuses = {int(row["id"]): row["status"] for row in rows}
+    assert [row["status"] for row in guard_rows] == [
+        "cancelled" if appointment_statuses[int(row["entity_id"])] == "cancelled" else "applied"
+        for row in guard_rows
+    ]
+    assert sorted(int(row["entity_id"]) for row in guard_rows) == sorted(appointment_statuses)
+    assert conn.execute("SELECT COUNT(*) c FROM _notifications").fetchone()["c"] == 2
     days = conn.execute("SELECT * FROM _day_state ORDER BY service_date").fetchall()
     assert [row["service_date"] for row in days] == [DAY_ONE, DAY_TWO, DAY_THREE]
     for day in days:
         assert day["closing_at"] is not None
         assert day["settlement_status"] == "settled"
         assert day["unresolved_execution_count"] == 0
+        latest_terminal = _latest_terminal_execution_at(conn, day["service_date"])
+        assert day["last_execution_completed_at"] == latest_terminal
+        expected_closing = _ms(day["service_date"], 19, 0)
+        if latest_terminal is not None:
+            expected_closing = max(expected_closing, int(latest_terminal))
+        assert int(day["closing_at"]) == expected_closing
     assert conn.execute(
         "SELECT COUNT(*) c FROM _events WHERE status = 'pending'"
     ).fetchone()["c"] == 0
@@ -563,6 +617,10 @@ def test_an_overrunning_first_job_cascades_the_second_into_a_company_no_show(tmp
     assert int(day["closing_at"]) == int(overrun["actual_end"])
     assert day["settlement_status"] == "settled"
     assert day["unresolved_execution_count"] == 0
+    assert int(day["last_execution_completed_at"]) == int(overrun["actual_end"])
+    assert int(day["last_execution_completed_at"]) == int(
+        _latest_terminal_execution_at(conn, DAY_ONE)
+    )
     pending = conn.execute(
         "SELECT kind FROM _events WHERE status = 'pending'"
     ).fetchall()

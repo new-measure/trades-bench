@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from . import clock
+from . import clock, closing
 from .db import begin, commit, rollback
 from .enums import RunStatus
 from .errors import EngineError, ErrorCode, ok_response
@@ -100,6 +100,7 @@ def _store_response(
 
 
 Fn = Callable[[TxnContext], dict | None]
+Gate = Callable[[TxnContext], None]
 
 
 def _recover_from_sqlite_fault(conn: sqlite3.Connection, exc: sqlite3.Error) -> EngineError:
@@ -126,6 +127,7 @@ def _execute(
     require_active_invocation: bool,
     privileged: bool,
     fingerprint_value: str,
+    gate: Gate | None = None,
 ) -> tuple[bytes, bool]:
     conn = services.conn
     rng = services.rng
@@ -174,6 +176,8 @@ def _execute(
                     details={"reason": "no_active_invocation"},
                 )
             ctx.invocation = active
+        if gate is not None:
+            gate(ctx)
         payload = fn(ctx)
         response = ok_response(payload)
         _store_response(conn, request_id, namespace, response, now, fingerprint_value)
@@ -241,6 +245,7 @@ def command_with_replay(
         require_active_invocation=True,
         privileged=False,
         fingerprint_value=fingerprint(operation, args),
+        gate=lambda ctx: closing.enforce(ctx, operation, args),
     )
 
 

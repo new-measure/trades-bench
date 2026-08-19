@@ -70,12 +70,17 @@ def _now_ms(conn) -> int:
     return conn.execute("SELECT current_time_ms FROM _clock").fetchone()[0]
 
 
-def _open_invocation(conn, now, invocation_type="call") -> int:
+def _open_invocation(conn, now, invocation_type="call", *, call_id=None) -> int:
+    origin_event_id = None
+    if call_id is not None:
+        origin_event_id = conn.execute(
+            "SELECT arrival_event_id FROM _call_hidden WHERE call_id = ?", (call_id,)
+        ).fetchone()["arrival_event_id"]
     cur = conn.execute(
-        "INSERT INTO _invocations (type, ts_ms, sequence, status) "
+        "INSERT INTO _invocations (type, ts_ms, sequence, status, origin_event_id) "
         "VALUES (?, ?, "
-        "(SELECT COALESCE(MAX(sequence), 0) + 1 FROM _invocations), 'active')",
-        (invocation_type, now),
+        "(SELECT COALESCE(MAX(sequence), 0) + 1 FROM _invocations), 'active', ?)",
+        (invocation_type, now, origin_event_id),
     )
     return int(cur.lastrowid)
 
@@ -183,6 +188,10 @@ def _arrive_applied(conn, rng, pending_id, arrival_at):
         conn.execute(
             "UPDATE _events SET status = 'applied', applied_at_ms = ? WHERE event_id = ?",
             (arrival_at, event_id),
+        )
+        conn.execute(
+            "UPDATE _invocations SET origin_event_id = ? WHERE status = 'active'",
+            (event_id,),
         )
     except BaseException:
         rng.exit_txn()
@@ -642,7 +651,7 @@ def test_acknowledge_cancellation_cancels_frees_and_sets_job_status(tmp_path):
         address_catalog_id=catalog["id"], target_appointment_id=appointment_id,
         target_job_id=job_id,
     )
-    invocation_id = _open_invocation(conn, now)
+    invocation_id = _open_invocation(conn, now, call_id=cancellation_call_id)
 
     response = appointments.acknowledge_cancellation_command(
         controller.services, _next_request_id("ack"), cfg,
@@ -713,7 +722,7 @@ def test_freed_block_is_immediately_rebookable(tmp_path):
         address_catalog_id=catalog["id"], target_appointment_id=appointment_id,
         target_job_id=job_id,
     )
-    invocation_id = _open_invocation(conn, now)
+    invocation_id = _open_invocation(conn, now, call_id=cancellation_call_id)
     response = appointments.acknowledge_cancellation_command(
         controller.services, _next_request_id("ack"), cfg,
         call_id=cancellation_call_id, artifact=controller.artifact,
@@ -751,7 +760,7 @@ def test_acknowledge_cancellation_has_zero_propensity_competitor_and_rng_deltas(
         address_catalog_id=catalog["id"], target_appointment_id=appointment_id,
         target_job_id=job_id,
     )
-    invocation_id = _open_invocation(conn, now)
+    invocation_id = _open_invocation(conn, now, call_id=cancellation_call_id)
 
     repeat_before = dict(
         conn.execute(
@@ -801,7 +810,7 @@ def test_acknowledge_cancellation_replay_is_byte_identical(tmp_path):
         address_catalog_id=catalog["id"], target_appointment_id=appointment_id,
         target_job_id=job_id,
     )
-    invocation_id = _open_invocation(conn, now)
+    invocation_id = _open_invocation(conn, now, call_id=cancellation_call_id)
     request_id = _next_request_id("ack")
 
     first = appointments.acknowledge_cancellation_command(
@@ -910,7 +919,7 @@ def test_acknowledge_cancellation_rejects_an_already_terminal_call(tmp_path):
         address_catalog_id=catalog["id"], target_appointment_id=appointment_id,
         target_job_id=job_id, status="acknowledged",
     )
-    invocation_id = _open_invocation(conn, now)
+    invocation_id = _open_invocation(conn, now, call_id=terminal_call_id)
 
     response = appointments.acknowledge_cancellation_command(
         controller.services, _next_request_id("ack"), cfg,
@@ -964,7 +973,7 @@ def test_post_dispatch_same_day_cancellation_replans_the_technician(tmp_path):
         address_catalog_id=first_catalog["id"], target_appointment_id=first_appointment_id,
         target_job_id=first_job_id,
     )
-    invocation_id = _open_invocation(conn, now)
+    invocation_id = _open_invocation(conn, now, call_id=cancellation_call_id)
     response = appointments.acknowledge_cancellation_command(
         controller.services, _next_request_id("ack"), cfg,
         call_id=cancellation_call_id, artifact=controller.artifact,
@@ -994,9 +1003,66 @@ def test_post_dispatch_same_day_cancellation_replans_the_technician(tmp_path):
     assert _appointment_row(conn, first_appointment_id)["status"] == "cancelled"
 
     day = conn.execute(
-        "SELECT unresolved_execution_count FROM _day_state WHERE service_date = ?", (START_DATE,)
+        "SELECT unresolved_execution_count, last_execution_completed_at FROM _day_state "
+        "WHERE service_date = ?",
+        (START_DATE,),
     ).fetchone()
     assert day["unresolved_execution_count"] == 0
+    latest_terminal = conn.execute(
+        "SELECT MAX(occurred_at) AS latest FROM _appointment_events WHERE service_date = ? "
+        "AND event_type IN ('work_completed', 'work_failed', 'no_show', 'cancelled')",
+        (START_DATE,),
+    ).fetchone()["latest"]
+    assert day["last_execution_completed_at"] == latest_terminal
+
+
+def test_day_loop_auto_finalizes_an_unanswered_cancellation(tmp_path):
+    cfg = _config(**_CANCEL_ALWAYS)
+    conn, cfg, controller = _build(tmp_path, config=cfg)
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    customer_id = _insert_customer(conn, now)
+    location_id = _insert_location(conn, now, customer_id, catalog)
+    _call_id, result = _book_via_call(
+        conn, controller, cfg, customer_id=customer_id, location_id=location_id,
+    )
+    appointment_id = result["appointment_id"]
+    job_id = result["job_id"]
+    repeat_before = dict(
+        conn.execute(
+            "SELECT * FROM _customer_repeat_state WHERE customer_id = ?", (customer_id,)
+        ).fetchone()
+    )
+
+    assert controller.run() is RunStatus.COMPLETED
+
+    cancellation_call = conn.execute(
+        "SELECT * FROM _calls WHERE call_kind = 'cancellation'"
+    ).fetchone()
+    assert cancellation_call["status"] == "unanswered"
+    assert cancellation_call["terminal_reason"] == "unanswered"
+    attempts = conn.execute(
+        "SELECT attempt_number, outcome FROM _call_attempts WHERE call_id = ? ORDER BY id",
+        (cancellation_call["id"],),
+    ).fetchall()
+    assert [(row["attempt_number"], row["outcome"]) for row in attempts] == [
+        (1, "incomplete"), (2, "incomplete"), (3, "incomplete"),
+    ]
+    appt = _appointment_row(conn, appointment_id)
+    assert appt["status"] == "cancelled"
+    assert appt["cancelled_at"] == cancellation_call["arrived_at"]
+    assert _job_row(conn, job_id)["outcome"] == "cancelled_by_customer"
+    assert _hold_count(conn, appointment_id) == 0
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM _notifications WHERE notification_type = "
+        "'customer_cancellation_acknowledged'"
+    ).fetchone()["c"] == 0
+    repeat_after = dict(
+        conn.execute(
+            "SELECT * FROM _customer_repeat_state WHERE customer_id = ?", (customer_id,)
+        ).fetchone()
+    )
+    assert repeat_after == repeat_before
 
 
 def test_day_loop_end_to_end_cancellation(tmp_path):

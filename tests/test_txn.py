@@ -303,8 +303,41 @@ def test_privileged_settlement_pushing_negative_flips_bankrupt_atomically():
     r = privileged(sv, privileged_request_id("settle", "day_1"), fn)
     assert json.loads(r)["ok"] is True
     assert ring["n"] == 1
-    row = conn.execute("SELECT status FROM _run").fetchone()
+    row = conn.execute("SELECT status, final_score_cents FROM _run").fetchone()
     assert row["status"] == "bankrupt"
+    assert row["final_score_cents"] == 0
+    assert ledger.cash_balance() == -500
+
+
+def test_bankruptcy_score_tail_failure_rolls_back_the_financial_transaction():
+    conn, rid, sv, ledger, _ = _services(active_invocation=False)
+    conn.execute(
+        "CREATE TRIGGER fail_bankruptcy_score BEFORE UPDATE OF final_score_cents ON _run "
+        "BEGIN SELECT RAISE(ABORT, 'score_tail_failed'); END"
+    )
+
+    def fn(ctx):
+        ctx.services.ledger.post(
+            [
+                LedgerEntry(LedgerCategory.OPENING_BALANCE_ADJUSTMENT, 1000, 0),
+                LedgerEntry(LedgerCategory.OPERATING_OVERHEAD, -1500, 1),
+            ]
+        )
+        return {"settled": True}
+
+    request_id = privileged_request_id("settle", "tail_failure")
+    failed = json.loads(privileged(sv, request_id, fn))
+    assert failed["error"]["code"] == "unexpected_failure"
+    row = conn.execute("SELECT status, final_score_cents FROM _run").fetchone()
+    assert row["status"] == "active"
+    assert row["final_score_cents"] is None
+    assert ledger.entry_count() == 0
+    conn.execute("DROP TRIGGER fail_bankruptcy_score")
+    succeeded = json.loads(privileged(sv, request_id, fn))
+    assert succeeded["ok"] is True
+    row = conn.execute("SELECT status, final_score_cents FROM _run").fetchone()
+    assert row["status"] == "bankrupt"
+    assert row["final_score_cents"] == 0
     assert ledger.cash_balance() == -500
 
 

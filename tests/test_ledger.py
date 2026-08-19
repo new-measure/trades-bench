@@ -310,8 +310,9 @@ def test_bankruptcy_check_flips_status_when_negative(ledger):
     became = lg.bankruptcy_check()
     commit(conn)
     assert became is True
-    row = conn.execute("SELECT status FROM _run").fetchone()
+    row = conn.execute("SELECT status, final_score_cents FROM _run").fetchone()
     assert row["status"] == "bankrupt"
+    assert row["final_score_cents"] == 0
 
 
 def test_bankruptcy_check_noop_when_non_negative(ledger):
@@ -333,8 +334,9 @@ def test_bankruptcy_check_idempotent_and_terminal_safe(ledger):
     assert lg.bankruptcy_check() is True
     assert lg.bankruptcy_check() is False
     commit(conn)
-    row = conn.execute("SELECT status FROM _run").fetchone()
+    row = conn.execute("SELECT status, final_score_cents FROM _run").fetchone()
     assert row["status"] == "bankrupt"
+    assert row["final_score_cents"] == 0
 
 
 def test_bankruptcy_check_noop_when_run_already_terminal(ledger):

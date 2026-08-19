@@ -5,7 +5,6 @@ import json
 from _helpers import make_services
 from trades_bench import clock
 from trades_bench.enums import EventKind, InvocationType, LedgerCategory
-from trades_bench.errors import EngineError, ErrorCode
 from trades_bench.ledger import LedgerEntry
 from trades_bench.txn import command
 
@@ -83,32 +82,41 @@ def test_world_event_cannot_commit_while_invocation_active():
     assert events.status(eid).value == "applied"
 
 
-def _closing_restricted_command(services, request_id, target_ts):
+_CLOSING_DATE = "2026-10-01"
+_NEXT_DATE = "2026-10-02"
+
+
+def _closing_instant():
+    return clock.phoenix_instant(2026, 10, 1, 19, 0)
+
+
+def _gated_command(services, request_id, service_date, block_start):
 
     def fn(ctx):
-        inv = ctx.invocation
-        if inv is not None and inv["type"] == "closing" and target_ts <= inv["ts_ms"]:
-            raise EngineError(ErrorCode.CLOSING_RESTRICTED, "closing is future-facing only")
-        ctx.services.ledger.post([LedgerEntry(LedgerCategory.REVENUE, 1, target_ts)])
-        return {"target_ts": target_ts}
+        ctx.services.ledger.post([LedgerEntry(LedgerCategory.REVENUE, 1, ctx.now_ms)])
+        return {"service_date": service_date, "block_start": block_start}
 
     return command(
-        services, request_id, fn, operation="test.closing", args={"target_ts": target_ts}
+        services,
+        request_id,
+        fn,
+        operation="jobs.book",
+        args={"service_date": service_date, "block_start": block_start},
     )
 
 
 def test_closing_invocation_rejects_finished_day_mutation_and_allows_future():
     conn, rid, sv, ledger, events, rng = make_services()
-    closing_ts = 10_000
+    closing_ts = _closing_instant()
     sv.invocations.open(
         InvocationType.CLOSING, closing_ts, request_id="req.open.1", services=sv
     )
 
-    r_bad = _closing_restricted_command(sv, "schedule.yesterday", closing_ts - 1)
+    r_bad = _gated_command(sv, "book.today", _CLOSING_DATE, "17:00")
     assert json.loads(r_bad)["error"]["code"] == "closing_restricted"
     assert ledger.entry_count() == 0
 
-    r_ok = _closing_restricted_command(sv, "schedule.tomorrow", closing_ts + 1)
+    r_ok = _gated_command(sv, "book.tomorrow", _NEXT_DATE, "09:00")
     assert json.loads(r_ok)["ok"] is True
     assert ledger.entry_count() == 1
     sv.invocations.complete(
@@ -118,8 +126,10 @@ def test_closing_invocation_rejects_finished_day_mutation_and_allows_future():
 
 def test_non_closing_invocation_allows_current_time_mutation():
     conn, rid, sv, ledger, events, rng = make_services()
-    sv.invocations.open(InvocationType.CALL, 5_000, request_id="req.open.1", services=sv)
-    r = _closing_restricted_command(sv, "job.book", 5_000)
+    sv.invocations.open(
+        InvocationType.CALL, _closing_instant(), request_id="req.open.1", services=sv
+    )
+    r = _gated_command(sv, "book.now", _CLOSING_DATE, "17:00")
     assert json.loads(r)["ok"] is True
     sv.invocations.complete(
         sv.invocations.active()["invocation_id"], request_id="req.complete.1", services=sv
@@ -155,6 +165,46 @@ def test_open_retried_with_same_request_id_different_args_conflicts():
     assert json.loads(r2)["error"]["code"] == "request_id_conflict"
     n = conn.execute("SELECT COUNT(*) c FROM _invocations").fetchone()["c"]
     assert n == 1
+
+
+def _scheduled(conn, events, rng) -> int:
+    conn.execute("BEGIN")
+    rng.enter_txn()
+    event_id = events.schedule(EventKind.OPENING_INVOCATION, 100)
+    rng.exit_txn()
+    conn.execute("COMMIT")
+    return event_id
+
+
+def test_open_stores_the_origin_event_id_and_defaults_it_to_null():
+    conn, rid, sv, ledger, events, rng = make_services()
+    event_id = _scheduled(conn, events, rng)
+    iv = sv.invocations.open(
+        InvocationType.OPENING, 100, request_id="req.open.origin",
+        origin_event_id=event_id, services=sv,
+    )
+    assert sv.invocations.get(iv)["origin_event_id"] == event_id
+    sv.invocations.complete(iv, request_id="req.complete.origin", services=sv)
+    bare = sv.invocations.open(
+        InvocationType.OPENING, 110, request_id="req.open.bare", services=sv
+    )
+    assert sv.invocations.get(bare)["origin_event_id"] is None
+
+
+def test_open_retried_with_a_different_origin_event_conflicts():
+    conn, rid, sv, ledger, events, rng = make_services()
+    first = _scheduled(conn, events, rng)
+    second = _scheduled(conn, events, rng)
+    sv.invocations.open(
+        InvocationType.OPENING, 100, request_id="req.open.origin.fp",
+        origin_event_id=first, services=sv,
+    )
+    replayed = sv.invocations.open(
+        InvocationType.OPENING, 100, request_id="req.open.origin.fp",
+        origin_event_id=second, services=sv,
+    )
+    assert json.loads(replayed)["error"]["code"] == "request_id_conflict"
+    assert conn.execute("SELECT COUNT(*) c FROM _invocations").fetchone()["c"] == 1
 
 
 def test_complete_retried_with_same_request_id_replays_byte_identical():
