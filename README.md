@@ -50,7 +50,7 @@ A complete run follows this lifecycle:
 1. Load and validate a `RunConfig` with `trades_bench.config.load_run_config`.
 2. Create the SQLite run file with `trades_bench.run_init.initialize_run` and a
   verified geography artifact.
-3. Connect a `HarnessAdapter` implementation to `trades_bench.controller.Controller`.
+3. Connect a `ControllerAdapter` implementation to `trades_bench.controller.Controller`.
 4. Advance the event loop with `Controller.step()` or `Controller.run()`.
 5. Compare runs with the canonical hash from `trades_bench._dump.dump_hash`.
 

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config
 from trades_bench import clock, db, geo_reader
-from trades_bench.calls import arrive
 from trades_bench.enums import EventKind
 from trades_bench.events import Events
 from trades_bench.http_engine import Engine, open_engine_connection
@@ -95,19 +94,19 @@ def _build_cold_start_engine(dir_path: Path) -> tuple[Engine, object]:
     return engine, conn
 
 
-def _open_call_invocation(engine: Engine, ts_ms: int) -> int:
+def _next_invocation(engine: Engine, request_id: str) -> dict:
     status, raw, _ = http_call(
         engine.port,
         "POST",
         "/v1/control/next_invocation",
         token=engine.tokens.control,
-        body={"type": "call", "ts_ms": ts_ms, "request_id": f"docs-open-{ts_ms}"},
+        body={"request_id": request_id},
     )
     assert status == 200, raw
-    return int(json.loads(raw)["data"]["invocation_id"])
+    return json.loads(raw)["data"]
 
 
-def _script_active_call(conn, rng) -> int:
+def _script_pending_call(conn, rng) -> None:
     now = clock.now(conn)
     arrival_at = now + 60000
     catalog = conn.execute(
@@ -138,30 +137,21 @@ def _script_active_call(conn, rng) -> int:
     db.begin(conn)
     rng.enter_txn()
     try:
-        event_id = Events(conn, rng).schedule(
+        events = Events(conn, rng)
+        for row in events.pending_in_order():
+            events.cancel(int(row["event_id"]))
+        events.schedule(
             EventKind.CALL_INVOCATION,
             arrival_at,
             entity_type="pending_call",
             entity_id=pending_id,
         )
-        event_row = conn.execute("SELECT * FROM _events WHERE event_id = ?", (event_id,)).fetchone()
-        call_id = arrive(conn, event_row, now_ms=arrival_at)
-        conn.execute(
-            "UPDATE _events SET status = 'applied', applied_at_ms = ? WHERE event_id = ?",
-            (arrival_at, event_id),
-        )
-        conn.execute(
-            "UPDATE _invocations SET origin_event_id = ? WHERE status = 'active'",
-            (event_id,),
-        )
-        clock.advance(conn, arrival_at)
     except BaseException:
         rng.exit_txn()
         db.rollback(conn)
         raise
     rng.exit_txn()
     db.commit(conn)
-    return int(call_id)
 
 
 @contextmanager
@@ -169,8 +159,10 @@ def docs_engine(dir_path: Path):
     engine, conn = _build_cold_start_engine(dir_path)
     engine.start()
     try:
-        _open_call_invocation(engine, clock.now(conn))
-        call_id = _script_active_call(conn, engine.services.rng)
+        _script_pending_call(conn, engine.services.rng)
+        invocation = _next_invocation(engine, "docs-next-invocation-1")
+        assert invocation["kind"] == "call", invocation
+        call_id = int(invocation["payload"]["call_id"])
         yield DocsEngine(engine=engine, conn=conn, call_id=call_id)
     finally:
         engine.stop()

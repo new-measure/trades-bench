@@ -181,7 +181,7 @@
           "location_id": 1,
           "job_type_id": 1,
           "service_date": "2026-10-01",
-          "block_start": "2026-10-01T09:00:00-07:00",
+          "block_start": "09:00",
           "technician_id": 1,
           "request_id": "example-jobs.book-1"
         }

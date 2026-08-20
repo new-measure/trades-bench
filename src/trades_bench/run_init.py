@@ -262,6 +262,13 @@ def initialize_run(
     config: RunConfig,
     dataset_version: str = "",
     artifact_dir: str | Path | None = None,
+    model_id: str | None = None,
+    harness_name: str | None = None,
+    harness_version: str | None = None,
+    context_policy: str | None = None,
+    attempt_definition: str | None = None,
+    track: str | None = None,
+    system_prompt_hash: str | None = None,
 ) -> str:
     run_id = run_id or db.new_run_id()
     conn: sqlite3.Connection | None = None
@@ -289,6 +296,13 @@ def initialize_run(
                 last_service_date=config.get_string("run.end_date"),
                 timezone=constants.PHOENIX_TIMEZONE,
                 status=RunStatus.INITIALIZING,
+                model_id=model_id,
+                harness_name=harness_name,
+                harness_version=harness_version,
+                context_policy=context_policy,
+                attempt_definition=attempt_definition,
+                track=track,
+                system_prompt_hash=system_prompt_hash,
             )
             db.write_config(
                 conn, run_id, config.config_version, config.canonical_bytes.decode()

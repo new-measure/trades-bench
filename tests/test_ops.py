@@ -21,7 +21,7 @@ from trades_bench import clock, db, geo_reader
 from trades_bench._dump import dump_hash
 from trades_bench.config import load_run_config
 from trades_bench.db import insert_run
-from trades_bench.enums import EventKind, RunStatus
+from trades_bench.enums import EVENT_PRIORITY, EventKind, RunStatus
 from trades_bench.events import Events
 from trades_bench.http_engine import (
     _MUTATION_DISPATCH,
@@ -178,13 +178,45 @@ def _ops_path(name: str) -> str:
     return f"/v1/ops/{name}"
 
 
-def _open_call_session(port: int, control_token: str, ts_ms: int) -> int:
+def _seed_opening_invocation_event(conn, ts_ms: int) -> int:
+    conn.execute("BEGIN")
+    cur = conn.execute(
+        "INSERT INTO _events (kind, scheduled_at_ms, priority, payload_version, "
+        "status, created_at_ms, applied_at_ms) VALUES (?, ?, ?, 1, 'applied', ?, ?)",
+        (
+            EventKind.OPENING_INVOCATION.value,
+            ts_ms,
+            EVENT_PRIORITY[EventKind.OPENING_INVOCATION],
+            ts_ms,
+            ts_ms,
+        ),
+    )
+    conn.execute("COMMIT")
+    return int(cur.lastrowid)
+
+
+def _open_call_session_for_seeded_call(engine, rng) -> tuple[int, int]:
+    call_id = _seed_active_call(engine.services.conn, rng)
     status, body, _, _ = _request(
-        port,
+        engine.port,
         "POST",
         "/v1/control/next_invocation",
-        token=control_token,
-        body={"type": "call", "ts_ms": ts_ms, "request_id": f"ops-open-{ts_ms}"},
+        token=engine.tokens.control,
+        body={"request_id": f"ops-open-call-{uuid.uuid4().hex}"},
+    )
+    assert status == 200, body
+    assert body["data"]["kind"] == "call", body
+    return call_id, int(body["data"]["invocation_id"])
+
+
+def _open_session(engine, ts_ms: int) -> int:
+    _seed_opening_invocation_event(engine.services.conn, ts_ms)
+    status, body, _, _ = _request(
+        engine.port,
+        "POST",
+        "/v1/control/next_invocation",
+        token=engine.tokens.control,
+        body={"request_id": f"ops-open-{uuid.uuid4().hex}"},
     )
     assert status == 200, body
     return int(body["data"]["invocation_id"])
@@ -829,7 +861,7 @@ def seeded_engine(tmp_path):
     eng, conn = _build_seeded_engine(tmp_path / "seeded")
     eng.start()
     now_ms = clock.now(conn)
-    _open_call_session(eng.port, eng.tokens.control, now_ms)
+    _open_session(eng, now_ms)
     try:
         yield eng, conn
     finally:
@@ -854,7 +886,7 @@ def test_registry_names_match_route_table_keys():
 
 @pytest.mark.parametrize("spec", OPERATIONS, ids=lambda spec: spec.name)
 def test_every_registry_operation_is_dispatchable(empty_engine, spec):
-    _open_call_session(empty_engine.port, empty_engine.tokens.control, 1_000_000)
+    _open_session(empty_engine, 1_000_000)
     if spec.kind == "read":
         body = _empty_probe_body(spec)
         status, parsed, _, _ = _request(
@@ -889,7 +921,7 @@ def test_every_registry_operation_is_dispatchable(empty_engine, spec):
 
 
 def test_route_table_serves_nothing_outside_registry(empty_engine):
-    _open_call_session(empty_engine.port, empty_engine.tokens.control, 1_000_000)
+    _open_session(empty_engine, 1_000_000)
     garbage_status, garbage_body, _, garbage_raw = _request(
         empty_engine.port,
         "POST",
@@ -924,7 +956,7 @@ def test_route_table_serves_nothing_outside_registry(empty_engine):
 
 @pytest.mark.parametrize("absent_name", _ABSENT_OPERATIONS)
 def test_absent_surface_matches_garbage_operation(empty_engine, absent_name):
-    _open_call_session(empty_engine.port, empty_engine.tokens.control, 1_000_000)
+    _open_session(empty_engine, 1_000_000)
     garbage_status, garbage_body, _, garbage_raw = _request(
         empty_engine.port,
         "POST",
@@ -950,7 +982,7 @@ def test_pagination_is_stable_non_overlapping_and_complete(tmp_path):
     )
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, 1_000_000)
+        _open_session(eng, 1_000_000)
         first_run, first_cursors, _ = _page_all(
             eng.port, eng.tokens.agent, "crm.list_customers", limit=_PAGINATION_PAGE_SIZE
         )
@@ -981,7 +1013,7 @@ def test_pagination_rejects_malformed_cursor(tmp_path):
     eng, conn = _build_empty_engine(tmp_path / "bad-cursor", seed_customers=5)
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, 1_000_000)
+        _open_session(eng, 1_000_000)
         status, body, _, _ = _request(
             eng.port,
             "POST",
@@ -1002,7 +1034,7 @@ def test_pagination_clamps_limit_to_config_max(tmp_path):
     )
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, 1_000_000)
+        _open_session(eng, 1_000_000)
         max_limit = eng.config.get_int("interface.list_max_page_size")
         status, body, _, _ = _request(
             eng.port,
@@ -1025,7 +1057,7 @@ def test_pagination_default_limit_matches_config(tmp_path):
     )
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, 1_000_000)
+        _open_session(eng, 1_000_000)
         default_limit = eng.config.get_int("interface.list_default_page_size")
         status, body, _, _ = _request(
             eng.port,
@@ -1045,7 +1077,7 @@ def test_pagination_rejects_out_of_range_cursor_values(tmp_path):
     eng, conn = _build_empty_engine(tmp_path / "range-cursor", seed_customers=5)
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, 1_000_000)
+        _open_session(eng, 1_000_000)
         overflow_cursor = encode_cursor(1 << 63)
         huge_cursor = encode_cursor(10**38)
         for cursor in (overflow_cursor, huge_cursor, encode_cursor(-1)):
@@ -1068,7 +1100,7 @@ def test_pagination_rejects_zero_limit(tmp_path):
     eng, conn = _build_empty_engine(tmp_path / "zero-limit", seed_customers=5)
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, 1_000_000)
+        _open_session(eng, 1_000_000)
         status, body, _, _ = _request(
             eng.port,
             "POST",
@@ -1097,7 +1129,7 @@ def test_filtered_list_pages_follow_pk_order(tmp_path):
     )
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, 1_000_000)
+        _open_session(eng, 1_000_000)
         spec = OPERATIONS_BY_NAME["crm.list_customers"]
         sql, _ = build_view_list_sql(spec, {"name": "Filterable", "limit": 2}, limit=3)
         assert "ORDER BY id ASC" in sql
@@ -1150,7 +1182,7 @@ def _perturbed_placeholder(arg_type: str, value: object) -> object:
     ids=lambda spec: spec.name,
 )
 def test_mutation_fingerprint_discriminates_every_registry_arg(empty_engine, spec):
-    _open_call_session(empty_engine.port, empty_engine.tokens.control, 1_000_000)
+    _open_session(empty_engine, 1_000_000)
     base_body = _mutation_probe_body(spec)
     for arg in spec.args:
         if arg.name == "request_id":
@@ -1269,7 +1301,7 @@ def test_list_events_returns_all_rows_without_next_cursor(tmp_path):
     eng = Engine(services=services, config=config, db_path=path, artifact=_ARTIFACT)
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, now + 60)
+        _open_session(eng, now + 60)
         status, body, _, _ = _request(
             eng.port,
             "POST",
@@ -1646,7 +1678,7 @@ def test_ops_read_rejects_a_terminal_run_with_a_still_active_invocation(tmp_path
     eng, conn = _build_seeded_engine(tmp_path / "terminal-read")
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, clock.now(conn))
+        _open_session(eng, clock.now(conn))
         _set_run_status(conn, RunStatus.BANKRUPT)
         status, body, _, _ = _request(
             eng.port, "POST", _ops_path("crm.list_customers"), token=eng.tokens.agent, body={}
@@ -1662,7 +1694,7 @@ def test_sql_rejects_a_terminal_run_with_a_still_active_invocation(tmp_path):
     eng, conn = _build_seeded_engine(tmp_path / "terminal-sql")
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, clock.now(conn))
+        _open_session(eng, clock.now(conn))
         _set_run_status(conn, RunStatus.BANKRUPT)
         status, body, _, _ = _request(
             eng.port, "POST", "/v1/sql", token=eng.tokens.agent, body={"sql": "SELECT 1"}
@@ -1678,7 +1710,7 @@ def test_ops_mutation_checks_run_status_before_argument_validation(tmp_path):
     eng, conn = _build_seeded_engine(tmp_path / "terminal-mutation-order")
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, clock.now(conn))
+        _open_session(eng, clock.now(conn))
         _set_run_status(conn, RunStatus.BANKRUPT)
         status, body, _, _ = _request(
             eng.port,
@@ -1826,8 +1858,7 @@ def test_contacts_argument_rejects_a_dict_not_only_lists(tmp_path):
     eng, conn = _build_seeded_engine(tmp_path / "contacts-dict")
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, clock.now(conn))
-        call_id = _seed_active_call(conn, eng.services.rng)
+        call_id, _ = _open_call_session_for_seeded_call(eng, eng.services.rng)
         status, body, _, _ = _request(
             eng.port,
             "POST",
@@ -1864,6 +1895,56 @@ def test_contacts_argument_rejects_a_dict_not_only_lists(tmp_path):
         conn.close()
 
 
+def test_generic_dispatch_works_under_a_call_invocation(tmp_path):
+    eng, conn = _build_seeded_engine(tmp_path / "call-session-dispatch")
+    eng.start()
+    try:
+        call_id, _ = _open_call_session_for_seeded_call(eng, eng.services.rng)
+
+        status, listed, _, _ = _request(
+            eng.port,
+            "POST",
+            _ops_path("crm.list_customers"),
+            token=eng.tokens.agent,
+            body={"limit": 1},
+        )
+        assert status == 200, listed
+        assert isinstance(listed["data"], list)
+        assert "next_cursor" in listed["meta"]
+
+        status, single, _, _ = _request(
+            eng.port,
+            "POST",
+            _ops_path("crm.get_customer"),
+            token=eng.tokens.agent,
+            body={"customer_id": 1},
+        )
+        assert status == 200, single
+        assert int(single["data"]["id"]) == 1
+
+        status, queried, _, _ = _request(
+            eng.port,
+            "POST",
+            _ops_path("query.sql"),
+            token=eng.tokens.agent,
+            body={"statement": "SELECT COUNT(*) AS c FROM customers"},
+        )
+        assert status == 200, queried
+        assert queried["data"]["columns"] == ["c"]
+
+        status, rejected, _, _ = _request(
+            eng.port,
+            "POST",
+            _ops_path("calls.reject"),
+            token=eng.tokens.agent,
+            body={"call_id": call_id, "request_id": "call-session-dispatch-reject"},
+        )
+        assert status == 200, rejected
+    finally:
+        eng.stop()
+        conn.close()
+
+
 def test_validate_operation_identity_prohibits_the_workforce_namespace():
     base = OPERATIONS_BY_NAME["crm.get_customer"]
     smuggled = dataclasses.replace(
@@ -1884,8 +1965,7 @@ def test_mutation_happy_path_replay_and_validation_over_ops(tmp_path):
     eng, conn = _build_seeded_engine(tmp_path / "mutation")
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, clock.now(conn))
-        call_id = _seed_active_call(conn, eng.services.rng)
+        call_id, _ = _open_call_session_for_seeded_call(eng, eng.services.rng)
         status, bad_arg, _, _ = _request(
             eng.port,
             "POST",
@@ -1943,8 +2023,7 @@ def test_remaining_mutations_happy_path_over_ops(tmp_path):
     eng.start()
     try:
         rng = eng.services.rng
-        _open_call_session(eng.port, eng.tokens.control, clock.now(conn))
-        new_job_call_id = _seed_active_call(conn, rng)
+        new_job_call_id, _ = _open_call_session_for_seeded_call(eng, rng)
 
         status, body, _, _ = _request(
             eng.port,

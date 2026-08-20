@@ -71,6 +71,8 @@ def insert_run(
     harness_name: str | None = None,
     harness_version: str | None = None,
     context_policy: str | None = None,
+    attempt_definition: str | None = None,
+    track: str | None = None,
     system_prompt_hash: str | None = None,
 ) -> None:
     if not conn.in_transaction:
@@ -85,8 +87,8 @@ def insert_run(
             run_id, spec_version, config_version, config_hash, master_seed,
             start_at_ms, first_service_date, last_service_date, timezone,
             status, model_id, harness_name, harness_version, context_policy,
-            system_prompt_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            attempt_definition, track, system_prompt_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             run_id,
@@ -103,6 +105,8 @@ def insert_run(
             harness_name,
             harness_version,
             context_policy,
+            attempt_definition,
+            track,
             system_prompt_hash,
         ),
     )

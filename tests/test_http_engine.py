@@ -17,10 +17,10 @@ import trades_bench.http_engine as http_engine
 from trades_bench import clock
 from trades_bench.config import load_run_config
 from trades_bench.db import insert_run
-from trades_bench.enums import InvocationType, RunStatus
+from trades_bench.enums import EVENT_PRIORITY, EventKind, InvocationType, RunStatus
 from trades_bench.events import Events
 from trades_bench.http_engine import Engine, open_engine_connection
-from trades_bench.invocations import Invocations
+from trades_bench.invocations import PROMPT_TEMPLATE_VERSION, Invocations
 from trades_bench.ledger import Ledger
 from trades_bench.migrations import migrate
 from trades_bench.rng import Rng, sqlite_audit_recorder
@@ -98,16 +98,34 @@ def _request(port: int, method: str, path: str, *, token: str | None = None, bod
     return status, parsed, headers_out
 
 
-def _open_call_session(port: int, control_token: str, ts_ms: int = 1_000_000) -> int:
+def _open_session(engine: Engine, ts_ms: int = 1_000_000) -> int:
+    _seed_opening_invocation_event(engine.services.conn, ts_ms)
     status, body, _ = _request(
-        port,
+        engine.port,
         "POST",
         "/v1/control/next_invocation",
-        token=control_token,
-        body={"type": "call", "ts_ms": ts_ms, "request_id": uuid.uuid4().hex},
+        token=engine.tokens.control,
+        body={"request_id": uuid.uuid4().hex},
     )
     assert status == 200, body
     return int(body["data"]["invocation_id"])
+
+
+def _seed_opening_invocation_event(conn, ts_ms: int = 1_000_000) -> int:
+    conn.execute("BEGIN")
+    cur = conn.execute(
+        "INSERT INTO _events (kind, scheduled_at_ms, priority, payload_version, "
+        "status, created_at_ms, applied_at_ms) VALUES (?, ?, ?, 1, 'applied', ?, ?)",
+        (
+            EventKind.OPENING_INVOCATION.value,
+            ts_ms,
+            EVENT_PRIORITY[EventKind.OPENING_INVOCATION],
+            ts_ms,
+            ts_ms,
+        ),
+    )
+    conn.execute("COMMIT")
+    return int(cur.lastrowid)
 
 
 def _force_reset_close(sock: socket.socket) -> None:
@@ -259,19 +277,75 @@ def test_sql_without_open_session_is_no_active_session(engine):
     assert body["error"]["code"] == "no_active_session"
 
 
-def test_control_next_invocation_envelope_shape(engine):
+def test_control_next_invocation_envelope_shape(tmp_path):
+    eng, conn = _build_engine(tmp_path / "next-shape")
+    _seed_opening_invocation_event(conn)
+    eng.start()
+    try:
+        status, body, _ = _request(
+            eng.port,
+            "POST",
+            "/v1/control/next_invocation",
+            token=eng.tokens.control,
+            body={"request_id": "next-invocation-1"},
+        )
+        assert status == 200, body
+        assert body.keys() == {"data", "meta"}
+        assert body["meta"].keys() == {"as_of", "invocation_id", "request_id", "spec_version"}
+        data = body["data"]
+        assert data.keys() == {
+            "invocation_id",
+            "kind",
+            "ts_ms",
+            "payload",
+            "prompt_version",
+            "applied_events",
+        }
+        assert data["invocation_id"] > 0
+        assert data["kind"] == "opening"
+        assert data["ts_ms"] == 1_000_000
+        assert data["prompt_version"] == PROMPT_TEMPLATE_VERSION
+        assert data["applied_events"] == []
+        assert body["meta"]["invocation_id"] == data["invocation_id"]
+    finally:
+        eng.stop()
+        conn.close()
+
+
+def test_control_next_invocation_records_the_prompt_template_version(tmp_path):
+    eng, conn = _build_engine(tmp_path / "next-version")
+    _seed_opening_invocation_event(conn)
+    eng.start()
+    try:
+        status, body, _ = _request(
+            eng.port,
+            "POST",
+            "/v1/control/next_invocation",
+            token=eng.tokens.control,
+            body={"request_id": "next-invocation-1"},
+        )
+        assert status == 200, body
+        row = conn.execute(
+            "SELECT prompt_version FROM _invocations WHERE invocation_id = ?",
+            (body["data"]["invocation_id"],),
+        ).fetchone()
+        assert row["prompt_version"] == PROMPT_TEMPLATE_VERSION
+    finally:
+        eng.stop()
+        conn.close()
+
+
+def test_control_next_invocation_rejects_the_retired_request_fields(engine):
     status, body, _ = _request(
         engine.port,
         "POST",
         "/v1/control/next_invocation",
         token=engine.tokens.control,
-        body={"type": "opening", "ts_ms": 1_000_000, "request_id": "open-opening-1"},
+        body={"type": "call", "ts_ms": 1_000_000, "request_id": "next-retired-1"},
     )
-    assert status == 200
-    assert body.keys() == {"data", "meta"}
-    assert body["meta"].keys() == {"as_of", "invocation_id", "request_id", "spec_version"}
-    assert body["data"]["invocation_id"] > 0
-    assert body["meta"]["invocation_id"] == body["data"]["invocation_id"]
+    assert status == 400
+    assert body["error"]["code"] == "invalid_request"
+    assert body["error"]["details"]["field"] == "ts_ms"
 
 
 def test_control_failure_envelope_shape(engine):
@@ -289,7 +363,7 @@ def test_control_failure_envelope_shape(engine):
 
 
 def test_complete_invocation_round_trip(engine):
-    invocation_id = _open_call_session(engine.port, engine.tokens.control)
+    invocation_id = _open_session(engine)
     status, body, _ = _request(
         engine.port,
         "POST",
@@ -314,7 +388,7 @@ def test_complete_invocation_unknown_id_is_not_found(engine):
 
 
 def test_sql_after_open_session_returns_shaped_result(engine):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
     status, body, _ = _request(
         engine.port, "POST", "/v1/sql", token=engine.tokens.agent, body={"sql": "SELECT 1 AS one"}
     )
@@ -329,7 +403,7 @@ def test_sql_after_open_session_returns_shaped_result(engine):
 
 
 def test_sql_denied_statement_is_sql_error_shape(engine):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
     status, body, _ = _request(
         engine.port,
         "POST",
@@ -425,7 +499,7 @@ def test_sql_statement_timeout_returns_sql_timeout(tmp_path):
     )
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         status, body, _ = _request(
             eng.port, "POST", "/v1/sql", token=eng.tokens.agent, body={"sql": _SLOW_SQL}
         )
@@ -447,7 +521,7 @@ def test_request_deadline_exceeded_for_slow_sql(tmp_path):
     )
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         status, body, _ = _request(
             eng.port, "POST", "/v1/sql", token=eng.tokens.agent, body={"sql": _SLOW_SQL}
         )
@@ -462,7 +536,7 @@ def test_client_disconnect_releases_lock_promptly(tmp_path):
     eng, conn = _build_engine(tmp_path / "disconnect", with_slow_customers=True)
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         natural_elapsed = _measure_natural_runtime(eng.port, eng.tokens.agent, _SLOW_SQL)
         assert natural_elapsed > 1.5, "slow query finishes too fast on this machine to discriminate"
         acquire_window = natural_elapsed / 3
@@ -500,7 +574,7 @@ def test_forcefully_reset_client_also_releases_lock_promptly(tmp_path):
     eng, conn = _build_engine(tmp_path / "disconnect-rst", with_slow_customers=True)
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         natural_elapsed = _measure_natural_runtime(eng.port, eng.tokens.agent, _SLOW_SQL)
         assert natural_elapsed > 1.5, "slow query finishes too fast on this machine to discriminate"
         acquire_window = natural_elapsed / 3
@@ -530,7 +604,7 @@ def test_half_closed_client_is_treated_as_disconnected_and_releases_lock_promptl
     eng, conn = _build_engine(tmp_path / "halfclose", with_slow_customers=True)
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         natural_elapsed = _measure_natural_runtime(eng.port, eng.tokens.agent, _SLOW_SQL)
         assert natural_elapsed > 1.5, "slow query finishes too fast on this machine to discriminate"
         acquire_window = natural_elapsed / 3
@@ -566,7 +640,7 @@ def test_half_closed_client_is_treated_as_disconnected_and_releases_lock_promptl
 
 
 def test_sql_reads_create_no_idempotency_record(engine):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
     before = engine.services.conn.execute("SELECT COUNT(*) FROM _idempotency").fetchone()[0]
     status, body, headers = _request(
         engine.port, "POST", "/v1/sql", token=engine.tokens.agent, body={"sql": "SELECT 1"}
@@ -582,7 +656,7 @@ def test_concurrent_requests_are_serialized_without_error(tmp_path, monkeypatch)
     eng.start()
     try:
         intervals = _instrument_sql_serialization(monkeypatch)
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         results = []
         lock = threading.Lock()
 
@@ -607,7 +681,7 @@ def test_concurrent_requests_are_serialized_without_error(tmp_path, monkeypatch)
 
 
 def test_complete_invocation_retry_with_same_request_id_replays(engine):
-    invocation_id = _open_call_session(engine.port, engine.tokens.control)
+    invocation_id = _open_session(engine)
     status1, body1, headers1 = _request(
         engine.port,
         "POST",
@@ -632,6 +706,7 @@ def test_complete_invocation_retry_with_same_request_id_replays(engine):
 
 def test_next_invocation_retry_with_same_request_id_replays(tmp_path):
     eng, conn = _build_engine(tmp_path / "replay-open")
+    _seed_opening_invocation_event(conn)
     eng.start()
     try:
         status1, body1, headers1 = _request(
@@ -639,7 +714,7 @@ def test_next_invocation_retry_with_same_request_id_replays(tmp_path):
             "POST",
             "/v1/control/next_invocation",
             token=eng.tokens.control,
-            body={"type": "call", "ts_ms": 1_000_000, "request_id": "open-retry-1"},
+            body={"request_id": "open-retry-1"},
         )
         assert status1 == 200
         assert "X-CSR-Idempotent-Replay" not in headers1
@@ -649,7 +724,7 @@ def test_next_invocation_retry_with_same_request_id_replays(tmp_path):
             "POST",
             "/v1/control/next_invocation",
             token=eng.tokens.control,
-            body={"type": "call", "ts_ms": 1_000_000, "request_id": "open-retry-1"},
+            body={"request_id": "open-retry-1"},
         )
         assert status2 == 200
         assert body2 == body1
@@ -660,7 +735,7 @@ def test_next_invocation_retry_with_same_request_id_replays(tmp_path):
 
 
 def test_complete_invocation_retry_with_different_args_returns_request_id_conflict(engine):
-    invocation_id = _open_call_session(engine.port, engine.tokens.control)
+    invocation_id = _open_session(engine)
     status1, _, _ = _request(
         engine.port,
         "POST",
@@ -681,18 +756,31 @@ def test_complete_invocation_retry_with_different_args_returns_request_id_confli
     assert body2["error"]["code"] == "request_id_conflict"
 
 
-def test_double_open_returns_conflict_with_invocation_already_active_rule(engine):
-    _open_call_session(engine.port, engine.tokens.control)
-    status, body, _ = _request(
-        engine.port,
-        "POST",
-        "/v1/control/next_invocation",
-        token=engine.tokens.control,
-        body={"type": "call", "ts_ms": 1_000_000, "request_id": "open-conflict-1"},
-    )
-    assert status == 409
-    assert body["error"]["code"] == "conflict"
-    assert body["error"]["details"]["rule"] == "invocation_already_active"
+def test_next_invocation_never_opens_a_second_invocation(tmp_path):
+    eng, conn = _build_engine(tmp_path / "no-second-open")
+    _seed_opening_invocation_event(conn)
+    eng.start()
+    try:
+        _status, first, _ = _request(
+            eng.port,
+            "POST",
+            "/v1/control/next_invocation",
+            token=eng.tokens.control,
+            body={"request_id": "next-invocation-1"},
+        )
+        _status, second, _ = _request(
+            eng.port,
+            "POST",
+            "/v1/control/next_invocation",
+            token=eng.tokens.control,
+            body={"request_id": "next-invocation-2"},
+        )
+        assert second["data"]["invocation_id"] == first["data"]["invocation_id"]
+        count = conn.execute("SELECT COUNT(*) c FROM _invocations").fetchone()["c"]
+        assert count == 1
+    finally:
+        eng.stop()
+        conn.close()
 
 
 def test_command_with_no_invocation_open_returns_no_active_session(engine):
@@ -709,7 +797,7 @@ def test_native_failure_envelopes_report_current_simulated_time_not_boot(tmp_pat
     )
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, ts_ms=5_000_000)
+        _open_session(eng, ts_ms=5_000_000)
         expected = clock.to_iso8601(clock.now(conn))
 
         status, body, _ = _request(eng.port, "POST", "/v1/sql", body={"sql": "SELECT 1"})
@@ -743,7 +831,7 @@ def test_native_failure_envelopes_report_current_simulated_time_not_boot(tmp_pat
 
 
 def test_agent_token_on_control_route_matches_unknown_route_bytes_after_clock_advance(engine):
-    _open_call_session(engine.port, engine.tokens.control, ts_ms=3_000_000)
+    _open_session(engine, ts_ms=3_000_000)
     unknown_status, unknown_body, _ = _request(engine.port, "POST", "/v1/does-not-exist")
     status, body, _ = _request(
         engine.port,
@@ -793,7 +881,7 @@ def test_sql_without_open_session_and_malformed_body_is_no_active_session(engine
 
 
 def test_sql_response_meta_invocation_id_matches_open_invocation(engine):
-    invocation_id = _open_call_session(engine.port, engine.tokens.control)
+    invocation_id = _open_session(engine)
     status, body, _ = _request(
         engine.port, "POST", "/v1/sql", token=engine.tokens.agent, body={"sql": "SELECT 1 AS one"}
     )
@@ -802,7 +890,7 @@ def test_sql_response_meta_invocation_id_matches_open_invocation(engine):
 
 
 def test_sql_response_meta_invocation_id_updates_across_session_boundary(engine):
-    first_invocation_id = _open_call_session(engine.port, engine.tokens.control)
+    first_invocation_id = _open_session(engine)
     status, _, _ = _request(
         engine.port,
         "POST",
@@ -812,9 +900,7 @@ def test_sql_response_meta_invocation_id_updates_across_session_boundary(engine)
     )
     assert status == 200
 
-    second_invocation_id = _open_call_session(
-        engine.port, engine.tokens.control, ts_ms=2_000_000
-    )
+    second_invocation_id = _open_session(engine, ts_ms=2_000_000)
     assert second_invocation_id != first_invocation_id
 
     status, body, _ = _request(
@@ -825,7 +911,7 @@ def test_sql_response_meta_invocation_id_updates_across_session_boundary(engine)
 
 
 def test_sql_blob_literal_is_hex_encoded_in_response(engine):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
     status, body, _ = _request(
         engine.port, "POST", "/v1/sql", token=engine.tokens.agent, body={"sql": "SELECT x'41'"}
     )
@@ -834,7 +920,7 @@ def test_sql_blob_literal_is_hex_encoded_in_response(engine):
 
 
 def test_request_id_overlong_is_invalid_request(engine):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
     max_chars = engine.config.get_int("interface.error_echo_max_chars")
     status, body, _ = _request(
         engine.port,
@@ -849,7 +935,7 @@ def test_request_id_overlong_is_invalid_request(engine):
 
 
 def test_request_id_non_string_is_invalid_request(engine):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
     status, body, _ = _request(
         engine.port,
         "POST",
@@ -863,7 +949,7 @@ def test_request_id_non_string_is_invalid_request(engine):
 
 
 def test_request_id_reserved_prefix_is_invalid_request(engine):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
     status, body, _ = _request(
         engine.port,
         "POST",
@@ -918,7 +1004,7 @@ def test_health_server_header_has_no_interpreter_version(engine):
 
 @pytest.mark.parametrize("value", ["5", True, 2.7])
 def test_max_rows_non_int_types_return_invalid_request(engine, value):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
     status, body, _ = _request(
         engine.port,
         "POST",
@@ -943,7 +1029,7 @@ def test_control_type_list_is_invalid_request_not_a_dropped_connection(engine):
 
 
 def test_unexpected_exception_returns_internal_error_envelope(engine, monkeypatch):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
 
     def boom(self, body, deadline_at):
         raise RuntimeError("simulated failure")
@@ -969,7 +1055,7 @@ class _RaisingSqlConn:
 
 
 def test_sql_execution_non_operational_sqlite_error_is_sql_not_permitted(engine, monkeypatch):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
     monkeypatch.setattr(engine, "sql_conn", _RaisingSqlConn(engine.sql_conn))
     status, body, _ = _request(
         engine.port, "POST", "/v1/sql", token=engine.tokens.agent, body={"sql": "SELECT 1"}
@@ -992,7 +1078,7 @@ def test_pooled_connection_survives_unauthorized_then_valid_request(engine):
         assert resp1.status == 401
         assert body1["error"]["code"] == "unauthorized"
 
-        _open_call_session(engine.port, engine.tokens.control)
+        _open_session(engine)
         conn.request(
             "POST",
             "/v1/sql",
@@ -1097,7 +1183,7 @@ def test_expired_watchdog_does_not_escape_privileged_transaction_tail(tmp_path):
 def test_stop_waits_for_in_flight_request_then_returns(tmp_path):
     eng, conn = _build_engine(tmp_path / "stop-inflight", with_slow_customers=True)
     eng.start()
-    _open_call_session(eng.port, eng.tokens.control)
+    _open_session(eng)
     result: dict[str, object] = {}
 
     def worker():
@@ -1212,7 +1298,7 @@ class _InterruptingConn:
 
 
 def test_interrupted_view_read_maps_to_deadline_exceeded_not_internal_error(engine, monkeypatch):
-    _open_call_session(engine.port, engine.tokens.control)
+    _open_session(engine)
 
     def force_fired(self):
         self.fired = "deadline"
@@ -1243,7 +1329,7 @@ class _ProgressHandlerSpy:
 
 
 def test_weather_read_installs_a_watchdog(engine, monkeypatch):
-    _open_call_session(engine.port, engine.tokens.control, ts_ms=1_000_000)
+    _open_session(engine, ts_ms=1_000_000)
     today = clock.now_service_date(engine.services.conn)
     spy = _ProgressHandlerSpy(engine.services.conn)
     monkeypatch.setattr(engine.services, "conn", spy)
@@ -1260,7 +1346,7 @@ def test_weather_read_installs_a_watchdog(engine, monkeypatch):
 
 
 def test_maps_read_installs_a_watchdog(engine, monkeypatch):
-    _open_call_session(engine.port, engine.tokens.control, ts_ms=1_000_000)
+    _open_session(engine, ts_ms=1_000_000)
     spy = _ProgressHandlerSpy(engine.services.conn)
     monkeypatch.setattr(engine.services, "conn", spy)
 
@@ -1282,7 +1368,7 @@ def test_pre_lock_as_of_reflects_committed_state_not_a_mid_transaction_write(tmp
     eng, conn = _build_engine(tmp_path / "prelock-asof")
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, ts_ms=2_000_000)
+        _open_session(eng, ts_ms=2_000_000)
         committed = clock.to_iso8601(clock.now(eng.services.conn))
 
         db_module.begin(eng.services.conn)

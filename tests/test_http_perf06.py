@@ -13,7 +13,7 @@ from test_http_engine import (
     _instrument_sql_serialization,
     _join_all_or_fail,
     _measure_natural_runtime,
-    _open_call_session,
+    _open_session,
     _request,
 )
 
@@ -31,7 +31,7 @@ def test_sql_statement_timeout_is_clean_structured_and_leaks_nothing(tmp_path):
     )
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         status, body, _ = _request(
             eng.port, "POST", "/v1/sql", token=eng.tokens.agent, body={"sql": _SLOW_SQL}
         )
@@ -68,7 +68,7 @@ def test_sql_row_limit_truncates_with_explicit_flag(tmp_path):
             )
         conn.execute("COMMIT")
 
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         status, body, _ = _request(
             eng.port,
             "POST",
@@ -130,7 +130,7 @@ def test_max_rows_may_only_lower_the_configured_ceiling(tmp_path):
             )
         conn.execute("COMMIT")
 
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         status, body, _ = _request(
             eng.port,
             "POST",
@@ -162,7 +162,7 @@ def test_concurrent_requests_serialize_without_interleaved_state_corruption(tmp_
             )
         conn.execute("COMMIT")
 
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         results: dict[int, tuple[int, dict]] = {}
         lock = threading.Lock()
 
@@ -198,7 +198,7 @@ def test_client_disconnect_mid_slow_query_releases_lock_promptly_and_next_reques
     eng, conn = _build_engine(tmp_path / "perf06-wedge", with_slow_customers=True)
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
 
         natural_elapsed = _measure_natural_runtime(eng.port, eng.tokens.agent, _SLOW_SQL)
         if natural_elapsed <= 1.5:

@@ -5,7 +5,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from decimal import ROUND_FLOOR, Decimal, localcontext
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation, localcontext
 from typing import Any
 
 from .constants import CONSTANT_ENTRIES, JOB_TYPE_CODES, SUPPORTED_CATEGORIES
@@ -1528,6 +1528,39 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
     ),
     (
+        "harness.invocation_timeout_seconds",
+        "int",
+        900,
+        {
+            "min": 1,
+            "deferred": "provisional",
+            "description": "Wall-clock seconds a single invocation may occupy the agent "
+            "before the harness terminates the turn.",
+        },
+    ),
+    (
+        "harness.model_retry_limit",
+        "int",
+        3,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Retries the harness makes after a model or provider failure "
+            "before the run is marked failed; retries are never attempts.",
+        },
+    ),
+    (
+        "harness.model_retry_backoff_seconds",
+        "int",
+        10,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Wall-clock seconds the harness waits between retries of a "
+            "failed model turn.",
+        },
+    ),
+    (
         "reference_policies.reject_heavy.reject_probability",
         "probability",
         Decimal("0.80"),
@@ -2926,6 +2959,57 @@ def load_run_config(
         _thresholds=MappingProxyType(thresholds),
         _canonical_bytes=canon,
         config_hash=digest,
+    )
+
+
+_TEXT_VALUE_TYPES = frozenset({"string", "string_list", "date_string", "month_day_string"})
+_RANGE_VALUE_TYPES = frozenset({"int_range", "decimal_range"})
+
+
+def _decode_canonical(value: Any) -> Any:
+    if isinstance(value, str):
+        try:
+            number = Decimal(value)
+        except InvalidOperation:
+            return value
+        if not number.is_finite():
+            return value
+        return int(number) if "." not in value else number
+    if isinstance(value, list):
+        return [_decode_canonical(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _decode_canonical(item) for key, item in value.items()}
+    return value
+
+
+def config_from_canonical(config_version: str, canonical_json: str) -> RunConfig:
+    stored = json.loads(canonical_json).get("keys", {})
+    registry = assemble_registry()
+    resolved: dict[str, Any] = {}
+    for path, spec in registry.items():
+        if path not in stored:
+            raise _bad(f"the stored configuration is missing {path}")
+        raw = stored[path] if spec.type in _TEXT_VALUE_TYPES else _decode_canonical(stored[path])
+        if spec.type in _RANGE_VALUE_TYPES and isinstance(raw, list) and len(raw) == 2:
+            raw = {"min": raw[0], "max": raw[1]}
+        resolved[path] = validate_value(spec, raw)
+
+    _validate_cross_field(resolved)
+
+    thresholds: dict[str, int] = {}
+    for path, spec in registry.items():
+        if spec.type == "probability":
+            thresholds[path] = probability_threshold(resolved[path])
+
+    canon = canonical_config_bytes(config_version, resolved)
+    from types import MappingProxyType
+
+    return RunConfig(
+        config_version=config_version,
+        resolved=MappingProxyType(resolved),
+        _thresholds=MappingProxyType(thresholds),
+        _canonical_bytes=canon,
+        config_hash=hashlib.sha256(canon).hexdigest(),
     )
 
 

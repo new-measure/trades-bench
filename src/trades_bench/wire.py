@@ -113,6 +113,8 @@ _VALIDATION_RULE_BY_ENGINE_CODE: Mapping[ErrorCode, str] = {
 
 _INVOCATION_ALREADY_ACTIVE_REASON = "invocation_already_active"
 
+_ATTEMPT_NUMBER_MISMATCH_REASON = "attempt_number_mismatch"
+
 
 def incident_id_for(request_id: str) -> str:
     digest = hashlib.sha256(f"internal_error:{request_id}".encode()).hexdigest()
@@ -156,6 +158,9 @@ def translate_error(
     elif engine_code in _CONFLICT_RULE_CODES:
         reason = engine_details.get("reason")
         details = {"rule": str(reason) if reason else engine_code.value}
+        expected = engine_details.get("expected")
+        if reason == _ATTEMPT_NUMBER_MISMATCH_REASON and isinstance(expected, int):
+            details["expected"] = expected
     elif engine_code is ErrorCode.INVOCATION_CONFLICT and wire_code is WireCode.CONFLICT:
         details = {"rule": _INVOCATION_ALREADY_ACTIVE_REASON}
     elif engine_code in _VALIDATION_RULE_BY_ENGINE_CODE:

@@ -10,6 +10,7 @@ import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config
 from trades_bench import clock
+from trades_bench.enums import EVENT_PRIORITY, EventKind
 from trades_bench.events import Events
 from trades_bench.http_engine import Engine, open_engine_connection
 from trades_bench.invocations import Invocations
@@ -114,13 +115,27 @@ def _request(port: int, method: str, path: str, *, token: str | None = None, bod
     return status, raw, json.loads(raw)
 
 
-def _open_call_session(port: int, control_token: str, ts_ms: int) -> int:
+def _open_session(engine, ts_ms: int) -> int:
+    conn = engine.services.conn
+    conn.execute("BEGIN")
+    conn.execute(
+        "INSERT INTO _events (kind, scheduled_at_ms, priority, payload_version, "
+        "status, created_at_ms, applied_at_ms) VALUES (?, ?, ?, 1, 'applied', ?, ?)",
+        (
+            EventKind.OPENING_INVOCATION.value,
+            ts_ms,
+            EVENT_PRIORITY[EventKind.OPENING_INVOCATION],
+            ts_ms,
+            ts_ms,
+        ),
+    )
+    conn.execute("COMMIT")
     status, _, body = _request(
-        port,
+        engine.port,
         "POST",
         "/v1/control/next_invocation",
-        token=control_token,
-        body={"type": "call", "ts_ms": ts_ms, "request_id": f"corpus-open-{ts_ms}"},
+        token=engine.tokens.control,
+        body={"request_id": f"corpus-open-{uuid.uuid4().hex}"},
     )
     assert status == 200, body
     return int(body["data"]["invocation_id"])
@@ -131,7 +146,7 @@ def warm_engine(tmp_path_factory):
     eng, conn = _build_warm_engine(tmp_path_factory.mktemp("http-corpus"))
     eng.start()
     now_ms = clock.now(conn)
-    _open_call_session(eng.port, eng.tokens.control, now_ms)
+    _open_session(eng, now_ms)
     try:
         yield eng
     finally:

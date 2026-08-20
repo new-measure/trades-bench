@@ -64,7 +64,7 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
     assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    assert len(rc.resolved) == 158
+    assert len(rc.resolved) == 161
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     with pytest.raises(TypeError):
         rc.resolved["constants.opening_hour"] = 9  # type: ignore[index]
@@ -1175,3 +1175,41 @@ def test_shipped_invoice_and_material_defaults_satisfy_every_cross_field_constra
             <= by_segment["apartment"]["mode_cents"]
             <= by_segment["commercial"]["mode_cents"]
         )
+
+
+def test_harness_keys_resolve_from_shipped_defaults():
+    rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
+    assert rc.get_int("harness.invocation_timeout_seconds") == 900
+    assert rc.get_int("harness.model_retry_limit") == 3
+    assert rc.get_int("harness.model_retry_backoff_seconds") == 10
+
+
+@pytest.mark.parametrize(
+    ("path", "below_min"),
+    [
+        ("harness.invocation_timeout_seconds", 0),
+        ("harness.model_retry_limit", -1),
+        ("harness.model_retry_backoff_seconds", -1),
+    ],
+)
+def test_harness_keys_enforce_their_minimums(path, below_min):
+    with pytest.raises(EngineError) as ei:
+        load_run_config(
+            defaults_json=_defaults_file(),
+            scenario_json=json.dumps({"keys": {path: below_min}}),
+        )
+    assert ei.value.code is ErrorCode.CONFIG_VALUE_INVALID
+
+
+def test_harness_keys_are_overridable_operational_limits():
+    rc = load_run_config(
+        defaults_json=_defaults_file(),
+        scenario_json=json.dumps({"keys": {"harness.model_retry_limit": 0}}),
+    )
+    assert rc.get_int("harness.model_retry_limit") == 0
+    covered = {
+        path
+        for item in json.loads(build_deferred_manifest())["items"]
+        for path in item["key_paths"]
+    }
+    assert not any(path.startswith("harness.") for path in covered)

@@ -5,7 +5,7 @@ import sqlite3
 
 import pytest
 
-from test_http_engine import _build_engine, _open_call_session, _request
+from test_http_engine import _build_engine, _open_session, _request
 from test_sql_gate import DENIED_SQL
 from test_vis_corpus import NEW_DENIED_SQL
 from trades_bench.db import connect, insert_run
@@ -466,7 +466,7 @@ def test_http_sql_row_truncation(tmp_path):
     )
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         status, body, _ = _request(
             eng.port,
             "POST",
@@ -490,7 +490,7 @@ def test_http_sql_byte_truncation(tmp_path):
     )
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
         status, body, _ = _request(
             eng.port,
             "POST",
@@ -510,7 +510,7 @@ def test_http_sql_new_wire_codes_end_to_end(tmp_path):
     eng, conn = _build_engine(tmp_path / "wirecodes")
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control)
+        _open_session(eng)
 
         status, body, _ = _request(
             eng.port,
@@ -579,7 +579,7 @@ def test_time_filter_survives_every_spelling_of_the_base_table(tmp_path):
     conn.execute("COMMIT")
     eng.start()
     try:
-        _open_call_session(eng.port, eng.tokens.control, 1_000_000)
+        _open_session(eng, 1_000_000)
 
         status, body, _ = _request(
             eng.port,

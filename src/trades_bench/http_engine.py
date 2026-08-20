@@ -14,10 +14,11 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import appointments, booking, calls, clock, crm, db
+from . import appointments, booking, calls, clock, control, crm, db
 from .config import RunConfig
+from .controller import Controller
 from .enums import InvocationType, RunStatus
-from .errors import EngineError, ErrorCode, ok_response
+from .errors import EngineError, ErrorCode
 from .geo_reader import GeoArtifact
 from .ops_read import (
     execute_maps,
@@ -30,7 +31,15 @@ from .ops_read import (
 from .registry import OPERATIONS_BY_NAME, OperationSpec
 from .sql_gate import open_agent_session
 from .sql_static import SqlRejected, check_static, open_shadow_connection, validate_relations
-from .txn import Services, command_with_replay, is_reserved
+from .txn import (
+    PRIVILEGED_NAMESPACE,
+    Services,
+    command_with_replay,
+    fingerprint,
+    is_reserved,
+    privileged_request_id,
+    privileged_with_replay,
+)
 from .txn import run_status as _txn_run_status
 from .wire import (
     WireCode,
@@ -59,8 +68,16 @@ _STOP_DRAIN_TIMEOUT_SECONDS = 20.0
 _STOP_DRAIN_POLL_SECONDS = 0.02
 _LOOPBACK_HOST = "127.0.0.1"
 
-_CONTROL_OPERATIONS = frozenset({"next_invocation", "complete_invocation"})
-_INVOCATION_TYPES = {member.value: member for member in InvocationType}
+_CONTROL_FIELDS: dict[str, frozenset[str]] = {
+    "next_invocation": frozenset({"request_id"}),
+    "complete_invocation": frozenset({"request_id", "invocation_id"}),
+    "record_call_attempt": frozenset({"request_id", "call_id", "attempt_number"}),
+    "record_final_unanswered_attempt": frozenset({"request_id", "call_id", "attempt_number"}),
+    "mark_call_unanswered": frozenset({"request_id", "call_id"}),
+    "fail_run": frozenset({"request_id", "reason"}),
+}
+
+_CONTROL_OPERATIONS = frozenset(_CONTROL_FIELDS)
 
 
 def _mutation_fingerprint_args(args: dict[str, object]) -> dict[str, object]:
@@ -225,6 +242,42 @@ if set(_MUTATION_DISPATCH) != _REGISTRY_MUTATION_NAMES:
         f"missing={sorted(_REGISTRY_MUTATION_NAMES - set(_MUTATION_DISPATCH))} "
         f"extra={sorted(set(_MUTATION_DISPATCH) - _REGISTRY_MUTATION_NAMES)}"
     )
+
+
+def _required_int(body: dict, field: str) -> int:
+    value = body.get(field)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise EngineError(
+            ErrorCode.INVALID_ARGUMENT,
+            f"{field} must be an integer",
+            details={"field": field},
+        )
+    return int(value)
+
+
+def _invocation_id_of(response: bytes) -> int | None:
+    body = json.loads(response)
+    if not body.get("ok"):
+        return None
+    result = body.get("result") or {}
+    value = result.get("invocation_id")
+    return int(value) if isinstance(value, int) else None
+
+
+def _unsettled_call_of(conn: sqlite3.Connection, invocation_id: int) -> int | None:
+    row = conn.execute(
+        "SELECT type, origin_event_id FROM _invocations WHERE invocation_id = ?",
+        (invocation_id,),
+    ).fetchone()
+    if row is None or row["type"] != InvocationType.CALL.value:
+        return None
+    if row["origin_event_id"] is None:
+        return None
+    try:
+        call_id = calls.arrived_call_id(conn, int(row["origin_event_id"]))
+    except EngineError:
+        return None
+    return None if calls.reached_terminal_state(conn, call_id) else call_id
 
 
 def open_engine_connection(path: str | Path) -> sqlite3.Connection:
@@ -403,6 +456,7 @@ class Engine:
         db_path: str | Path,
         host: str = "127.0.0.1",
         artifact: GeoArtifact | None = None,
+        tokens: Tokens | None = None,
     ) -> None:
         if host != _LOOPBACK_HOST:
             raise ValueError(f"engine must bind to {_LOOPBACK_HOST} only, got {host!r}")
@@ -411,7 +465,8 @@ class Engine:
         self.db_path = str(db_path)
         self.host = host
         self.artifact = artifact
-        self.tokens = Tokens.generate()
+        self.tokens = tokens if tokens is not None else Tokens.generate()
+        self.controller = Controller.from_services(services, config, artifact=artifact)
         self.request_deadline_seconds = config.get_int("interface.request_deadline_seconds")
         self.lock_acquire_timeout_seconds = config.get_int("interface.lock_acquire_timeout_seconds")
         self.max_inflight_requests = config.get_int("interface.max_inflight_requests")
@@ -690,14 +745,20 @@ class _Handler(BaseHTTPRequestHandler):
             translated = native_failure(WireCode.INVALID_REQUEST, details={"field": "request_id"})
             return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of()), False
 
-        if operation == "next_invocation":
-            engine_bytes, invocation_id, fired, replayed = self._open_invocation(
-                body, request_id, deadline_at
-            )
-        else:
-            engine_bytes, invocation_id, fired, replayed = self._complete_invocation(
-                body, request_id, deadline_at
-            )
+        unknown = sorted(set(body) - _CONTROL_FIELDS[operation])
+        if unknown:
+            translated = native_failure(WireCode.INVALID_REQUEST, details={"field": unknown[0]})
+            return translated.status, build_failure_envelope(translated, as_of=engine.current_as_of()), False
+
+        handler = {
+            "next_invocation": self._next_invocation,
+            "complete_invocation": self._complete_invocation,
+            "record_call_attempt": self._record_call_attempt,
+            "record_final_unanswered_attempt": self._record_final_unanswered_attempt,
+            "mark_call_unanswered": self._mark_call_unanswered,
+            "fail_run": self._fail_run,
+        }[operation]
+        engine_bytes, invocation_id, fired, replayed = handler(body, request_id, deadline_at)
 
         as_of = engine.current_as_of()
         if fired in ("deadline", "disconnected"):
@@ -709,61 +770,200 @@ class _Handler(BaseHTTPRequestHandler):
         )
         return status, envelope, replayed
 
-    def _open_invocation(
-        self, body: dict, request_id: str, deadline_at: float
-    ) -> tuple[bytes, int | None, str | None, bool]:
-        engine = self.engine
-        conn = engine.services.conn
-        type_raw = body.get("type")
-        if not isinstance(type_raw, str) or type_raw not in _INVOCATION_TYPES:
-            error = EngineError(ErrorCode.INVALID_ARGUMENT, "invalid invocation type")
-            return error.to_response(), None, None, False
-        ts_raw = body.get("ts_ms")
-        if ts_raw is None:
-            ts_ms = clock.now(conn)
-        else:
-            try:
-                ts_ms = int(ts_raw)
-            except (TypeError, ValueError):
-                error = EngineError(ErrorCode.INVALID_ARGUMENT, "ts_ms must be an integer")
-                return error.to_response(), None, None, False
-        prompt_version = body.get("prompt_version")
+    def _under_watchdog(self, deadline_at: float, fn: object) -> tuple[object, str | None]:
+        conn = self.engine.services.conn
         watchdog = _Watchdog(deadline_at=deadline_at, sql_timeout_at=None, sock=self.connection)
         conn.set_progress_handler(watchdog.progress_handler, _WATCHDOG_OPCODE_INTERVAL)
         try:
-            opened, replayed = engine.services.invocations.open_with_replay(
-                _INVOCATION_TYPES[type_raw],
-                ts_ms,
-                request_id=request_id,
-                prompt_version=prompt_version,
-                services=engine.services,
-            )
+            result = fn()
         finally:
             conn.set_progress_handler(None, 0)
-        if isinstance(opened, bytes):
-            return opened, None, watchdog.fired, replayed
-        return ok_response({"invocation_id": opened}), int(opened), watchdog.fired, replayed
+        return result, watchdog.fired
+
+    def _cached_control_response(
+        self, privileged_id: str, fingerprint_value: str
+    ) -> tuple[bytes, bool] | None:
+        row = self.engine.services.conn.execute(
+            "SELECT fingerprint, response FROM _idempotency "
+            "WHERE namespace = ? AND request_id = ?",
+            (PRIVILEGED_NAMESPACE, privileged_id),
+        ).fetchone()
+        if row is None:
+            return None
+        if str(row["fingerprint"]) != fingerprint_value:
+            return (
+                EngineError(
+                    ErrorCode.REQUEST_ID_CONFLICT,
+                    f"request_id {privileged_id!r} was already used with different arguments",
+                ).to_response(),
+                False,
+            )
+        return bytes(row["response"]), True
+
+    def _next_invocation(
+        self, body: dict, request_id: str, deadline_at: float
+    ) -> tuple[bytes, int | None, str | None, bool]:
+        engine = self.engine
+        privileged_id = privileged_request_id("control_next_invocation", request_id)
+        fingerprint_value = fingerprint("control.next_invocation", {})
+        cached = self._cached_control_response(privileged_id, fingerprint_value)
+        if cached is not None:
+            response, replayed = cached
+            return response, _invocation_id_of(response), None, replayed
+
+        def work() -> bytes:
+            try:
+                opened = engine.controller.advance_to_invocation()
+            except EngineError as exc:
+                return exc.to_response()
+            if opened is None:
+                result: dict = {
+                    "run_finished": True,
+                    "run_status": _txn_run_status(engine.services.conn).value,
+                }
+            else:
+                result = opened.to_result()
+            stored, _replayed = privileged_with_replay(
+                engine.services,
+                privileged_id,
+                lambda ctx: result,
+                require_status=_txn_run_status(engine.services.conn),
+                fingerprint_value=fingerprint_value,
+            )
+            return stored
+
+        response, fired = self._under_watchdog(deadline_at, work)
+        assert isinstance(response, bytes)
+        return response, _invocation_id_of(response), fired, False
 
     def _complete_invocation(
         self, body: dict, request_id: str, deadline_at: float
     ) -> tuple[bytes, int | None, str | None, bool]:
         engine = self.engine
-        conn = engine.services.conn
-        raw_id = body.get("invocation_id")
         try:
-            invocation_id = int(raw_id)
-        except (TypeError, ValueError):
-            error = EngineError(ErrorCode.INVALID_ARGUMENT, "invocation_id must be an integer")
-            return error.to_response(), None, None, False
-        watchdog = _Watchdog(deadline_at=deadline_at, sql_timeout_at=None, sock=self.connection)
-        conn.set_progress_handler(watchdog.progress_handler, _WATCHDOG_OPCODE_INTERVAL)
-        try:
-            response, replayed = engine.services.invocations.complete_with_replay(
-                invocation_id, request_id=request_id, services=engine.services
+            invocation_id = _required_int(body, "invocation_id")
+        except EngineError as exc:
+            return exc.to_response(), None, None, False
+        unsettled = _unsettled_call_of(engine.services.conn, invocation_id)
+        if unsettled is not None:
+            error = EngineError(
+                ErrorCode.STATE_ILLEGAL,
+                f"call {unsettled} has not reached a terminal state; "
+                f"invocation {invocation_id} cannot complete",
+                details={"reason": "call_still_active", "call_id": unsettled},
             )
-        finally:
-            conn.set_progress_handler(None, 0)
-        return response, invocation_id, watchdog.fired, replayed
+            return error.to_response(), invocation_id, None, False
+        outcome, fired = self._under_watchdog(
+            deadline_at,
+            lambda: engine.services.invocations.complete_with_replay(
+                invocation_id, request_id=request_id, services=engine.services
+            ),
+        )
+        response, replayed = outcome
+        return response, invocation_id, fired, replayed
+
+    def _record_call_attempt(
+        self, body: dict, request_id: str, deadline_at: float
+    ) -> tuple[bytes, int | None, str | None, bool]:
+        engine = self.engine
+        try:
+            call_id = _required_int(body, "call_id")
+            attempt_number = _required_int(body, "attempt_number")
+        except EngineError as exc:
+            return exc.to_response(), None, None, False
+        return self._privileged_control_op(
+            "record_call_attempt",
+            request_id,
+            {"call_id": call_id, "attempt_number": attempt_number},
+            lambda ctx: control.record_call_attempt(
+                ctx, engine.config, call_id=call_id, attempt_number=attempt_number
+            ),
+            deadline_at,
+        )
+
+    def _record_final_unanswered_attempt(
+        self, body: dict, request_id: str, deadline_at: float
+    ) -> tuple[bytes, int | None, str | None, bool]:
+        engine = self.engine
+        try:
+            call_id = _required_int(body, "call_id")
+            attempt_number = _required_int(body, "attempt_number")
+        except EngineError as exc:
+            return exc.to_response(), None, None, False
+        return self._privileged_control_op(
+            "record_final_unanswered_attempt",
+            request_id,
+            {"call_id": call_id, "attempt_number": attempt_number},
+            lambda ctx: control.record_final_unanswered_attempt(
+                ctx,
+                engine.config,
+                call_id=call_id,
+                attempt_number=attempt_number,
+                artifact=engine.artifact,
+            ),
+            deadline_at,
+        )
+
+    def _mark_call_unanswered(
+        self, body: dict, request_id: str, deadline_at: float
+    ) -> tuple[bytes, int | None, str | None, bool]:
+        engine = self.engine
+        try:
+            call_id = _required_int(body, "call_id")
+        except EngineError as exc:
+            return exc.to_response(), None, None, False
+        return self._privileged_control_op(
+            "mark_call_unanswered",
+            request_id,
+            {"call_id": call_id},
+            lambda ctx: control.mark_call_unanswered(
+                ctx, engine.config, call_id=call_id, artifact=engine.artifact
+            ),
+            deadline_at,
+        )
+
+    def _fail_run(
+        self, body: dict, request_id: str, deadline_at: float
+    ) -> tuple[bytes, int | None, str | None, bool]:
+        engine = self.engine
+        reason = body.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            error = EngineError(
+                ErrorCode.INVALID_ARGUMENT,
+                "reason must be a non-empty string",
+                details={"field": "reason"},
+            )
+            return error.to_response(), None, None, False
+        outcome, fired = self._under_watchdog(
+            deadline_at,
+            lambda: engine.controller.fail_run(request_id=request_id, reason=reason),
+        )
+        response, replayed = outcome
+        return response, None, fired, replayed
+
+    def _privileged_control_op(
+        self,
+        operation: str,
+        request_id: str,
+        args: dict[str, object],
+        fn: object,
+        deadline_at: float,
+    ) -> tuple[bytes, int | None, str | None, bool]:
+        engine = self.engine
+        active = engine.services.invocations.active()
+        invocation_id = None if active is None else int(active["invocation_id"])
+        outcome, fired = self._under_watchdog(
+            deadline_at,
+            lambda: privileged_with_replay(
+                engine.services,
+                privileged_request_id(f"control_{operation}", request_id),
+                fn,
+                require_active_invocation=True,
+                fingerprint_value=fingerprint(f"control.{operation}", args),
+            ),
+        )
+        response, replayed = outcome
+        return response, invocation_id, fired, replayed
 
     def _resolve_operation(self, operation_path: str) -> OperationSpec | None:
         if "." not in operation_path:

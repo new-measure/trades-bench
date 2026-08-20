@@ -75,7 +75,7 @@ _EXAMPLE_ARGUMENTS: dict[str, object] = {
     "contacts": [{"contact_type": "phone", "value": "(602) 555-0142"}],
     "address": EXAMPLE_ADDRESS,
     "service_date": EXAMPLE_SERVICE_DATE,
-    "block_start": "2026-10-01T09:00:00-07:00",
+    "block_start": "09:00",
     "date": EXAMPLE_SERVICE_DATE,
     "date_from": EXAMPLE_SERVICE_DATE,
     "date_to": EXAMPLE_HORIZON_DATE,

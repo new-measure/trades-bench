@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
 from . import SPEC_VERSION, calls, clock, constants, control, db, demand, execution, geo_reader
-from .adapter import AdapterPrompt, AdapterResponse, HarnessAdapter
+from .adapter import AdapterPrompt, AdapterResponse, ControllerAdapter
 from .config import RunConfig
 from .enums import (
     EVENT_PRIORITY,
     DayType,
     EventKind,
+    EventStatus,
     InvocationType,
     LedgerCategory,
     PromptKind,
@@ -20,10 +22,17 @@ from .enums import (
 from .errors import EngineError, ErrorCode
 from .events import EventHandler, Events
 from .geo_reader import GeoArtifact
-from .invocations import Invocations
+from .invocations import PROMPT_TEMPLATE_VERSION, Invocations
 from .ledger import Ledger, LedgerEntry
 from .rng import Rng, sqlite_audit_recorder
-from .txn import Services, TxnContext, privileged, privileged_request_id
+from .txn import (
+    Services,
+    TxnContext,
+    fingerprint,
+    privileged,
+    privileged_request_id,
+    privileged_with_replay,
+)
 
 _INVOCATION_EVENT_KINDS = (
     EventKind.OPENING_INVOCATION,
@@ -70,6 +79,10 @@ _BLOCK_START_MINUTES = {
 }
 
 _PAYING_EMPLOYMENT_STATUSES = ("active", "pending_termination", "resigning_notice")
+
+_NO_PENDING_EVENT_MESSAGE = (
+    "the run is active but no invocation is open and no event is pending"
+)
 
 CALL_ATTEMPT_LIMIT = 3
 
@@ -390,46 +403,105 @@ def build_handlers(
     return handlers
 
 
+@dataclass(frozen=True)
+class AppliedEvent:
+
+    event_id: int
+    kind: str
+    ts_ms: int
+
+    def to_result(self) -> dict:
+        return {"event_id": self.event_id, "kind": self.kind, "ts_ms": self.ts_ms}
+
+
+@dataclass(frozen=True)
+class OpenInvocation:
+
+    invocation_id: int
+    kind: InvocationType
+    ts_ms: int
+    payload: dict
+    prompt_version: str
+    applied_events: tuple[AppliedEvent, ...]
+
+    def to_result(self) -> dict:
+        return {
+            "invocation_id": self.invocation_id,
+            "kind": self.kind.value,
+            "ts_ms": self.ts_ms,
+            "payload": self.payload,
+            "prompt_version": self.prompt_version,
+            "applied_events": [event.to_result() for event in self.applied_events],
+        }
+
+
 class Controller:
 
     def __init__(
         self,
         conn: sqlite3.Connection,
         config: RunConfig,
-        adapter: HarnessAdapter,
+        adapter: ControllerAdapter | None = None,
         *,
         artifact_dir: str | Path | None = None,
     ) -> None:
-        run_row = conn.execute("SELECT run_id, master_seed FROM _run").fetchone()
+        run_row = conn.execute("SELECT master_seed FROM _run").fetchone()
         if run_row is None:
             raise EngineError(ErrorCode.ENTITY_NOT_FOUND, "run record not found")
-        self.conn = conn
-        self.config = config
-        self.adapter = adapter
-        self.run_id = str(run_row["run_id"])
-        self.artifact: GeoArtifact | None = None
+        artifact: GeoArtifact | None = None
         if artifact_dir is not None:
             geo_reader.verify_artifact_sha256(
                 artifact_dir, config.get_string("geography.artifact_sha256")
             )
-            self.artifact = geo_reader.load_artifact(artifact_dir)
+            artifact = geo_reader.load_artifact(artifact_dir)
         rng = Rng(
             int(run_row["master_seed"]),
             SPEC_VERSION,
             audit_recorder=sqlite_audit_recorder(conn),
             conn=conn,
         )
-        self.events = Events(conn, rng)
-        self.invocations = Invocations(conn)
-        self.services = Services(
+        services = Services(
             conn=conn,
             rng=rng,
             ledger=Ledger(conn),
-            invocations=self.invocations,
+            invocations=Invocations(conn),
             clock=clock,
-            events=self.events,
+            events=Events(conn, rng),
         )
-        self.handlers = build_handlers(config, self.artifact)
+        self._bind(services, config, adapter, artifact)
+
+    @classmethod
+    def from_services(
+        cls,
+        services: Services,
+        config: RunConfig,
+        *,
+        adapter: ControllerAdapter | None = None,
+        artifact: GeoArtifact | None = None,
+    ) -> Controller:
+        controller = cls.__new__(cls)
+        controller._bind(services, config, adapter, artifact)
+        return controller
+
+    def _bind(
+        self,
+        services: Services,
+        config: RunConfig,
+        adapter: ControllerAdapter | None,
+        artifact: GeoArtifact | None,
+    ) -> None:
+        run_row = services.conn.execute("SELECT run_id FROM _run").fetchone()
+        if run_row is None:
+            raise EngineError(ErrorCode.ENTITY_NOT_FOUND, "run record not found")
+        self.conn = services.conn
+        self.config = config
+        self.adapter = adapter
+        self.run_id = str(run_row["run_id"])
+        self.artifact = artifact
+        self.services = services
+        self.events = services.events
+        self.invocations = services.invocations
+        self.handlers = build_handlers(config, artifact)
 
     def run(self, *, max_steps: int | None = None) -> RunStatus:
         steps = 0
@@ -460,9 +532,78 @@ class Controller:
             return True
         row = self.events.next_pending()
         if row is None:
-            return False
+            raise EngineError(ErrorCode.INVARIANT_VIOLATED, _NO_PENDING_EVENT_MESSAGE)
         self._apply_event(row)
         return True
+
+    def advance_to_invocation(self) -> OpenInvocation | None:
+        applied: list[AppliedEvent] = []
+        while True:
+            if self.status() in RunStatus.terminal():
+                return None
+            active = self.invocations.active()
+            if active is not None:
+                return self._describe_active_invocation(active, tuple(applied))
+            unissued = self._unissued_invocation_event()
+            if unissued is not None:
+                return self._open_invocation(unissued, tuple(applied))
+            if self._schedule_closing_if_owed():
+                continue
+            row = self.events.next_pending()
+            if row is None:
+                raise EngineError(ErrorCode.INVARIANT_VIOLATED, _NO_PENDING_EVENT_MESSAGE)
+            self._apply_event(row)
+            entry = self._applied_entry(int(row["event_id"]))
+            if entry is not None:
+                applied.append(entry)
+
+    def fail_run(self, *, request_id: str, reason: str) -> tuple[bytes, bool]:
+
+        def fn(ctx: TxnContext) -> dict:
+            db.set_run_status(ctx.conn, self.run_id, RunStatus.FAILED)
+            return {
+                "run_id": self.run_id,
+                "run_status": RunStatus.FAILED.value,
+                "reason": reason,
+            }
+
+        return privileged_with_replay(
+            self.services,
+            privileged_request_id("control_fail_run", request_id),
+            fn,
+            fingerprint_value=fingerprint("control.fail_run", {"reason": reason}),
+        )
+
+    def _applied_entry(self, event_id: int) -> AppliedEvent | None:
+        row = self.conn.execute(
+            "SELECT kind, status, applied_at_ms FROM _events WHERE event_id = ?", (event_id,)
+        ).fetchone()
+        if row is None or row["status"] != EventStatus.APPLIED.value:
+            return None
+        return AppliedEvent(
+            event_id=event_id, kind=str(row["kind"]), ts_ms=int(row["applied_at_ms"])
+        )
+
+    def _describe_active_invocation(
+        self, active: sqlite3.Row, applied: tuple[AppliedEvent, ...]
+    ) -> OpenInvocation:
+        row = self._origin_event_of(active)
+        invocation_type = InvocationType(active["type"])
+        if _INVOCATION_TYPE_BY_KIND[EventKind(row["kind"])] is not invocation_type:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED,
+                "active invocation type does not match the last applied invocation event",
+            )
+        ts = int(active["ts_ms"])
+        version = active["prompt_version"] or PROMPT_TEMPLATE_VERSION
+        return OpenInvocation(
+            invocation_id=int(active["invocation_id"]),
+            kind=invocation_type,
+            ts_ms=ts,
+            payload=self._payload_for(invocation_type, ts, row),
+            prompt_version=str(version),
+            applied_events=applied,
+        )
 
     def _apply_event(self, row: sqlite3.Row) -> None:
         kind = EventKind(row["kind"])
@@ -510,7 +651,9 @@ class Controller:
             )
         return row
 
-    def _issue_invocation(self, row: sqlite3.Row) -> None:
+    def _open_invocation(
+        self, row: sqlite3.Row, applied: tuple[AppliedEvent, ...]
+    ) -> OpenInvocation:
         invocation_type = _INVOCATION_TYPE_BY_KIND[EventKind(row["kind"])]
         ts = max(clock.now(self.conn), int(row["scheduled_at_ms"]))
         event_id = int(row["event_id"])
@@ -518,6 +661,7 @@ class Controller:
             invocation_type,
             ts,
             request_id=f"invocation-open-{event_id}",
+            prompt_version=PROMPT_TEMPLATE_VERSION,
             origin_event_id=event_id,
             services=self.services,
         )
@@ -526,7 +670,18 @@ class Controller:
             raise EngineError(
                 ErrorCode.INVARIANT_VIOLATED, "invocation open failed without an error response"
             )
-        self._drive_invocation(invocation_type, ts, row, int(opened))
+        return OpenInvocation(
+            invocation_id=int(opened),
+            kind=invocation_type,
+            ts_ms=ts,
+            payload=self._payload_for(invocation_type, ts, row),
+            prompt_version=PROMPT_TEMPLATE_VERSION,
+            applied_events=applied,
+        )
+
+    def _issue_invocation(self, row: sqlite3.Row) -> None:
+        opened = self._open_invocation(row, ())
+        self._drive_invocation(opened.kind, opened.ts_ms, row, opened.invocation_id)
 
     def _resume_active_invocation(self, active: sqlite3.Row) -> None:
         row = self._origin_event_of(active)
@@ -604,6 +759,10 @@ class Controller:
         return int(row["c"])
 
     def _send(self, prompt: AdapterPrompt) -> AdapterResponse:
+        if self.adapter is None:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED, "this controller has no adapter to drive"
+            )
         try:
             return self.adapter.send(prompt)
         except Exception:
@@ -622,23 +781,28 @@ class Controller:
             privileged(self.services, privileged_request_id("run_failed", self.run_id), fn)
         )
 
-    def _build_prompt(
+    def _payload_for(
         self, invocation_type: InvocationType, ts: int, row: sqlite3.Row
-    ) -> AdapterPrompt:
+    ) -> dict:
         if invocation_type is InvocationType.CALL:
-            payload: dict[str, object] = calls.prompt_payload(self.conn, row, ts)
-        elif invocation_type is InvocationType.OPENING:
-            payload = {
+            return calls.prompt_payload(self.conn, row, ts)
+        if invocation_type is InvocationType.OPENING:
+            return {
                 "service_date": _event_service_date(row),
                 "time": clock.to_iso8601(ts),
             }
-        else:
-            payload = {
-                "service_date": str(_payload_of(row)["service_date"]),
-                "time": clock.to_iso8601(ts),
-            }
+        return {
+            "service_date": str(_payload_of(row)["service_date"]),
+            "time": clock.to_iso8601(ts),
+        }
+
+    def _build_prompt(
+        self, invocation_type: InvocationType, ts: int, row: sqlite3.Row
+    ) -> AdapterPrompt:
         return AdapterPrompt(
-            kind=_PROMPT_KIND_BY_TYPE[invocation_type], ts_ms=ts, payload=payload
+            kind=_PROMPT_KIND_BY_TYPE[invocation_type],
+            ts_ms=ts,
+            payload=self._payload_for(invocation_type, ts, row),
         )
 
     def _schedule_closing_if_owed(self) -> bool:
@@ -683,4 +847,10 @@ class Controller:
         return True
 
 
-__all__ = ["BLOCK_CODES", "Controller", "build_handlers"]
+__all__ = [
+    "BLOCK_CODES",
+    "AppliedEvent",
+    "Controller",
+    "OpenInvocation",
+    "build_handlers",
+]
