@@ -1565,6 +1565,7 @@ _DOMAIN_ENTRIES: list[Any] = [
         "probability",
         Decimal("0.80"),
         {
+            "deferred": "provisional",
             "description": "Probability the reject-heavy reference policy rejects an arriving "
             "new-job call; must lie strictly inside (0, 1) so the policy neither books "
             "everything nor rejects everything.",

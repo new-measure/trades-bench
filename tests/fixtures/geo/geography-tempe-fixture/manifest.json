@@ -1,11 +1,11 @@
 {
   "anchors": {
-    "count": 457
+    "count": 801
   },
   "artifact_id": "tempe-fixture-v1",
-  "artifact_sha256": "eab2f2e598d56b4eea52851140fea32922f7b67f6b1c18d9e32bdd632ea1237f",
+  "artifact_sha256": "eb8f1ac3dfa80cf7017ff671cda2222fa38595f60ec9ff5fbb3dadde8017ea50",
   "counts": {
-    "catalog_rows": 723
+    "catalog_rows": 1094
   },
   "license": {
     "attribution": "Map data \u00a9 OpenStreetMap contributors, available under the Open Database License (ODbL 1.0). Extract via Geofabrik GmbH.",

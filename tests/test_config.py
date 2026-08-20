@@ -809,6 +809,14 @@ def test_reject_heavy_reject_probability_default_is_strictly_inside_the_unit_int
     assert Decimal(0) < value < Decimal(1)
 
 
+def test_reject_heavy_reject_probability_is_registered_provisional():
+    reg = assemble_registry()
+    spec = reg["reference_policies.reject_heavy.reject_probability"]
+    assert spec.type == "probability"
+    assert spec.default == Decimal("0.80")
+    assert spec.deferred == "provisional"
+
+
 def test_reject_heavy_reject_probability_is_not_a_deferred_manifest_item():
     paths = {
         path

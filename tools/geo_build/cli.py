@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="load zone_definitions.geojson (with a sibling zone_provenance.json) "
         "instead of extracting the ten municipal relations from osm_input; needed "
-        "whenever osm_input does not carry all ten (e.g. a small carved fixture)",
+        "whenever osm_input does not carry all ten (e.g. a small cropped fixture)",
     )
 
     routing = build.add_argument_group("routing backend")

@@ -25,7 +25,7 @@ DRIVABLE_HIGHWAY_VALUES: frozenset[str] = frozenset(
     }
 )
 
-TEMPE_BBOX: tuple[float, float, float, float] = (-111.945, 33.395, -111.925, 33.410)
+TEMPE_BBOX: tuple[float, float, float, float] = (-111.950, 33.395, -111.915, 33.430)
 
 
 def _has_any_addr_tag(tags: dict[str, str]) -> bool:
@@ -95,7 +95,7 @@ def _copy(source: Path, destination: Path, keep_node_ids: set[int], keep_way_ids
         writer.close()
 
 
-def carve(
+def crop(
     source: str | Path,
     destination: str | Path,
     bbox: tuple[float, float, float, float] = TEMPE_BBOX,
@@ -112,13 +112,13 @@ def carve(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m geo_build.carve_fixture",
-        description="Carve a small, deterministic .osm.pbf fixture out of a full Geofabrik "
+        prog="python -m geo_build.crop_fixture",
+        description="Crop a small, deterministic .osm.pbf fixture out of a full Geofabrik "
         "extract: addr:*-tagged nodes/ways plus drivable highway=* ways and their nodes, "
         "inside a bounding box. Pure pyosmium read + SimpleWriter write, no osmium-tool CLI.",
     )
     parser.add_argument("source", help="path to the full .osm.pbf snapshot")
-    parser.add_argument("destination", help="path to write the carved .osm.pbf to")
+    parser.add_argument("destination", help="path to write the cropped .osm.pbf to")
     parser.add_argument("--min-lon", type=float, default=TEMPE_BBOX[0])
     parser.add_argument("--min-lat", type=float, default=TEMPE_BBOX[1])
     parser.add_argument("--max-lon", type=float, default=TEMPE_BBOX[2])
@@ -129,10 +129,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     bbox = (args.min_lon, args.min_lat, args.max_lon, args.max_lat)
-    counts = carve(args.source, args.destination, bbox)
+    counts = crop(args.source, args.destination, bbox)
     size = Path(args.destination).stat().st_size
     print(
-        f"carve_fixture: kept {counts['nodes']} nodes / {counts['ways']} ways "
+        f"crop_fixture: kept {counts['nodes']} nodes / {counts['ways']} ways "
         f"-> {args.destination} ({size} bytes)"
     )
     return 0
@@ -142,4 +142,4 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["TEMPE_BBOX", "DRIVABLE_HIGHWAY_VALUES", "build_parser", "carve", "main"]
+__all__ = ["TEMPE_BBOX", "DRIVABLE_HIGHWAY_VALUES", "build_parser", "crop", "main"]

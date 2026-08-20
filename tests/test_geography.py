@@ -19,7 +19,7 @@ USABLE_ROWS = tuple(row for row in ARTIFACT.catalog if row.status == "usable")
 
 FIRST_ADDRESS = next(row for row in ARTIFACT.catalog if row.address_id == 1)
 SECOND_ADDRESS = next(row for row in ARTIFACT.catalog if row.address_id == 2)
-SAME_ANCHOR_PEER_ADDRESS = next(row for row in ARTIFACT.catalog if row.address_id == 25)
+SAME_ANCHOR_PEER_ADDRESS = next(row for row in ARTIFACT.catalog if row.address_id == 56)
 
 assert FIRST_ADDRESS.anchor_id != SECOND_ADDRESS.anchor_id
 assert SECOND_ADDRESS.anchor_id == SAME_ANCHOR_PEER_ADDRESS.anchor_id

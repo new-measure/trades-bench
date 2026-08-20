@@ -135,7 +135,7 @@ def test_cli_scenario_override_flows_through(tmp_path):
 
 
 def test_cli_zones_from_file_runs_end_to_end_with_a_fake_backend(tmp_path):
-    tempe_pbf = str(Path(__file__).parent / "fixtures" / "geo" / "tempe_carve.osm.pbf")
+    tempe_pbf = str(Path(__file__).parent / "fixtures" / "geo" / "tempe_crop.osm.pbf")
     tempe_zones = str(Path(__file__).parent / "fixtures" / "geo" / "zone_definitions.geojson")
     out_dir = tmp_path / "geography-tempe-dev"
     exit_code = main(

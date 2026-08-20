@@ -9,7 +9,7 @@ from geo_build.pipeline import BuildParameters, run_pipeline
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "geo"
 REPO_ROOT = Path(__file__).parent.parent
 
-TEMPE_PBF = str(FIXTURE_DIR / "tempe_carve.osm.pbf")
+TEMPE_PBF = str(FIXTURE_DIR / "tempe_crop.osm.pbf")
 TEMPE_ZONES_GEOJSON = str(FIXTURE_DIR / "zone_definitions.geojson")
 TEMPE_ARTIFACT_DIR = FIXTURE_DIR / "geography-tempe-fixture"
 TEMPE_DATASET_VERSION = "tempe-fixture-v1"

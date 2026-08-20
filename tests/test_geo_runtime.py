@@ -225,7 +225,7 @@ def test_address_catalog_populated_matches_the_artifact_catalog(tmp_path):
     conn = open_run_db(tmp_path / "run.db", artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn)
     count = conn.execute("SELECT COUNT(*) c FROM _address_catalog").fetchone()["c"]
-    assert count == len(csv_rows) == 723
+    assert count == len(csv_rows) == 1094
     row = conn.execute(
         "SELECT * FROM _address_catalog WHERE canonical_key = ?",
         (csv_rows[0]["canonical_key"],),
@@ -244,7 +244,7 @@ def test_routing_anchors_populated_matches_the_artifact_anchors(tmp_path):
     conn = open_run_db(tmp_path / "run.db", artifact_dir=GEO_ARTIFACT_DIR)
     register_conn(conn)
     count = conn.execute("SELECT COUNT(*) c FROM _routing_anchors").fetchone()["c"]
-    assert count == len(csv_rows) == 457
+    assert count == len(csv_rows) == 801
     first = conn.execute(
         "SELECT latitude, longitude, selection_cell FROM _routing_anchors WHERE anchor_id = 1"
     ).fetchone()
@@ -263,7 +263,9 @@ def test_zones_cities_and_postal_codes_reconciled_only_where_the_artifact_has_ev
         "SELECT cities_json, postal_codes_json FROM _zones WHERE code = 'tempe'"
     ).fetchone()
     assert json.loads(tempe["cities_json"]) == ["Tempe"]
-    assert json.loads(tempe["postal_codes_json"]) == ["85281", "85282", "85283"]
+    assert json.loads(tempe["postal_codes_json"]) == [
+        "85281", "85282", "85283", "85287", "85301",
+    ]
 
     central_phoenix = conn.execute(
         "SELECT cities_json, postal_codes_json FROM _zones WHERE code = 'central_phoenix'"
@@ -276,9 +278,9 @@ def test_zones_cities_and_postal_codes_reconciled_only_where_the_artifact_has_ev
 
 def test_geo_reader_load_artifact_round_trip():
     artifact = geo_reader.load_artifact(GEO_ARTIFACT_DIR)
-    assert len(artifact.catalog) == 723
-    assert len(artifact.anchors) == 457
-    assert len(artifact.anchor_matrix) == 457 * 457
+    assert len(artifact.catalog) == 1094
+    assert len(artifact.anchors) == 801
+    assert len(artifact.anchor_matrix) == 801 * 801
     assert len(artifact.zone_centroids) == 10
     assert artifact.manifest["artifact_id"] == GEO_ARTIFACT_ID
 
