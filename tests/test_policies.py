@@ -54,7 +54,7 @@ POLICY_NAMES = ("do_nothing", "accept_all", "reject_heavy")
 BOOKING_POLICY_NAMES = ("accept_all", "reject_heavy")
 
 POLICY_MODULE_NAMES = ("__init__", "base", "accept_all", "do_nothing", "reject_heavy")
-OPERATOR_MODULE_NAMES = ("runner",)
+OPERATOR_MODULE_NAMES = ("runner", "oracle", "fork_search")
 FORBIDDEN_POLICY_IMPORTS = (
     "sqlite3",
     "trades_bench.db",

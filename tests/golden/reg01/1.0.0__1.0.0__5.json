@@ -799,7 +799,7 @@
           }
         }
       ],
-      "logical_dump_sha256": "1e45fe7dc3734aa06c880098ecc7d0a3d39e025ef13cbb5d1e44b7616590c47a"
+      "logical_dump_sha256": "ceb32133fba63d39ffb9c64a3528dfb29f62c7542c92f1c66f1be0925bf890dc"
     },
     "cancellation_day_acknowledged_and_auto_finalized": {
       "event_trace": [
@@ -1893,7 +1893,7 @@
           }
         }
       ],
-      "logical_dump_sha256": "0a351d76f3209d4f01f603c12a884455b9d34eaed5f3348b255e447d72ed36ac"
+      "logical_dump_sha256": "fbcb098182fa6e76cbcf8cb4a2e2ca520bcd8533958e9fee9685007a5ad36d94"
     },
     "overrun_past_1900_day": {
       "event_trace": [
@@ -2704,7 +2704,7 @@
           }
         }
       ],
-      "logical_dump_sha256": "b070156eaaa1aed2fa5d453ad9c68d5cbd99f05e1b851aaf73c992baf2e1e098"
+      "logical_dump_sha256": "73c04801fbae440a8a988eaab0f990947f15adc54adc0edb4cb030dca8ba7ea4"
     },
     "zero_job_weekend_day": {
       "event_trace": [
@@ -4248,7 +4248,7 @@
           }
         }
       ],
-      "logical_dump_sha256": "79d031732e21c2d58a57803834aa7b4221f80fe632b3639d90a71a41504c8f76"
+      "logical_dump_sha256": "cfd5d5d6b47de6094e346d9551ecbf48dfcc6a3122bebb4db699aa6315f27e87"
     }
   },
   "excluded_scenarios": [

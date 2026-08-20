@@ -1,22 +1,8 @@
--- Migration 0001: the complete v1 schema as one fresh baseline. A run is a
--- sealed artifact — the schema never evolves in place.
---
--- Conventions: <name>_at / <name>_ms = UTC epoch milliseconds; <name>_date /
--- <name>_on = TEXT 'YYYY-MM-DD' Phoenix-local; money = integer cents with a
--- _cents suffix; booleans = INTEGER 0/1 with CHECK. `origin` (CHECK
--- IN ('warm_start','run'), DEFAULT 'run') rides only the 15 root-entity
--- tables; child and append-only rows do not carry it.
--- Every <entity>_id is an FK with ON DELETE RESTRICT; the only CASCADE is
--- _config.run_id -> _run.
--- CHECK constraints are same-table only. The two cross-table block rules
--- become BEFORE INSERT triggers on _appointment_blocks (SQLite forbids
--- subqueries in CHECK). The append-only tables other than _events get
--- permanent no-update / no-delete triggers.
--- Seed rows carry created_at = 0, the pre-world sentinel.
+-- `_at` and `_ms` values are UTC epoch milliseconds.
+-- `_date` and `_on` values are Phoenix-local `YYYY-MM-DD` text.
+-- Money uses integer cents with a `_cents` suffix.
+-- Fractions use scaled integers, never REAL.
 
--- ============================================================================
--- A. Core run-contract tables
--- ============================================================================
 
 CREATE TABLE _run (
     run_id              TEXT PRIMARY KEY,
@@ -37,15 +23,12 @@ CREATE TABLE _run (
     system_prompt_hash  TEXT
 );
 
--- The resolved config is stored as a durable sibling row of _run.
 CREATE TABLE _config (
     run_id          TEXT PRIMARY KEY REFERENCES _run(run_id) ON DELETE CASCADE,
     config_version  TEXT NOT NULL,
     canonical_json  TEXT NOT NULL
 );
 
--- No run_id columns outside _run. The scheduled-event envelope; processing
--- order is (scheduled_at_ms, priority, event_id).
 CREATE TABLE _events (
     event_id        INTEGER PRIMARY KEY,
     kind            TEXT NOT NULL,
@@ -102,16 +85,13 @@ CREATE TABLE _random_audit (
 CREATE INDEX _random_audit_key ON _random_audit
     (stream_name, entity_type, entity_id, scope, event_kind, draw_index);
 
--- Simulated time lives here and only here; _run keeps only its immutable
--- boundary fields.
 CREATE TABLE _clock (
     singleton       INTEGER PRIMARY KEY CHECK (singleton = 1),
     current_time_ms INTEGER NOT NULL,
     service_date    TEXT NOT NULL
 );
 
--- Durable copy of the Python visibility registry. `table` and `column` are
--- SQLite reserved words; quoted identifiers keep those column names verbatim.
+-- `table` and `column` are quoted because they are SQLite reserved words.
 CREATE TABLE _visibility_registry (
     "table"          TEXT NOT NULL,
     "column"         TEXT NOT NULL,
@@ -119,8 +99,6 @@ CREATE TABLE _visibility_registry (
     PRIMARY KEY ("table", "column")
 );
 
--- Applied-migration ledger. The runner bootstraps this table itself before
--- applying files; creating it here is harmless and simpler.
 CREATE TABLE _schema_migrations (
     version     INTEGER PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -128,11 +106,6 @@ CREATE TABLE _schema_migrations (
     applied_at  INTEGER NOT NULL
 );
 
--- ============================================================================
--- B. Reference and catalog data with deterministic seeds
--- ============================================================================
-
--- Exactly three business units.
 CREATE TABLE _business_units (
     id          INTEGER PRIMARY KEY,
     code        TEXT NOT NULL UNIQUE,
@@ -146,7 +119,6 @@ INSERT INTO _business_units (id, code, name, active, created_at) VALUES
     (2, 'plumbing',   'Plumbing',   1, 0),
     (3, 'electrical', 'Electrical', 1, 0);
 
--- The closed qualification-code set.
 CREATE TABLE _skills (
     id                INTEGER PRIMARY KEY,
     code              TEXT NOT NULL UNIQUE,
@@ -162,7 +134,6 @@ INSERT INTO _skills (id, code, name, business_unit_id, active, created_at) VALUE
     (3, 'plumbing',     'Plumbing',     2, 1, 0),
     (4, 'electrical',   'Electrical',   3, 1, 0);
 
--- The four supported job types plus the misbooking sink.
 CREATE TABLE _job_types (
     id                  INTEGER PRIMARY KEY,
     code                TEXT NOT NULL UNIQUE,
@@ -182,9 +153,6 @@ INSERT INTO _job_types (id, code, name, business_unit_id, scheduled_blocks,
     (4, 'electrical',       'Electrical',       3, 1, 'electrical',   1, 0),
     (5, 'other',            'Other',            NULL, 1, NULL,        1, 0);
 
--- Ten zones in canonical order. The city/postal lists are provisional
--- placeholders used by address validation; polygons and geometry belong to
--- zone_definitions.geojson in the geography artifact.
 CREATE TABLE _zones (
     id                 INTEGER PRIMARY KEY,
     code               TEXT NOT NULL UNIQUE,
@@ -217,7 +185,6 @@ INSERT INTO _zones (id, code, name, cities_json, postal_codes_json, active, crea
     (10, 'west_valley_goodyear','West Valley/Goodyear','["Goodyear","Avondale","Litchfield Park"]',
         '["85338","85340","85395","85396"]', 1, 0);
 
--- Supports the private nearest-zone effective_zone_id assignment.
 CREATE TABLE _zone_geometry (
     zone_id         INTEGER PRIMARY KEY REFERENCES _zones(id) ON DELETE RESTRICT,
     centroid_lat    REAL NOT NULL,
@@ -225,8 +192,6 @@ CREATE TABLE _zone_geometry (
     boundary_ref    TEXT
 );
 
--- Private requested-service catalog. The supported mapping must never be
--- resolvable by a public join.
 CREATE TABLE _service_catalog (
     id                    INTEGER PRIMARY KEY,
     catalog_version       TEXT NOT NULL,
@@ -236,8 +201,6 @@ CREATE TABLE _service_catalog (
     active                INTEGER NOT NULL CHECK (active IN (0,1))
 );
 
--- The four supported categories plus the six named unsupported defaults,
--- under a fixed catalog version.
 INSERT INTO _service_catalog (id, catalog_version, name, supported_job_type_id,
                               demand_weight_key, active) VALUES
     (1,  '1.0.0', 'HVAC installation',  2,    'hvac_installation', 1),
@@ -251,9 +214,6 @@ INSERT INTO _service_catalog (id, catalog_version, name, supported_job_type_id,
     (9,  '1.0.0', 'Pest control',       NULL, 'pest_control',      1),
     (10, '1.0.0', 'Landscaping',        NULL, 'landscaping',       1);
 
--- Authoritative address-catalog columns. No unit column (units live on
--- locations). segment_eligibility is a JSON array of {residential, apartment,
--- commercial}. Populated from the geography artifact at initialization.
 CREATE TABLE _address_catalog (
     id                   INTEGER PRIMARY KEY,
     dataset_version      TEXT NOT NULL,
@@ -276,7 +236,6 @@ CREATE TABLE _address_catalog (
     created_at           INTEGER NOT NULL
 );
 
--- Frozen-dataset identity rows for the pinned input datasets.
 CREATE TABLE _dataset_versions (
     id             INTEGER PRIMARY KEY,
     kind           TEXT NOT NULL,
@@ -287,13 +246,6 @@ CREATE TABLE _dataset_versions (
     created_at     INTEGER NOT NULL
 );
 
--- ============================================================================
--- C. Domain tables
--- ============================================================================
-
--- CRM ------------------------------------------------------------------
--- _customers carries origin (root entity) and references _calls (forward
--- reference; SQLite resolves FK parents lazily at DML time).
 CREATE TABLE _customers (
     id                   INTEGER PRIMARY KEY,
     name                 TEXT NOT NULL,
@@ -347,7 +299,6 @@ CREATE TABLE _location_contacts (
     origin       TEXT NOT NULL CHECK (origin IN ('warm_start','run')) DEFAULT 'run'
 );
 
--- Calls ----------------------------------------------------------------
 CREATE TABLE _calls (
     id                      INTEGER PRIMARY KEY,
     arrived_at              INTEGER NOT NULL,
@@ -380,7 +331,6 @@ CREATE TABLE _calls (
     address_catalog_id      INTEGER REFERENCES _address_catalog(id) ON DELETE RESTRICT
 );
 
--- Append-only; one row per completed attempt.
 CREATE TABLE _call_attempts (
     id             INTEGER PRIMARY KEY,
     call_id        INTEGER NOT NULL REFERENCES _calls(id) ON DELETE RESTRICT,
@@ -390,7 +340,6 @@ CREATE TABLE _call_attempts (
     created_at     INTEGER NOT NULL
 );
 
--- Jobs -----------------------------------------------------------------
 CREATE TABLE _jobs (
     id                      INTEGER PRIMARY KEY,
     job_number              TEXT NOT NULL UNIQUE,
@@ -415,7 +364,6 @@ CREATE TABLE _jobs (
     origin                  TEXT NOT NULL CHECK (origin IN ('warm_start','run')) DEFAULT 'run'
 );
 
--- Appointments, blocks, assignments, events ------------------------------
 CREATE TABLE _appointments (
     id                   INTEGER PRIMARY KEY,
     appointment_number   TEXT NOT NULL UNIQUE,
@@ -435,12 +383,6 @@ CREATE TABLE _appointments (
     origin               TEXT NOT NULL CHECK (origin IN ('warm_start','run')) DEFAULT 'run'
 );
 
--- block_start/block_end are epoch-ms timestamps, so grid membership is a
--- time-of-day CHECK computed in pure SQL over the fixed −07:00 Phoenix offset
--- (no subqueries; strftime IS allowed in CHECKs): block_end = block_start + 2h
--- and block_start's Phoenix time-of-day is one of the six grid starts
--- 07:00/09:00/11:00/13:00/15:00/17:00. The two cross-table rules are the
--- BEFORE INSERT triggers of section D.
 CREATE TABLE _appointment_blocks (
     id             INTEGER PRIMARY KEY,
     appointment_id INTEGER NOT NULL REFERENCES _appointments(id) ON DELETE RESTRICT,
@@ -470,11 +412,9 @@ CREATE TABLE _appointment_assignments (
     assigned_by    TEXT NOT NULL CHECK (assigned_by IN ('agent','warm_start','controller')),
     created_at     INTEGER NOT NULL
 );
--- At most one active assignment per appointment.
 CREATE UNIQUE INDEX _appointment_assignments_active
     ON _appointment_assignments (appointment_id) WHERE status = 'active';
 
--- Append-only; the eight-member event_type set is closed and enforced.
 CREATE TABLE _appointment_events (
     id             INTEGER PRIMARY KEY,
     appointment_id INTEGER NOT NULL REFERENCES _appointments(id) ON DELETE RESTRICT,
@@ -488,10 +428,6 @@ CREATE TABLE _appointment_events (
     created_at     INTEGER NOT NULL
 );
 
--- The structural overlap guard. block_start is an epoch-ms timestamp equal
--- to an appointment block's start; no bounds CHECK — only the PK. Rows are
--- deleted when capacity is released — the one deletion exception among the
--- otherwise append-only history tables.
 CREATE TABLE _technician_block_holds (
     technician_id           INTEGER NOT NULL REFERENCES _technicians(id) ON DELETE RESTRICT,
     block_start             INTEGER NOT NULL,
@@ -503,7 +439,6 @@ CREATE TABLE _technician_block_holds (
     CHECK ((appointment_id IS NULL) != (non_job_appointment_id IS NULL))
 );
 
--- Workforce ------------------------------------------------------------
 CREATE TABLE _technicians (
     id                    INTEGER PRIMARY KEY,
     name                  TEXT NOT NULL,
@@ -568,7 +503,6 @@ CREATE TABLE _technician_locations (
     trip_travel_minutes         INTEGER
 );
 
--- Appointment-independent travel legs: the return-home leg.
 CREATE TABLE _technician_movements (
     id                      INTEGER PRIMARY KEY,
     technician_id           INTEGER NOT NULL REFERENCES _technicians(id) ON DELETE RESTRICT,
@@ -623,12 +557,10 @@ CREATE TABLE _on_call_rotations (
     CHECK (status != 'vacant'
            OR (technician_id IS NULL AND vacated_at IS NOT NULL))
 );
--- No two live rotations per business unit sharing a start date.
 CREATE UNIQUE INDEX _on_call_rotations_live
     ON _on_call_rotations (business_unit_id, effective_start_date)
     WHERE status IN ('active','vacant');
 
--- Hidden true skill, keyed per technician per qualification.
 CREATE TABLE _technician_true_skill (
     technician_id INTEGER NOT NULL REFERENCES _technicians(id) ON DELETE RESTRICT,
     skill_code    TEXT NOT NULL REFERENCES _skills(code) ON DELETE RESTRICT,
@@ -638,14 +570,12 @@ CREATE TABLE _technician_true_skill (
     PRIMARY KEY (technician_id, skill_code)
 );
 
--- Hidden strain, one row per technician.
 CREATE TABLE _technician_strain (
     technician_id     INTEGER PRIMARY KEY REFERENCES _technicians(id) ON DELETE RESTRICT,
     strain_value      REAL NOT NULL CHECK (strain_value BETWEEN 0 AND 1),
     last_updated_date TEXT NOT NULL
 );
 
--- Hiring and training ----------------------------------------------------
 CREATE TABLE _hiring_requests (
     id                          INTEGER PRIMARY KEY,
     requested_at                INTEGER NOT NULL,
@@ -686,7 +616,6 @@ CREATE TABLE _training_reservations (
     modified_at              INTEGER NOT NULL
 );
 
--- Money ----------------------------------------------------------------
 CREATE TABLE _invoices (
     id                              INTEGER PRIMARY KEY,
     invoice_number                  TEXT NOT NULL UNIQUE,
@@ -733,7 +662,6 @@ CREATE TABLE _payments (
     UNIQUE (invoice_id)
 );
 
--- The closed nine-member entry-type set. Append-only.
 CREATE TABLE _ledger_entries (
     id                       INTEGER PRIMARY KEY,
     occurred_at              INTEGER NOT NULL,
@@ -755,8 +683,6 @@ CREATE TABLE _ledger_entries (
     origin                   TEXT NOT NULL CHECK (origin IN ('warm_start','run')) DEFAULT 'run'
 );
 
--- Reputation and alerts --------------------------------------------------
--- Append-only; only sampled, surfaced reviews live here.
 CREATE TABLE _reviews (
     id              INTEGER PRIMARY KEY,
     job_id          INTEGER REFERENCES _jobs(id) ON DELETE RESTRICT,
@@ -771,8 +697,6 @@ CREATE TABLE _reviews (
     origin          TEXT NOT NULL CHECK (origin IN ('warm_start','run')) DEFAULT 'run'
 );
 
--- Append-only; alert layer over authoritative tables, never the source of
--- truth. notification_type membership is owned by the producing modules.
 CREATE TABLE _notifications (
     id                 INTEGER PRIMARY KEY,
     created_at         INTEGER NOT NULL,
@@ -783,14 +707,8 @@ CREATE TABLE _notifications (
     message            TEXT NOT NULL
 );
 
--- ============================================================================
--- D. Structural guardrails on _appointment_blocks
--- ============================================================================
--- SQLite forbids subqueries inside CHECK (verified on 3.51.3), so the two
--- cross-table block rules become BEFORE INSERT triggers with stable sentinel
--- messages the engine maps to structured errors.
+-- BEFORE INSERT triggers enforce two cross-table block rules because SQLite forbids subqueries in CHECK.
 
--- Block count must not exceed the job type's scheduled_blocks:
 CREATE TRIGGER trg_appointment_blocks_overflow
 BEFORE INSERT ON _appointment_blocks
 FOR EACH ROW
@@ -806,7 +724,6 @@ BEGIN
     SELECT RAISE(ABORT, 'appointment_block_overflow');
 END;
 
--- An ordinal-1 block must start at the appointment's scheduled_start:
 CREATE TRIGGER trg_appointment_blocks_ordinal_start
 BEFORE INSERT ON _appointment_blocks
 FOR EACH ROW
@@ -817,12 +734,7 @@ BEGIN
     SELECT RAISE(ABORT, 'appointment_block_start_mismatch');
 END;
 
--- ============================================================================
--- E. Append-only guard triggers
--- ============================================================================
--- Permanent UPDATE/DELETE guards on the six append-only tables other than
--- _events, whose carve-out is: only the events module may update _events, and
--- only its status/applied_at_ms columns.
+-- `_events` updates may change only `status` and `applied_at_ms`.
 
 CREATE TRIGGER trg_ledger_entries_no_update
 BEFORE UPDATE ON _ledger_entries

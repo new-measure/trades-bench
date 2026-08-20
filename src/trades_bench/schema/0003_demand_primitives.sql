@@ -1,17 +1,4 @@
--- Migration 0003: private weather-and-demand engine primitives. Every field
--- of every table below is classified private_engine in the visibility
--- registry; none may reach a public view, SDK response, prompt, notification,
--- predicate, join, or SQL result.
---
--- Conventions: <name>_at / <name>_ms is UTC epoch-ms INTEGER, <name>_date is
--- TEXT 'YYYY-MM-DD' Phoenix-local, booleans are INTEGER 0/1 with a CHECK, and
--- every fractional quantity here is a scaled integer (tenths, milli, or
--- micros) — never REAL. Every <entity>_id is an FK with ON DELETE RESTRICT;
--- SQLite resolves forward references lazily at DML time (see
--- 0001_baseline.sql).
 
--- Seed-varied seasonal parameters and the mean-reverting process's final
--- state, singleton across the run.
 CREATE TABLE _weather_process_state (
     singleton              INTEGER PRIMARY KEY CHECK (singleton = 1),
     seasonal_amplitude_f    INTEGER NOT NULL,
@@ -22,8 +9,6 @@ CREATE TABLE _weather_process_state (
     created_at              INTEGER NOT NULL
 );
 
--- One row per (zone, local date) for the whole precomputed span; written
--- once at initialization and never mutated afterward.
 CREATE TABLE _zone_weather_daily (
     zone_id                  INTEGER NOT NULL REFERENCES _zones(id) ON DELETE RESTRICT,
     local_date               TEXT NOT NULL,
@@ -47,8 +32,6 @@ CREATE TRIGGER trg_zone_weather_daily_no_delete
 BEFORE DELETE ON _zone_weather_daily
 FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'append_only_table'); END;
 
--- Issued forecasts and their horizon-dependent noise, entity-keyed by
--- (zone, query_date, target_date) so repeated queries are stable.
 CREATE TABLE _weather_forecast_cache (
     zone_id          INTEGER NOT NULL REFERENCES _zones(id) ON DELETE RESTRICT,
     query_date       TEXT NOT NULL,
@@ -69,8 +52,6 @@ CREATE TRIGGER trg_weather_forecast_cache_no_delete
 BEFORE DELETE ON _weather_forecast_cache
 FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'append_only_table'); END;
 
--- Generated but not-yet-arrived calls; a row is removed the instant its
--- call_invocation event fires and the permanent _calls row is written.
 CREATE TABLE _pending_calls (
     id                      INTEGER PRIMARY KEY,
     service_date            TEXT NOT NULL,
@@ -96,9 +77,6 @@ CREATE TABLE _pending_calls (
 );
 CREATE INDEX _pending_calls_order ON _pending_calls (service_date, arrival_at);
 
--- Per-call hidden attributes shadowing the public _calls row it is keyed
--- to — true segment, the true requested-category record, the acceptance
--- draw result, and prospect linkage.
 CREATE TABLE _call_hidden (
     call_id                 INTEGER PRIMARY KEY REFERENCES _calls(id) ON DELETE RESTRICT,
     true_segment            TEXT NOT NULL CHECK (true_segment IN
@@ -109,7 +87,6 @@ CREATE TABLE _call_hidden (
     created_at              INTEGER NOT NULL
 );
 
--- Per-customer repeat-call propensity and its outcome history.
 CREATE TABLE _customer_repeat_state (
     customer_id            INTEGER PRIMARY KEY REFERENCES _customers(id) ON DELETE RESTRICT,
     propensity_micros       INTEGER NOT NULL,
@@ -118,9 +95,6 @@ CREATE TABLE _customer_repeat_state (
     updated_at               INTEGER NOT NULL
 );
 
--- The same propensity history for unregistered callers, keyed by a stable
--- identity so a returning prospect keeps their history; transfers into
--- _customer_repeat_state on registration.
 CREATE TABLE _prospect_state (
     id                      INTEGER PRIMARY KEY,
     identity_key            TEXT NOT NULL UNIQUE,
@@ -136,15 +110,12 @@ CREATE TABLE _prospect_state (
     updated_at              INTEGER NOT NULL
 );
 
--- Word-of-mouth level, one row per segment, updated once per terminal
--- appointment from the full hidden satisfaction stream.
 CREATE TABLE _word_of_mouth_state (
     segment    TEXT PRIMARY KEY CHECK (segment IN ('residential','commercial','apartment')),
     wom_micros INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
 
--- Singleton competitor-share background state.
 CREATE TABLE _competitor_state (
     singleton     INTEGER PRIMARY KEY CHECK (singleton = 1),
     share_micros  INTEGER NOT NULL,
@@ -153,7 +124,6 @@ CREATE TABLE _competitor_state (
     updated_at    INTEGER NOT NULL
 );
 
--- Resolved acceptance-curve parameters, one row per urgency class.
 CREATE TABLE _acceptance_parameters (
     urgency_class TEXT PRIMARY KEY CHECK (urgency_class IN ('standard','urgent')),
     base_micros   INTEGER NOT NULL,
@@ -162,8 +132,6 @@ CREATE TABLE _acceptance_parameters (
     created_at    INTEGER NOT NULL
 );
 
--- Cancellation existence and arrival timestamp, drawn once at booking
--- commit and never redrawn.
 CREATE TABLE _cancellation_schedule (
     appointment_id INTEGER PRIMARY KEY REFERENCES _appointments(id) ON DELETE RESTRICT,
     cancel_exists  INTEGER NOT NULL CHECK (cancel_exists IN (0,1)),

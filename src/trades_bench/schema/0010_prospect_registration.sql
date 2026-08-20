@@ -1,5 +1,4 @@
--- Migration 0010: track which customer a prospect was registered into, so
--- the returning-prospect pool can exclude already-registered identities.
+
 ALTER TABLE _prospect_state ADD COLUMN registered_customer_id INTEGER REFERENCES _customers(id);
 INSERT INTO _visibility_registry ("table", "column", visibility_class)
 VALUES ('_prospect_state', 'registered_customer_id', 'private_engine')
