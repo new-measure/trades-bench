@@ -10,6 +10,7 @@ import pytest
 from _adapters import ScriptedNoOpAdapter
 from _helpers import GEO_ARTIFACT_DIR
 from test_acceptance_booked_run import (
+    BOOKED_RUN_DEMAND,
     BOOKED_RUN_ORDERS,
     DAY_ONE,
     DAY_THREE,
@@ -90,6 +91,10 @@ def _run(path, config, adapter):
     return conn
 
 
+def _regression_config(**overrides):
+    return _config(**BOOKED_RUN_DEMAND, **overrides)
+
+
 def _trace(conn, service_date):
     rows = conn.execute(
         "SELECT event_id, kind, scheduled_at_ms, priority, entity_type, entity_id, "
@@ -131,14 +136,14 @@ def _scenario_record(conn, service_date, adapter):
 
 
 def _record(tmp_path):
-    booking_config = _config(**{"run.end_date": DAY_ONE})
+    booking_config = _regression_config(**{"run.end_date": DAY_ONE})
     booking_adapter = ScriptedBookingAdapter({DAY_ONE: BOOKED_RUN_ORDERS[DAY_ONE][:1]})
     booking = _run(
         tmp_path / "booking.db",
         booking_config,
         booking_adapter,
     )
-    cancellation_config = _config(
+    cancellation_config = _regression_config(
         **{
             "run.end_date": DAY_THREE,
             "cancellations.base_probability_by_segment": {
@@ -152,7 +157,7 @@ def _record(tmp_path):
     cancellation = _run(
         tmp_path / "cancellation.db", cancellation_config, cancellation_adapter
     )
-    overrun_config = _config(
+    overrun_config = _regression_config(
         **{
             "run.end_date": DAY_ONE,
             "appointments.min_actual_duration_minutes": OVERRUN_DURATION_MINUTES,
@@ -160,7 +165,7 @@ def _record(tmp_path):
     )
     overrun_adapter = ScriptedBookingAdapter(NO_SHOW_ORDERS)
     overrun = _run(tmp_path / "overrun.db", overrun_config, overrun_adapter)
-    weekend_config = _config(**{"run.end_date": DAY_THREE})
+    weekend_config = _regression_config(**{"run.end_date": DAY_THREE})
     weekend_adapter = ScriptedNoOpAdapter()
     weekend = _run(tmp_path / "weekend.db", weekend_config, weekend_adapter)
     cancellation_dates = [
@@ -219,7 +224,7 @@ def test_golden_event_traces(tmp_path):
 
 
 def test_golden_scenario_set_is_frozen():
-    config = _config()
+    config = _regression_config()
     path = golden_path(config)
     assert path.is_file()
     stored = json.loads(path.read_bytes())

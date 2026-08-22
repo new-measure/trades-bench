@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -36,8 +36,13 @@ from trades_bench.enums import DayType, PromptKind
 from trades_bench.errors import EngineError
 
 POLICY_NAME = "oracle"
-POLICY_VERSION = "1.0.0"
+POLICY_VERSION = "1.1.0"
 TRACK = "oracle"
+
+BASELINE_GREEDY = "greedy"
+BASELINE_DATE_MAJOR = "date_major"
+
+RUN_END_DATE_KEY = "run.end_date"
 
 BASIS_POINTS = 10_000
 MINUTES_PER_HOUR = 60
@@ -262,6 +267,10 @@ def off_hours_cost_cents(
     return BLOCK_HOURS * plan.scheduled_blocks * hourly_wage_cents + bonus_cents
 
 
+def settles_inside_run(service_date: str, end_service_date: str | None) -> bool:
+    return end_service_date is None or service_date <= end_service_date
+
+
 def score_cents(
     plan: BookingPlan,
     pricing: Pricing,
@@ -270,6 +279,7 @@ def score_cents(
     arrived_at_ms: int,
     hourly_wage_cents: int,
     failure_reason: str | None,
+    end_service_date: str | None = None,
 ) -> int:
     scheduled_start = plan.windows[0][0]
     lead_days = Decimal(scheduled_start - arrived_at_ms) / Decimal(MILLISECONDS_PER_DAY)
@@ -280,7 +290,10 @@ def score_cents(
         pricing.acceptance_floor,
     )
     p_keep = Decimal(1) - cancellation_probability(pricing, urgent=urgent, lead_days=lead_days)
-    margin = Decimal(0) if failure_reason is not None else pricing.expected_margin_cents
+    earns_margin = failure_reason is None and settles_inside_run(
+        plan.service_date, end_service_date
+    )
+    margin = pricing.expected_margin_cents if earns_margin else Decimal(0)
     off_hours = off_hours_cost_cents(
         plan, hourly_wage_cents=hourly_wage_cents, bonus_cents=pricing.off_hours_bonus_cents
     )
@@ -327,6 +340,7 @@ def ranked_candidates(
     horizon_days: int,
     urgent: bool,
     arrived_at_ms: int,
+    end_service_date: str | None = None,
 ) -> list[Candidate]:
     scored: list[Candidate] = []
     for technician, plan in walk_candidates(
@@ -352,10 +366,35 @@ def ranked_candidates(
                     failure_reason=arrival_failure_reason(
                         ctx.conn, technician.technician_id, job_type
                     ),
+                    end_service_date=end_service_date,
                 ),
             )
         )
     return sorted(scored, key=lambda candidate: -candidate.score_cents)
+
+
+def greedy_order(ranked: list[Candidate]) -> list[Candidate]:
+    return ranked
+
+
+def date_major_order(ranked: list[Candidate]) -> list[Candidate]:
+    return sorted(
+        [candidate for candidate in ranked if candidate.score_cents > 0],
+        key=lambda candidate: candidate.service_date,
+    )
+
+
+BASELINE_ORDERS: Mapping[str, Callable[[list[Candidate]], list[Candidate]]] = {
+    BASELINE_GREEDY: greedy_order,
+    BASELINE_DATE_MAJOR: date_major_order,
+}
+
+BASELINE_END_AWARE: Mapping[str, bool] = {
+    BASELINE_GREEDY: True,
+    BASELINE_DATE_MAJOR: False,
+}
+
+BASELINE_NAMES: tuple[str, ...] = (BASELINE_GREEDY, BASELINE_DATE_MAJOR)
 
 
 def _result(response: bytes) -> Mapping[str, Any] | None:
@@ -373,10 +412,14 @@ class OracleDispatcher:
         *,
         horizon_days: int = DEFAULT_HORIZON_DAYS,
         branch: str = "",
+        baseline: str = BASELINE_GREEDY,
     ) -> None:
+        if baseline not in BASELINE_ORDERS:
+            raise OracleError(f"unknown dispatcher baseline {baseline!r}")
         self.read_conn = read_conn
         self.horizon_days = int(horizon_days)
         self.branch = branch
+        self.baseline = baseline
         self.controller: Controller | None = None
         self.decisions: list[str] = []
 
@@ -386,8 +429,13 @@ class OracleDispatcher:
             raise OracleError("the dispatcher was driven before its controller was bound")
         return self.controller
 
+    def end_service_date(self) -> str | None:
+        if not BASELINE_END_AWARE[self.baseline]:
+            return None
+        return self._controller.config.get_string(RUN_END_DATE_KEY)
+
     def rank(self, call_id: int, ranked: list[Candidate]) -> list[Candidate]:
-        return ranked
+        return BASELINE_ORDERS[self.baseline](ranked)
 
     def request_id(self, call_id: int, *parts: object) -> str:
         segments = [POLICY_NAME, str(call_id)]
@@ -519,6 +567,7 @@ class OracleDispatcher:
                 horizon_days=self.horizon_days,
                 urgent=bool(int(call["urgent"])),
                 arrived_at_ms=int(call["arrived_at"]),
+                end_service_date=self.end_service_date(),
             ),
         )
 
@@ -553,6 +602,23 @@ class OracleDispatcher:
         return self._reject(call_id, f"no profitable block in {len(ranked)} candidates")
 
 
+class DateMajorDispatcher(OracleDispatcher):
+
+    def __init__(
+        self,
+        read_conn: sqlite3.Connection,
+        *,
+        horizon_days: int = DEFAULT_HORIZON_DAYS,
+        branch: str = "",
+    ) -> None:
+        super().__init__(
+            read_conn,
+            horizon_days=horizon_days,
+            branch=branch,
+            baseline=BASELINE_DATE_MAJOR,
+        )
+
+
 def open_read_connection(db_path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
@@ -569,6 +635,7 @@ def run_oracle(
     scenario: str = DEFAULT_SCENARIO,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     dataset_version: str = "",
+    baseline: str = BASELINE_GREEDY,
 ) -> PolicyRunResult:
     paths = PolicyRunPaths.under(run_dir)
     paths.run_dir.mkdir(parents=True, exist_ok=True)
@@ -583,7 +650,11 @@ def run_oracle(
         track=TRACK,
     )
     run_status = drive_oracle(
-        paths.db_path, config=config, geo_dir=geo_dir, horizon_days=horizon_days
+        paths.db_path,
+        config=config,
+        geo_dir=geo_dir,
+        horizon_days=horizon_days,
+        baseline=baseline,
     )
     report = build_report(
         paths.db_path,
@@ -610,12 +681,13 @@ def drive_oracle(
     geo_dir: str | Path | None = None,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     branch: str = "",
+    baseline: str = BASELINE_GREEDY,
 ) -> str:
     conn = run_init.open_run_db(db_path, artifact_dir=geo_dir)
     read_conn = open_read_connection(db_path)
     try:
         dispatcher = OracleDispatcher(
-            read_conn, horizon_days=horizon_days, branch=branch
+            read_conn, horizon_days=horizon_days, branch=branch, baseline=baseline
         )
         controller = Controller(conn, config, dispatcher, artifact_dir=geo_dir)
         dispatcher.controller = controller
@@ -628,6 +700,11 @@ def drive_oracle(
 __all__ = [
     "ACCEPTANCE_PARAMETERS_SQL",
     "ACTIVE_TECHNICIANS_SQL",
+    "BASELINE_DATE_MAJOR",
+    "BASELINE_END_AWARE",
+    "BASELINE_GREEDY",
+    "BASELINE_NAMES",
+    "BASELINE_ORDERS",
     "BLOCK_STARTS",
     "CALL_SQL",
     "CUSTOMER_SEGMENT_SQL",
@@ -636,7 +713,9 @@ __all__ = [
     "SKILL_HOLDER_SQL",
     "TRACK",
     "TRUE_JOB_TYPE_SQL",
+    "RUN_END_DATE_KEY",
     "Candidate",
+    "DateMajorDispatcher",
     "JobType",
     "OracleDispatcher",
     "OracleError",
@@ -648,8 +727,10 @@ __all__ = [
     "arrival_failure_reason",
     "cancellation_probability",
     "customer_segment",
+    "date_major_order",
     "drive_oracle",
     "expected_margin_cents",
+    "greedy_order",
     "off_hours_cost_cents",
     "open_read_connection",
     "pricing_for",
@@ -657,6 +738,7 @@ __all__ = [
     "read_call",
     "run_oracle",
     "score_cents",
+    "settles_inside_run",
     "true_job_type",
     "walk_candidates",
 ]

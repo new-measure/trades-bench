@@ -1,0 +1,8 @@
+{
+  "config_version": "1.0.2",
+  "keys": {
+    "run.start_date": "2027-07-01",
+    "run.end_date": "2027-07-14",
+    "weather.precompute_end_date": "2027-07-21"
+  }
+}

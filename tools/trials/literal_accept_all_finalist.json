@@ -1,0 +1,13 @@
+{
+  "trials": [
+    {
+      "name": "literal_accept_all_demand_6",
+      "overrides": {
+        "demand.base_new_caller_rate_per_day": 6,
+        "finance.daily_operating_overhead": 180000,
+        "finance.starting_cash": 2950000,
+        "payroll.off_hours_bonus_per_job": 50000
+      }
+    }
+  ]
+}

@@ -10,7 +10,8 @@ from trades_bench.appointments import BLOCK_CODES
 from trades_bench.constants import BLOCK_GRID_MINUTES
 
 POLICY_NAME = "accept_all"
-POLICY_VERSION = "1.0.0"
+POLICY_VERSION = "1.1.0"
+FALLBACK_JOB_TYPE_CODE = "other"
 
 BLOCK_STARTS: tuple[str, ...] = tuple(
     f"{start // 60:02d}:{start % 60:02d}" for start, _end in BLOCK_GRID_MINUTES
@@ -65,15 +66,21 @@ def _block_window_ms(service_date: str, block_index: int) -> tuple[int, int]:
 
 
 def _job_type(api: AgentApi, requested_service: str | None) -> Mapping[str, object] | None:
-    if not requested_service:
-        return None
-    wanted = "".join(
-        character if character.isalnum() else "_" for character in requested_service.lower()
+    wanted = (
+        "".join(
+            character if character.isalnum() else "_"
+            for character in requested_service.lower()
+        )
+        if requested_service
+        else ""
     )
+    fallback = None
     for row in api.sql(JOB_TYPES_SQL):
         if str(row["code"]) == wanted:
             return row
-    return None
+        if str(row["code"]) == FALLBACK_JOB_TYPE_CODE:
+            fallback = row
+    return fallback
 
 
 def _technician_ids(api: AgentApi) -> tuple[int, ...]:
@@ -241,7 +248,7 @@ def book_new_job(request: PolicyRequest) -> PolicyOutcome:
 
     job_type = _job_type(request.api, call.requested_service)
     if job_type is None:
-        return reject(request, f"no supported job type for {call.requested_service!r}")
+        return reject(request, "no generic job type is available")
 
     customer_id = call.customer_id
     if customer_id is None:
@@ -313,6 +320,7 @@ class AcceptAllPolicy:
 __all__ = [
     "ADVANCING_ERROR_CODES",
     "BLOCK_STARTS",
+    "FALLBACK_JOB_TYPE_CODE",
     "POLICY_NAME",
     "POLICY_VERSION",
     "Candidate",

@@ -1,0 +1,89 @@
+{
+  "trials": [
+    {
+      "name": "current_baseline",
+      "overrides": {}
+    },
+    {
+      "name": "demand_4_overhead_1200_bonus_300",
+      "overrides": {
+        "demand.base_new_caller_rate_per_day": 4,
+        "finance.daily_operating_overhead": 120000,
+        "finance.starting_cash": 2800000,
+        "payroll.off_hours_bonus_per_job": 30000
+      }
+    },
+    {
+      "name": "demand_4_overhead_1500_bonus_500",
+      "overrides": {
+        "demand.base_new_caller_rate_per_day": 4,
+        "finance.daily_operating_overhead": 150000,
+        "finance.starting_cash": 3000000,
+        "payroll.off_hours_bonus_per_job": 50000
+      }
+    },
+    {
+      "name": "demand_4_overhead_1800_bonus_750",
+      "overrides": {
+        "demand.base_new_caller_rate_per_day": 4,
+        "finance.daily_operating_overhead": 180000,
+        "finance.starting_cash": 3300000,
+        "payroll.off_hours_bonus_per_job": 75000
+      }
+    },
+    {
+      "name": "demand_6_overhead_1200_bonus_500",
+      "overrides": {
+        "demand.base_new_caller_rate_per_day": 6,
+        "finance.daily_operating_overhead": 120000,
+        "finance.starting_cash": 2800000,
+        "payroll.off_hours_bonus_per_job": 50000
+      }
+    },
+    {
+      "name": "demand_6_overhead_1500_bonus_750",
+      "overrides": {
+        "demand.base_new_caller_rate_per_day": 6,
+        "finance.daily_operating_overhead": 150000,
+        "finance.starting_cash": 3000000,
+        "payroll.off_hours_bonus_per_job": 75000
+      }
+    },
+    {
+      "name": "demand_6_overhead_1800_bonus_300",
+      "overrides": {
+        "demand.base_new_caller_rate_per_day": 6,
+        "finance.daily_operating_overhead": 180000,
+        "finance.starting_cash": 3300000,
+        "payroll.off_hours_bonus_per_job": 30000
+      }
+    },
+    {
+      "name": "demand_8_overhead_1200_bonus_750",
+      "overrides": {
+        "demand.base_new_caller_rate_per_day": 8,
+        "finance.daily_operating_overhead": 120000,
+        "finance.starting_cash": 2800000,
+        "payroll.off_hours_bonus_per_job": 75000
+      }
+    },
+    {
+      "name": "demand_8_overhead_1500_bonus_300",
+      "overrides": {
+        "demand.base_new_caller_rate_per_day": 8,
+        "finance.daily_operating_overhead": 150000,
+        "finance.starting_cash": 3000000,
+        "payroll.off_hours_bonus_per_job": 30000
+      }
+    },
+    {
+      "name": "demand_8_overhead_1800_bonus_500",
+      "overrides": {
+        "demand.base_new_caller_rate_per_day": 8,
+        "finance.daily_operating_overhead": 180000,
+        "finance.starting_cash": 3300000,
+        "payroll.off_hours_bonus_per_job": 50000
+      }
+    }
+  ]
+}

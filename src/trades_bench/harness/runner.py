@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -10,11 +11,13 @@ from typing import Any, NoReturn
 from trades_bench import clock, run_init
 from trades_bench.adapter import HarnessAdapter
 from trades_bench.config import RunConfig
+from trades_bench.errors import EngineError, ErrorCode
 from trades_bench.harness import prompts, trajectory
 from trades_bench.harness.client import ControlClient, ControlResult, ControlTransportError
 from trades_bench.harness.launcher import EngineProcess
 from trades_bench.harness.trajectory import TrajectoryWriter
 from trades_bench.harness.workspace import workspace_digest
+from trades_bench.http_engine import ORACLE_BYPASS_ENV_NAMES
 
 TRACK = "controlled"
 CALL_ATTEMPT_LIMIT = 3
@@ -189,6 +192,15 @@ def resume_state(run_dir: str | Path, service_date: str) -> ResumeState:
     )
 
 
+def _refuse_oracle_bypass_environment() -> None:
+    for name in sorted(ORACLE_BYPASS_ENV_NAMES):
+        if os.environ.get(name):
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED,
+                f"a scored run refuses to start while {name} is set",
+            )
+
+
 def initialize_controlled_run(
     db_path: str | Path,
     *,
@@ -199,6 +211,7 @@ def initialize_controlled_run(
     dataset_version: str = "",
     artifact_dir: str | Path | None = None,
 ) -> str:
+    _refuse_oracle_bypass_environment()
     metadata = adapter.describe()
     return run_init.initialize_run(
         db_path,

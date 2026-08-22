@@ -27,8 +27,8 @@ SEED = 5
 DAY_ONE = "2026-10-01"
 DAY_TWO = "2026-10-02"
 DAY_THREE = "2026-10-03"
-STARTING_CASH = 20_000_000
-FINAL_CASH = 19_914_612
+STARTING_CASH = 4_200_000
+FINAL_CASH = 3_356_527
 MIN_TRAVEL_MINUTES = 20
 SINGLE_BLOCK_HOURS = 2
 OVERRUN_DURATION_MINUTES = 600
@@ -42,6 +42,57 @@ _JOB_TYPE_BY_SERVICE = {
     "hvac installation": 2,
     "plumbing": 3,
     "electrical": 4,
+}
+
+BOOKED_RUN_DEMAND = {
+    "demand.base_new_caller_rate_per_day": 10,
+    "demand.segment_weights": {"residential": 0.62, "commercial": 0.23, "apartment": 0.15},
+    "demand.category_weights": {
+        "residential": {
+            "HVAC service": 0.44,
+            "Plumbing": 0.33,
+            "Electrical": 0.16,
+            "HVAC installation": 0.07,
+            "Appliance repair": 0.35,
+            "Garage-door repair": 0.15,
+            "Roofing": 0.10,
+            "Pool service": 0.15,
+            "Pest control": 0.15,
+            "Landscaping": 0.10,
+        },
+        "commercial": {
+            "HVAC service": 0.52,
+            "Plumbing": 0.27,
+            "Electrical": 0.17,
+            "HVAC installation": 0.04,
+            "Appliance repair": 0.35,
+            "Garage-door repair": 0.15,
+            "Roofing": 0.10,
+            "Pool service": 0.15,
+            "Pest control": 0.15,
+            "Landscaping": 0.10,
+        },
+        "apartment": {
+            "HVAC service": 0.40,
+            "Plumbing": 0.38,
+            "Electrical": 0.15,
+            "HVAC installation": 0.07,
+            "Appliance repair": 0.35,
+            "Garage-door repair": 0.15,
+            "Roofing": 0.10,
+            "Pool service": 0.15,
+            "Pest control": 0.15,
+            "Landscaping": 0.10,
+        },
+    },
+    "demand.unsupported_category_share": 0.12,
+    "demand.day_of_week_multipliers": [1.45, 1.34, 1.28, 1.33, 1.20, 0.29, 0.11],
+}
+
+BOOKED_RUN_ECONOMICS = {
+    "finance.daily_operating_overhead": 220_000,
+    "finance.starting_cash": STARTING_CASH,
+    "payroll.off_hours_bonus_per_job": 125_000,
 }
 
 
@@ -254,6 +305,7 @@ class ScriptedBookingAdapter(ScriptedNoOpAdapter):
 
 def _config(**overrides):
     keys = {
+        **BOOKED_RUN_ECONOMICS,
         "acceptance.base_probability_by_urgency": {"standard": 1, "urgent": 1},
         "acceptance.floor_probability_by_urgency": {"standard": 1, "urgent": 1},
         "acceptance.lead_time_decay_by_urgency": {"standard": 0, "urgent": 0},
@@ -267,7 +319,7 @@ def _config(**overrides):
 
 
 def _booked_config():
-    return _config(**{"travel.min_travel_minutes": MIN_TRAVEL_MINUTES})
+    return _config(**BOOKED_RUN_DEMAND, **{"travel.min_travel_minutes": MIN_TRAVEL_MINUTES})
 
 
 def _init(path, config):
@@ -535,6 +587,7 @@ def test_sampled_boundary_kills_resume_the_booked_run_to_the_identical_dump(
 
 def _run_overrun_day(path):
     config = _config(**{
+        **BOOKED_RUN_DEMAND,
         "run.end_date": DAY_ONE,
         "appointments.min_actual_duration_minutes": OVERRUN_DURATION_MINUTES,
     })

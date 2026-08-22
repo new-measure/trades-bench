@@ -13,7 +13,7 @@ from .enums import ConditionCode
 from .errors import EngineError, ErrorCode
 from .money import BASIS_POINTS_SCALE, basis_point_amount
 
-DEFAULT_CONFIG_VERSION: str = "1.0.0"
+DEFAULT_CONFIG_VERSION: str = "1.0.2"
 
 U64_MOD: int = 1 << 64
 
@@ -58,9 +58,9 @@ _DOMAIN_ENTRIES: list[Any] = [
     (
         "finance.starting_cash",
         "cost",
-        20_000_000,
+        2_950_000,
         {
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "Starting cash (integer cents) the warm-start opening adjustment pins "
             "the ledger to.",
         },
@@ -68,9 +68,9 @@ _DOMAIN_ENTRIES: list[Any] = [
     (
         "finance.daily_operating_overhead",
         "cost",
-        30_000,
+        180_000,
         {
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "Aggregate daily operating overhead (integer cents) posted by every "
             "daily settlement, with no internal vendor breakdown.",
         },
@@ -80,28 +80,28 @@ _DOMAIN_ENTRIES: list[Any] = [
         "cents_triple_map_map",
         {
             "hvac_service": {
-                "residential": {"min_cents": 25000, "mode_cents": 45000, "max_cents": 90000},
-                "apartment": {"min_cents": 30000, "mode_cents": 52000, "max_cents": 100000},
-                "commercial": {"min_cents": 40000, "mode_cents": 65000, "max_cents": 130000},
+                "residential": {"min_cents": 15000, "mode_cents": 30000, "max_cents": 166000},
+                "apartment": {"min_cents": 15000, "mode_cents": 31000, "max_cents": 140000},
+                "commercial": {"min_cents": 15000, "mode_cents": 32000, "max_cents": 114000},
             },
             "hvac_installation": {
-                "residential": {"min_cents": 550000, "mode_cents": 750000, "max_cents": 1200000},
-                "apartment": {"min_cents": 600000, "mode_cents": 820000, "max_cents": 1300000},
-                "commercial": {"min_cents": 700000, "mode_cents": 950000, "max_cents": 1600000},
+                "residential": {"min_cents": 230000, "mode_cents": 675000, "max_cents": 1600000},
+                "apartment": {"min_cents": 250000, "mode_cents": 780000, "max_cents": 1470000},
+                "commercial": {"min_cents": 274000, "mode_cents": 885000, "max_cents": 1340000},
             },
             "plumbing": {
-                "residential": {"min_cents": 20000, "mode_cents": 38000, "max_cents": 85000},
-                "apartment": {"min_cents": 24000, "mode_cents": 44000, "max_cents": 95000},
-                "commercial": {"min_cents": 32000, "mode_cents": 56000, "max_cents": 120000},
+                "residential": {"min_cents": 15000, "mode_cents": 40000, "max_cents": 183000},
+                "apartment": {"min_cents": 12000, "mode_cents": 41000, "max_cents": 175000},
+                "commercial": {"min_cents": 6250, "mode_cents": 42000, "max_cents": 167000},
             },
             "electrical": {
-                "residential": {"min_cents": 22000, "mode_cents": 40000, "max_cents": 88000},
-                "apartment": {"min_cents": 26000, "mode_cents": 46000, "max_cents": 98000},
-                "commercial": {"min_cents": 34000, "mode_cents": 60000, "max_cents": 125000},
+                "residential": {"min_cents": 15000, "mode_cents": 34000, "max_cents": 228000},
+                "apartment": {"min_cents": 15000, "mode_cents": 35000, "max_cents": 227000},
+                "commercial": {"min_cents": 15000, "mode_cents": 36000, "max_cents": 227000},
             },
         },
         {
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "Triangular invoice-subtotal parameters in integer cents per true job "
             "type and customer segment, drawn once at paid completion.",
         },
@@ -110,13 +110,13 @@ _DOMAIN_ENTRIES: list[Any] = [
         "materials.percent_range",
         "basis_points_range_map",
         {
-            "hvac_service": {"min_basis_points": 1500, "max_basis_points": 3000},
-            "hvac_installation": {"min_basis_points": 3000, "max_basis_points": 4500},
-            "plumbing": {"min_basis_points": 1200, "max_basis_points": 2800},
-            "electrical": {"min_basis_points": 1000, "max_basis_points": 2500},
+            "hvac_service": {"min_basis_points": 2500, "max_basis_points": 4000},
+            "hvac_installation": {"min_basis_points": 3500, "max_basis_points": 5000},
+            "plumbing": {"min_basis_points": 2000, "max_basis_points": 3500},
+            "electrical": {"min_basis_points": 1800, "max_basis_points": 3200},
         },
         {
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "Uniform integer-basis-point material-cost range per true job type, "
             "drawn once at completion and disclosed on the invoice.",
         },
@@ -134,18 +134,18 @@ _DOMAIN_ENTRIES: list[Any] = [
     (
         "hiring.base_hourly_wage_by_trade",
         "cost_map",
-        {"hvac_service": 3500, "hvac_install": 4000, "plumbing": 3200, "electrical": 3400},
+        {"hvac_service": 5000, "hvac_install": 5500, "plumbing": 4800, "electrical": 5200},
         {
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "Base hourly wage in cents/hour per qualification code.",
         },
     ),
     (
         "payroll.off_hours_bonus_per_job",
         "cost",
-        5000,
+        50_000,
         {
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "Flat bonus in cents posted alongside off-hours wages for each "
             "off-hours accrual mark that carries an assignee.",
         },
@@ -740,9 +740,9 @@ _DOMAIN_ENTRIES: list[Any] = [
     (
         "demand.base_new_caller_rate_per_day",
         "decimal",
-        10,
+        6,
         {
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "Metro-wide base new-caller Poisson rate before multipliers.",
         },
     ),
@@ -772,10 +772,10 @@ _DOMAIN_ENTRIES: list[Any] = [
     (
         "demand.segment_weights",
         "decimal_map",
-        {"residential": Decimal("0.62"), "commercial": Decimal("0.23"), "apartment": Decimal("0.15")},
+        {"residential": Decimal("0.78"), "commercial": Decimal("0.14"), "apartment": Decimal("0.08")},
         {
             "min": 0,
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "New-caller segment mix at generation.",
         },
     ),
@@ -784,10 +784,10 @@ _DOMAIN_ENTRIES: list[Any] = [
         "decimal_map_map",
         {
             "residential": {
-                "HVAC service": Decimal("0.44"),
-                "Plumbing": Decimal("0.33"),
-                "Electrical": Decimal("0.16"),
-                "HVAC installation": Decimal("0.07"),
+                "HVAC service": Decimal("0.42"),
+                "Plumbing": Decimal("0.34"),
+                "Electrical": Decimal("0.19"),
+                "HVAC installation": Decimal("0.05"),
                 "Appliance repair": Decimal("0.35"),
                 "Garage-door repair": Decimal("0.15"),
                 "Roofing": Decimal("0.10"),
@@ -796,10 +796,10 @@ _DOMAIN_ENTRIES: list[Any] = [
                 "Landscaping": Decimal("0.10"),
             },
             "commercial": {
-                "HVAC service": Decimal("0.52"),
-                "Plumbing": Decimal("0.27"),
-                "Electrical": Decimal("0.17"),
-                "HVAC installation": Decimal("0.04"),
+                "HVAC service": Decimal("0.46"),
+                "Plumbing": Decimal("0.29"),
+                "Electrical": Decimal("0.20"),
+                "HVAC installation": Decimal("0.05"),
                 "Appliance repair": Decimal("0.35"),
                 "Garage-door repair": Decimal("0.15"),
                 "Roofing": Decimal("0.10"),
@@ -808,10 +808,10 @@ _DOMAIN_ENTRIES: list[Any] = [
                 "Landscaping": Decimal("0.10"),
             },
             "apartment": {
-                "HVAC service": Decimal("0.40"),
+                "HVAC service": Decimal("0.38"),
                 "Plumbing": Decimal("0.38"),
-                "Electrical": Decimal("0.15"),
-                "HVAC installation": Decimal("0.07"),
+                "Electrical": Decimal("0.19"),
+                "HVAC installation": Decimal("0.05"),
                 "Appliance repair": Decimal("0.35"),
                 "Garage-door repair": Decimal("0.15"),
                 "Roofing": Decimal("0.10"),
@@ -821,7 +821,7 @@ _DOMAIN_ENTRIES: list[Any] = [
             },
         },
         {
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "Relative requested-category weight per segment, over the full catalog; "
             "unsupported and supported are separate relative-weight groups split by "
             "demand.unsupported_category_share.",
@@ -830,9 +830,9 @@ _DOMAIN_ENTRIES: list[Any] = [
     (
         "demand.unsupported_category_share",
         "probability",
-        Decimal("0.12"),
+        Decimal("0.15"),
         {
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "Share of new-caller requests drawn from the unsupported category "
             "group.",
         },
@@ -841,18 +841,18 @@ _DOMAIN_ENTRIES: list[Any] = [
         "demand.day_of_week_multipliers",
         "decimal_list",
         [
-            Decimal("1.45"),
-            Decimal("1.34"),
-            Decimal("1.28"),
-            Decimal("1.33"),
+            Decimal("1.35"),
+            Decimal("1.25"),
             Decimal("1.20"),
-            Decimal("0.29"),
-            Decimal("0.11"),
+            Decimal("1.25"),
+            Decimal("1.15"),
+            Decimal("0.50"),
+            Decimal("0.30"),
         ],
         {
             "length": 7,
             "min": 0,
-            "deferred": "provisional",
+            "deferred": "calibrated",
             "description": "Day-of-week multiplier on new-caller and repeat-call volume, "
             "Monday..Sunday.",
         },
@@ -1571,6 +1571,26 @@ _DOMAIN_ENTRIES: list[Any] = [
             "everything nor rejects everything.",
         },
     ),
+    (
+        "calibration.accept_all_max_final_cash",
+        "cost",
+        3_050_000,
+        {
+            "deferred": "calibrated",
+            "description": "Largest positive final ledger balance (integer cents) permitted for "
+            "a completed accept-all calibration run.",
+        },
+    ),
+    (
+        "calibration.seed_set",
+        "int_list",
+        [5, 101, 202, 303, 404],
+        {
+            "deferred": "calibrated",
+            "description": "Master seeds the calibration matrix runs, in order; the first element "
+            "is the primary calibration seed the regression digests pin.",
+        },
+    ),
 ]
 
 
@@ -1942,6 +1962,23 @@ def _v_month_day_string(spec: KeySpec, value: Any) -> str:
     return s
 
 
+def _v_int_list(spec: KeySpec, value: Any) -> tuple[int, ...]:
+    if not isinstance(value, list) or not value:
+        raise _bad(f"{spec.path}: expected a non-empty list, got {value!r}")
+    seen: set[int] = set()
+    out: list[int] = []
+    for i, x in enumerate(value):
+        if _is_bool(x) or not isinstance(x, int):
+            raise _bad(f"{spec.path}[{i}]: expected integer, got {type(x).__name__}")
+        if not (0 <= x < U64_MOD):
+            raise _bad(f"{spec.path}[{i}]: {x} must fit u64")
+        if x in seen:
+            raise _bad(f"{spec.path}[{i}]: duplicate value {x}")
+        seen.add(x)
+        out.append(x)
+    return tuple(out)
+
+
 def _v_decimal_list(spec: KeySpec, value: Any) -> list[Decimal]:
     if not isinstance(value, list) or not value:
         raise _bad(f"{spec.path}: expected a non-empty list, got {value!r}")
@@ -2089,6 +2126,7 @@ _VALIDATORS = {
     "bool": _v_bool,
     "date_string": _v_date_string,
     "month_day_string": _v_month_day_string,
+    "int_list": _v_int_list,
     "decimal_list": _v_decimal_list,
     "probability_list": _v_probability_list,
     "decimal_map": _v_decimal_map,
@@ -2812,6 +2850,12 @@ class RunConfig:
     def get_string_list(self, path: str) -> list[str]:
         return [str(s) for s in self.resolved[path]]
 
+    def get_int_list(self, path: str) -> tuple[int, ...]:
+        v = self.resolved[path]
+        if not isinstance(v, tuple):
+            raise TypeError(f"{path!r} is not an int_list")
+        return tuple(int(n) for n in v)
+
     def get_bool(self, path: str) -> bool:
         return bool(self.resolved[path])
 
@@ -3015,33 +3059,48 @@ def config_from_canonical(config_version: str, canonical_json: str) -> RunConfig
 
 
 DEFERRED_ITEMS: list[dict[str, Any]] = [
-    {"name": "starting_cash", "key_paths": ["finance.starting_cash"], "status": "provisional"},
+    {"name": "starting_cash", "key_paths": ["finance.starting_cash"], "status": "calibrated"},
     {
         "name": "daily_operating_overhead_amount",
         "key_paths": ["finance.daily_operating_overhead"],
-        "status": "provisional",
+        "status": "calibrated",
     },
     {
         "name": "off_hours_bonus_per_job",
         "key_paths": ["payroll.off_hours_bonus_per_job"],
-        "status": "provisional",
+        "status": "calibrated",
     },
     {
         "name": "warm_start_record_count",
         "key_paths": ["calibration.warm_start.records"],
         "status": "provisional",
     },
-    {"name": "demand_rates", "key_paths": ["demand.*"], "status": "provisional"},
+    {
+        "name": "v1_demand_mix",
+        "key_paths": [
+            "demand.base_new_caller_rate_per_day",
+            "demand.segment_weights",
+            "demand.category_weights",
+            "demand.unsupported_category_share",
+            "demand.day_of_week_multipliers",
+        ],
+        "status": "calibrated",
+    },
     {"name": "acceptance_curves", "key_paths": ["acceptance.*"], "status": "provisional"},
     {"name": "cancellation_rates", "key_paths": ["cancellations.*"], "status": "provisional"},
     {"name": "callback_delays", "key_paths": ["callbacks.*"], "status": "provisional"},
     {"name": "competitor_probabilities", "key_paths": ["competitors.*"], "status": "provisional"},
     {"name": "review_sampling", "key_paths": ["reviews.*"], "status": "provisional"},
     {"name": "weather_severity", "key_paths": ["weather.*"], "status": "provisional"},
-    {"name": "invoice_distributions", "key_paths": ["invoices.amount"], "status": "provisional"},
+    {"name": "invoice_distributions", "key_paths": ["invoices.amount"], "status": "calibrated"},
     {
         "name": "material_percentages",
-        "key_paths": ["materials.percent_range", "materials.warranty_basis_fraction"],
+        "key_paths": ["materials.percent_range"],
+        "status": "calibrated",
+    },
+    {
+        "name": "warranty_material_basis",
+        "key_paths": ["materials.warranty_basis_fraction"],
         "status": "provisional",
     },
     {
@@ -3051,6 +3110,11 @@ DEFERRED_ITEMS: list[dict[str, Any]] = [
     },
     {"name": "training_gains_rates", "key_paths": ["training.*"], "status": "provisional"},
     {"name": "labor_economy_parameters", "key_paths": ["labor_economy.*"], "status": "provisional"},
+    {
+        "name": "loaded_trade_wages",
+        "key_paths": ["hiring.base_hourly_wage_by_trade"],
+        "status": "calibrated",
+    },
     {"name": "hiring_costs_lead_times", "key_paths": ["hiring.*"], "status": "provisional"},
     {
         "name": "sickness_quit_probabilities",
@@ -3061,6 +3125,16 @@ DEFERRED_ITEMS: list[dict[str, Any]] = [
         "name": "minimum_address_catalog_size",
         "key_paths": ["geography.min_address_catalog_size"],
         "status": "provisional",
+    },
+    {
+        "name": "v1_calibration_seed_set",
+        "key_paths": ["calibration.seed_set"],
+        "status": "calibrated",
+    },
+    {
+        "name": "accept_all_max_final_cash",
+        "key_paths": ["calibration.accept_all_max_final_cash"],
+        "status": "calibrated",
     },
 ]
 

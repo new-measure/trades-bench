@@ -109,9 +109,9 @@ def _validate_address_pool_floors(conn: sqlite3.Connection, config: RunConfig) -
         if zone_weights[zone_id - 1] <= 0:
             continue
         for segment in sorted(_SEGMENTS):
-            in_zone = _address_pool_ids(conn, zone_id=zone_id, segment=segment, outlying=False)
-            outlying = _address_pool_ids(conn, zone_id=zone_id, segment=segment, outlying=True)
-            if not in_zone and not outlying:
+            in_zone = _address_pool_count(conn, zone_id=zone_id, segment=segment, outlying=False)
+            outlying = _address_pool_count(conn, zone_id=zone_id, segment=segment, outlying=True)
+            if in_zone == 0 and outlying == 0:
                 raise EngineError(
                     ErrorCode.INVARIANT_VIOLATED,
                     f"no usable address pool for zone {zone_id} segment {segment!r}",
@@ -361,31 +361,89 @@ def _urgency_probability(config: RunConfig, hour: int, m_category_micros: int) -
     return min(max(base + bonus, Decimal(0)), Decimal(1))
 
 
-def _address_pool_ids(
-    conn: sqlite3.Connection, *, zone_id: int, segment: str, outlying: bool
-) -> list[int]:
-    zone_clause = "ac.zone_id IS NULL AND ac.effective_zone_id = ?" if outlying else "ac.zone_id = ?"
-    sql = (
-        "SELECT ac.id FROM _address_catalog ac WHERE ac.status = 'usable' "
+def _segment_literal(segment: str) -> str:
+    if segment not in _SEGMENTS:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"address pool segment must be one of {sorted(_SEGMENTS)}, got {segment!r}",
+        )
+    return segment
+
+
+def _address_pool_sql(*, projection: str, zone_clause: str, segment: str, tail: str) -> str:
+    return (
+        f"SELECT {projection} FROM _address_catalog ac WHERE ac.status = 'usable' "
         f"AND {zone_clause} "
-        "AND (',' || ac.segment_eligibility || ',') LIKE ('%,' || ? || ',%') "
+        f"AND (',' || ac.segment_eligibility || ',') LIKE '%,{_segment_literal(segment)},%' "
         "AND NOT EXISTS ("
         "SELECT 1 FROM _locations l WHERE l.address_catalog_id = ac.id AND l.active = 1"
-        ") ORDER BY ac.id"
+        f"){tail}"
     )
-    return [row["id"] for row in conn.execute(sql, (zone_id, segment)).fetchall()]
 
 
-def _new_location_pool_ids(conn: sqlite3.Connection, *, zone_id: int, segment: str) -> list[int]:
-    sql = (
-        "SELECT ac.id FROM _address_catalog ac WHERE ac.status = 'usable' "
-        "AND ac.effective_zone_id = ? "
-        "AND (',' || ac.segment_eligibility || ',') LIKE ('%,' || ? || ',%') "
-        "AND NOT EXISTS ("
-        "SELECT 1 FROM _locations l WHERE l.address_catalog_id = ac.id AND l.active = 1"
-        ") ORDER BY ac.id"
+def _address_pool_zone_clause(outlying: bool) -> str:
+    if outlying:
+        return "ac.zone_id IS NULL AND ac.effective_zone_id = ?"
+    return "ac.zone_id = ?"
+
+
+def _address_pool_count(
+    conn: sqlite3.Connection, *, zone_id: int, segment: str, outlying: bool
+) -> int:
+    sql = _address_pool_sql(
+        projection="COUNT(*) AS n",
+        zone_clause=_address_pool_zone_clause(outlying),
+        segment=segment,
+        tail="",
     )
-    return [row["id"] for row in conn.execute(sql, (zone_id, segment)).fetchall()]
+    return int(conn.execute(sql, (zone_id,)).fetchone()["n"])
+
+
+def _address_pool_pick(
+    conn: sqlite3.Connection, *, zone_id: int, segment: str, outlying: bool, index: int
+) -> int:
+    sql = _address_pool_sql(
+        projection="ac.id",
+        zone_clause=_address_pool_zone_clause(outlying),
+        segment=segment,
+        tail=" ORDER BY ac.id LIMIT 1 OFFSET ?",
+    )
+    row = conn.execute(sql, (zone_id, index)).fetchone()
+    if row is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"address pool for zone {zone_id} segment {segment!r} has no entry at index {index}",
+        )
+    return int(row["id"])
+
+
+def _new_location_pool_count(conn: sqlite3.Connection, *, zone_id: int, segment: str) -> int:
+    sql = _address_pool_sql(
+        projection="COUNT(*) AS n",
+        zone_clause="ac.effective_zone_id = ?",
+        segment=segment,
+        tail="",
+    )
+    return int(conn.execute(sql, (zone_id,)).fetchone()["n"])
+
+
+def _new_location_pool_pick(
+    conn: sqlite3.Connection, *, zone_id: int, segment: str, index: int
+) -> int:
+    sql = _address_pool_sql(
+        projection="ac.id",
+        zone_clause="ac.effective_zone_id = ?",
+        segment=segment,
+        tail=" ORDER BY ac.id LIMIT 1 OFFSET ?",
+    )
+    row = conn.execute(sql, (zone_id, index)).fetchone()
+    if row is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED,
+            f"new location pool for zone {zone_id} segment {segment!r} has no entry "
+            f"at index {index}",
+        )
+    return int(row["id"])
 
 
 def _zone_of_customer(conn: sqlite3.Connection, customer_id: int) -> int:
@@ -452,16 +510,26 @@ def _generate_new_caller_slot(
     )
 
     want_outlying = chance(draw(2), config.get_prob_threshold("demand.outlying_address_share"))
-    pool_ids = _address_pool_ids(conn, zone_id=zone_id, segment=segment, outlying=want_outlying)
-    if not pool_ids:
-        pool_ids = _address_pool_ids(conn, zone_id=zone_id, segment=segment, outlying=not want_outlying)
-    if not pool_ids:
+    pool_outlying = want_outlying
+    pool_count = _address_pool_count(conn, zone_id=zone_id, segment=segment, outlying=pool_outlying)
+    if pool_count == 0:
+        pool_outlying = not want_outlying
+        pool_count = _address_pool_count(
+            conn, zone_id=zone_id, segment=segment, outlying=pool_outlying
+        )
+    if pool_count == 0:
         raise EngineError(
             ErrorCode.INVARIANT_VIOLATED,
             f"no usable address pool for zone {zone_id} segment {segment!r}",
         )
     u3 = draw(3)
-    address_catalog_id = pool_ids[u3 % len(pool_ids)]
+    address_catalog_id = _address_pool_pick(
+        conn,
+        zone_id=zone_id,
+        segment=segment,
+        outlying=pool_outlying,
+        index=u3 % pool_count,
+    )
 
     hour = _pick_arrival_hour(config, draw(8))
     minute = draw(9) % 60
@@ -564,8 +632,8 @@ def _generate_repeat_slot(
     want_new_location = chance(
         draw(1), config.get_prob_threshold("demand.existing_customer_new_location_probability")
     )
-    new_pool_ids = (
-        _new_location_pool_ids(conn, zone_id=zone_of, segment=segment) if want_new_location else []
+    new_pool_count = (
+        _new_location_pool_count(conn, zone_id=zone_of, segment=segment) if want_new_location else 0
     )
     existing_location_ids = [
         row["id"]
@@ -576,8 +644,10 @@ def _generate_repeat_slot(
     ]
 
     u2 = draw(2)
-    if want_new_location and new_pool_ids:
-        address_catalog_id: int | None = new_pool_ids[u2 % len(new_pool_ids)]
+    if want_new_location and new_pool_count > 0:
+        address_catalog_id: int | None = _new_location_pool_pick(
+            conn, zone_id=zone_of, segment=segment, index=u2 % new_pool_count
+        )
         location_id: int | None = None
     else:
         if not existing_location_ids:

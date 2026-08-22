@@ -54,7 +54,14 @@ POLICY_NAMES = ("do_nothing", "accept_all", "reject_heavy")
 BOOKING_POLICY_NAMES = ("accept_all", "reject_heavy")
 
 POLICY_MODULE_NAMES = ("__init__", "base", "accept_all", "do_nothing", "reject_heavy")
-OPERATOR_MODULE_NAMES = ("runner", "oracle", "fork_search")
+OPERATOR_MODULE_NAMES = (
+    "runner",
+    "oracle",
+    "fork_search",
+    "calibration",
+    "experiment",
+    "pi_run",
+)
 FORBIDDEN_POLICY_IMPORTS = (
     "sqlite3",
     "trades_bench.db",
@@ -150,11 +157,13 @@ def appointment_rows(db_path: Path) -> list[tuple[int, str, str]]:
     return rows
 
 
-def final_score_cents(db_path: Path) -> int:
+def final_ledger_cash_cents(db_path: Path) -> int:
     conn = open_world(db_path)
-    row = conn.execute("SELECT final_score_cents FROM _run").fetchone()
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount_cents), 0) AS final_cash_cents FROM _ledger_entries"
+    ).fetchone()
     conn.close()
-    return int(row["final_score_cents"])
+    return int(row["final_cash_cents"])
 
 
 def skill_match_counts(db_path: Path) -> tuple[int, int]:
@@ -198,6 +207,27 @@ def rejected_ids(rows: list[tuple[int, str, str]]) -> set[int]:
         for call_id, kind, status in rows
         if kind == "new_job" and status == "rejected"
     }
+
+
+def booked_ids(rows: list[tuple[int, str, str]]) -> set[int]:
+    return {
+        call_id
+        for call_id, kind, status in rows
+        if kind == "new_job" and status == "booked"
+    }
+
+
+def job_type_codes_by_call(db_path: Path, call_ids: set[int]) -> dict[int, str]:
+    conn = open_world(db_path)
+    placeholders = ",".join("?" for _ in call_ids)
+    rows = conn.execute(
+        "SELECT j.call_id, jt.code FROM _jobs j "
+        "JOIN _job_types jt ON jt.id = j.job_type_id "
+        f"WHERE j.call_id IN ({placeholders}) ORDER BY j.call_id",
+        tuple(sorted(call_ids)),
+    ).fetchall()
+    conn.close()
+    return {int(row["call_id"]): str(row["code"]) for row in rows}
 
 
 def payload_probe(result: ApiResult) -> str:
@@ -468,10 +498,12 @@ def retry_runs(
 
 
 @pytest.mark.parametrize("name", POLICY_NAMES)
-def test_pol_common_every_reference_policy_runs_headless_to_completed(twin_runs, name):
+def test_pol_common_every_reference_policy_runs_headless_to_a_valid_terminal_status(
+    twin_runs, name
+):
     for result in twin_runs[name]:
-        assert result.run_status == "completed"
-        assert result.report["run_status"] == "completed"
+        assert result.run_status in {"completed", "bankrupt"}
+        assert result.report["run_status"] == result.run_status
         assert result.report["policy"] == name
         assert result.report["master_seed"] == SEED
         assert result.report["first_service_date"] == TWO_WEEKS[0]
@@ -500,17 +532,33 @@ def test_pol_common_every_report_reconciles_its_cash_with_the_finalized_run_file
         report["final_cash_cents"] - report["starting_cash_cents"]
     )
     assert report["daily_cash_cents"][-1][1] == report["final_cash_cents"]
-    assert report["final_cash_cents"] == final_score_cents(
+    assert report["final_cash_cents"] == final_ledger_cash_cents(
         twin_runs[name][0].paths.db_path
     )
 
 
 @pytest.mark.parametrize("name", POLICY_NAMES)
-def test_pol_common_no_reference_policy_reaches_bankruptcy_on_the_two_week_window(
-    twin_runs, name
-):
+def test_pol_common_bankruptcy_reports_the_date_and_negative_final_balance(twin_runs, name):
     for result in twin_runs[name]:
-        assert result.report["bankruptcy_date"] is None
+        if result.run_status == "bankrupt":
+            assert result.report["bankruptcy_date"] is not None
+            assert result.report["final_cash_cents"] < 0
+        else:
+            assert result.report["bankruptcy_date"] is None
+
+
+@pytest.mark.parametrize("name", ("do_nothing", "reject_heavy"))
+def test_low_revenue_reference_policies_bankrupt_within_the_window(twin_runs, name):
+    for result in twin_runs[name]:
+        assert result.run_status == "bankrupt"
+
+
+def test_accept_all_is_bankrupt_or_below_the_thin_survival_ceiling(twin_runs, config):
+    ceiling = config.get_int("calibration.accept_all_max_final_cash")
+    for result in twin_runs["accept_all"]:
+        assert result.run_status == "bankrupt" or (
+            0 < result.report["final_cash_cents"] <= ceiling
+        )
 
 
 def test_pol05_do_nothing_leaves_no_active_calls_and_only_unanswered_ones(twin_runs):
@@ -544,6 +592,20 @@ def test_pol02_accept_all_books_where_do_nothing_books_none(twin_runs):
     assert booking_result.report["calls"]["new_job"]["booked"] >= 1
     assert booking_result.report["utilization"]["assigned_blocks"] >= 1
     assert appointment_rows(booking_result.paths.db_path) != []
+
+
+def test_pol02_accept_all_books_unsupported_requests_as_generic_jobs(twin_runs):
+    result = twin_runs["accept_all"][0]
+    rows = call_rows(result.paths.db_path)
+    unsupported = unsupported_new_job_ids(result.paths.db_path)
+    booked_unsupported = unsupported & booked_ids(rows)
+
+    assert unsupported
+    assert unsupported.isdisjoint(rejected_ids(rows))
+    assert booked_unsupported
+    assert set(job_type_codes_by_call(result.paths.db_path, booked_unsupported).values()) == {
+        accept_all.FALLBACK_JOB_TYPE_CODE
+    }
 
 
 def test_pol01_every_accept_all_booking_went_to_a_technician_holding_the_required_skill(
@@ -603,7 +665,7 @@ def test_pol03_rejects_is_exactly_the_pinned_keyed_draw_under_the_threshold(conf
         )
 
 
-def test_pol03_reject_heavy_rejects_exactly_the_drawn_calls_plus_the_unsupported_ones(
+def test_pol03_reject_heavy_rejects_exactly_the_drawn_calls(
     twin_runs, config
 ):
     result = twin_runs["reject_heavy"][0]
@@ -611,10 +673,8 @@ def test_pol03_reject_heavy_rejects_exactly_the_drawn_calls_plus_the_unsupported
     offered = new_job_ids(rows)
     policy = RejectHeavyPolicy.from_config(config, master_seed=SEED)
     drawn = {call_id for call_id in offered if policy.rejects(call_id)}
-    unsupported = unsupported_new_job_ids(result.paths.db_path) & offered
 
-    assert unsupported
-    assert rejected_ids(rows) == drawn | unsupported
+    assert rejected_ids(rows) == drawn
 
 
 def test_a_transient_adapter_failure_is_re_decided_and_leaves_the_world_unchanged(

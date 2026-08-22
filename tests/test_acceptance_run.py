@@ -26,15 +26,22 @@ from trades_bench.txn import privileged, privileged_request_id
 SEED = 5
 FULL_START_DATE = "2026-10-01"
 FULL_END_DATE = "2026-10-14"
+BANKRUPTCY_DATE = "2026-10-12"
 FULL_DATES = tuple(
     (date.fromisoformat(FULL_START_DATE) + timedelta(days=offset)).isoformat()
-    for offset in range(14)
+    for offset in range(12)
 )
 FAST_END_DATE = "2026-10-03"
-STARTING_CASH = 20_000_000
-FINAL_CASH = 18_170_000
-SCORE = FINAL_CASH - STARTING_CASH
+STARTING_CASH = 4_200_000
+FINAL_CASH = -80_000
 RESUME_SAMPLE_COUNT = 30
+
+NO_OP_FIXTURE_ECONOMICS = {
+    "demand.base_new_caller_rate_per_day": 2,
+    "finance.daily_operating_overhead": 220_000,
+    "finance.starting_cash": STARTING_CASH,
+    "payroll.off_hours_bonus_per_job": 125_000,
+}
 
 DAY_ONE_TRACE = [
     ("day_rollover", "2026-10-01T06:45:00-07:00", 100),
@@ -50,26 +57,12 @@ DAY_ONE_TRACE = [
     ("first_block_lock", "2026-10-01T06:45:00-07:00", 905),
     ("first_trip_dispatch", "2026-10-01T06:45:00-07:00", 906),
     ("block_lock", "2026-10-01T09:00:00-07:00", 200),
-    ("call_invocation", "2026-10-01T09:04:00-07:00", 910),
-    ("call_invocation", "2026-10-01T09:28:00-07:00", 910),
-    ("call_invocation", "2026-10-01T09:30:00-07:00", 910),
-    ("call_invocation", "2026-10-01T09:36:00-07:00", 910),
-    ("call_invocation", "2026-10-01T09:46:00-07:00", 910),
-    ("call_invocation", "2026-10-01T10:01:00-07:00", 910),
-    ("call_invocation", "2026-10-01T10:04:00-07:00", 910),
     ("block_lock", "2026-10-01T11:00:00-07:00", 200),
     ("call_invocation", "2026-10-01T11:17:00-07:00", 910),
-    ("call_invocation", "2026-10-01T11:47:00-07:00", 910),
-    ("call_invocation", "2026-10-01T12:31:00-07:00", 910),
     ("block_lock", "2026-10-01T13:00:00-07:00", 200),
-    ("call_invocation", "2026-10-01T13:41:00-07:00", 910),
-    ("call_invocation", "2026-10-01T14:02:00-07:00", 910),
     ("call_invocation", "2026-10-01T14:52:00-07:00", 910),
     ("block_lock", "2026-10-01T15:00:00-07:00", 200),
-    ("call_invocation", "2026-10-01T15:12:00-07:00", 910),
-    ("call_invocation", "2026-10-01T15:22:00-07:00", 910),
     ("call_invocation", "2026-10-01T15:26:00-07:00", 910),
-    ("call_invocation", "2026-10-01T15:40:00-07:00", 910),
     ("block_lock", "2026-10-01T17:00:00-07:00", 200),
     ("closing_invocation", "2026-10-01T19:00:00-07:00", 920),
     ("daily_settlement", "2026-10-01T19:00:00-07:00", 950),
@@ -79,6 +72,7 @@ DAY_ONE_TRACE = [
 
 def _config(**overrides):
     keys = {
+        **NO_OP_FIXTURE_ECONOMICS,
         "geography.artifact_id": GEO_ARTIFACT_ID,
         "geography.artifact_sha256": geo_artifact_sha256(),
         "demand.zone_weights": GEO_FIXTURE_ZONE_WEIGHTS,
@@ -146,17 +140,17 @@ def fast_baseline(tmp_path_factory):
     return baseline
 
 
-def test_all_fourteen_days_share_the_no_op_day_shape(full_run):
+def test_no_op_bankruptcy_stops_the_run_after_the_causing_settlement(full_run):
     conn = full_run["conn"]
-    assert full_run["status"] is RunStatus.COMPLETED
+    assert full_run["status"] is RunStatus.BANKRUPT
     run_row = conn.execute("SELECT * FROM _run").fetchone()
-    assert run_row["status"] == "completed"
+    assert run_row["status"] == "bankrupt"
     assert run_row["first_service_date"] == FULL_START_DATE
     assert run_row["last_service_date"] == FULL_END_DATE
     days = conn.execute("SELECT * FROM _day_state ORDER BY service_date").fetchall()
     assert [row["service_date"] for row in days] == list(FULL_DATES)
     day_types = [row["day_type"] for row in days]
-    assert day_types.count("weekday") == 10
+    assert day_types.count("weekday") == 8
     assert day_types.count("weekend") == 4
     for row in days:
         weekday = date.fromisoformat(row["service_date"]).isoweekday() <= 5
@@ -174,7 +168,8 @@ def test_all_fourteen_days_share_the_no_op_day_shape(full_run):
                 "AND scheduled_at_ms >= ? AND scheduled_at_ms < ?",
                 (kind, day_start, day_end),
             ).fetchone()["c"]
-            assert count == 1, (service_date, kind)
+            expected = 0 if service_date == BANKRUPTCY_DATE and kind == "checkpoint" else 1
+            assert count == expected, (service_date, kind)
     calls = conn.execute(
         "SELECT ts_ms, status FROM _invocations WHERE type = 'call' ORDER BY sequence"
     ).fetchall()
@@ -188,20 +183,23 @@ def test_all_fourteen_days_share_the_no_op_day_shape(full_run):
         row["type"]: row["c"]
         for row in conn.execute("SELECT type, COUNT(*) c FROM _invocations GROUP BY type")
     }
-    assert per_type["opening"] == 14
-    assert per_type["closing"] == 14
+    assert per_type["opening"] == 12
+    assert per_type["closing"] == 12
     assert conn.execute(
         "SELECT COUNT(*) c FROM _invocations WHERE status != 'completed'"
     ).fetchone()["c"] == 0
     assert conn.execute(
         "SELECT COUNT(*) c FROM _events WHERE kind = 'run_finalize' AND status = 'applied'"
-    ).fetchone()["c"] == 1
-    assert conn.execute(
-        "SELECT COUNT(*) c FROM _events WHERE status = 'pending'"
     ).fetchone()["c"] == 0
+    pending = conn.execute(
+        "SELECT kind, scheduled_at_ms FROM _events WHERE status = 'pending' ORDER BY event_id"
+    ).fetchall()
+    assert [(row["kind"], clock.service_date_for_ms(row["scheduled_at_ms"])) for row in pending] == [
+        ("checkpoint", BANKRUPTCY_DATE)
+    ]
 
 
-def test_final_cash_and_score_match_the_two_week_no_op_arithmetic(full_run):
+def test_final_cash_retains_the_negative_bankruptcy_causing_balance(full_run):
     conn = full_run["conn"]
     config = full_run["config"]
     starting = config.get_int("finance.starting_cash")
@@ -213,13 +211,18 @@ def test_final_cash_and_score_match_the_two_week_no_op_arithmetic(full_run):
     assert len(wages) == 4
     daily_payroll = constants.WEEKDAY_PAY_MULTIPLIER * sum(wages)
     overhead = config.get_int("finance.daily_operating_overhead")
-    assert starting - 10 * daily_payroll - 14 * overhead == FINAL_CASH
+    assert starting - 8 * daily_payroll - 12 * overhead == FINAL_CASH
     balance = conn.execute(
         "SELECT COALESCE(SUM(amount_cents), 0) s FROM _ledger_entries"
     ).fetchone()["s"]
-    assert balance == 18_170_000
-    assert balance - starting == -1_830_000
-    assert balance - starting == SCORE
+    assert balance == FINAL_CASH
+    assert balance < 0
+    bankruptcy = conn.execute(
+        "SELECT service_date, balance_after_cents FROM _ledger_entries "
+        "WHERE origin = 'run' AND balance_after_cents < 0 ORDER BY occurred_at, id LIMIT 1"
+    ).fetchone()
+    assert bankruptcy["service_date"] == BANKRUPTCY_DATE
+    assert bankruptcy["balance_after_cents"] == FINAL_CASH
 
 
 def test_every_ledger_row_carries_the_running_balance(full_run):
@@ -262,11 +265,13 @@ def test_a_fresh_two_week_run_from_the_same_seed_matches_the_baseline_dump(full_
     conn = _init(tmp_path / "twin.db", config)
     register_conn(conn)
     status = Controller(conn, config, ScriptedNoOpAdapter()).run()
-    assert status is RunStatus.COMPLETED
+    assert status is RunStatus.BANKRUPT
     assert dump_hash(conn, _run_id(conn)) == full_run["dump"]
 
 
-def _kill_copy_resume_and_compare(tmp_path, config, boundary, expected_dump):
+def _kill_copy_resume_and_compare(
+    tmp_path, config, boundary, expected_dump, expected_status=RunStatus.COMPLETED
+):
     killed_path = tmp_path / f"killed_{boundary}.db"
     conn = _init(killed_path, config)
     try:
@@ -279,7 +284,7 @@ def _kill_copy_resume_and_compare(tmp_path, config, boundary, expected_dump):
     resumed = open_run_db(resumed_path, artifact_dir=GEO_ARTIFACT_DIR)
     try:
         status = Controller(resumed, config, ScriptedNoOpAdapter()).run()
-        assert status is RunStatus.COMPLETED, boundary
+        assert status is expected_status, boundary
         assert dump_hash(resumed, _run_id(resumed)) == expected_dump, boundary
     finally:
         resumed.close()
@@ -296,13 +301,15 @@ def test_sampled_boundary_kills_resume_to_the_identical_dump(fast_baseline, tmp_
     )
 
 
-def _snapshot_resume_and_compare(tmp_path, config, prompt_number, expected_dump):
+def _snapshot_resume_and_compare(
+    tmp_path, config, prompt_number, expected_dump, expected_status=RunStatus.COMPLETED
+):
     live_path = tmp_path / f"live_{prompt_number}.db"
     snapshot_path = tmp_path / f"snapshot_{prompt_number}.db"
     conn = _init(live_path, config)
     try:
         adapter = SnapshotOnNthPromptAdapter(prompt_number, live_path, snapshot_path)
-        assert Controller(conn, config, adapter).run() is RunStatus.COMPLETED, prompt_number
+        assert Controller(conn, config, adapter).run() is expected_status, prompt_number
         assert adapter.snapshot_prompt is not None, prompt_number
     finally:
         conn.close()
@@ -313,7 +320,7 @@ def _snapshot_resume_and_compare(tmp_path, config, prompt_number, expected_dump)
         ).fetchone()["c"]
         assert active == 1, prompt_number
         status = Controller(resumed, config, ScriptedNoOpAdapter()).run()
-        assert status is RunStatus.COMPLETED, prompt_number
+        assert status is expected_status, prompt_number
         assert dump_hash(resumed, _run_id(resumed)) == expected_dump, prompt_number
     finally:
         resumed.close()
@@ -334,9 +341,13 @@ def test_sampled_mid_prompt_snapshots_resume_to_the_identical_dump(fast_baseline
 def test_every_boundary_of_the_two_week_run_resumes_to_the_identical_dump(full_run, tmp_path):
     config = full_run["config"]
     for boundary in range(1, full_run["steps"]):
-        _kill_copy_resume_and_compare(tmp_path, config, boundary, full_run["dump"])
+        _kill_copy_resume_and_compare(
+            tmp_path, config, boundary, full_run["dump"], RunStatus.BANKRUPT
+        )
     for prompt_number in range(1, full_run["prompts"] + 1):
-        _snapshot_resume_and_compare(tmp_path, config, prompt_number, full_run["dump"])
+        _snapshot_resume_and_compare(
+            tmp_path, config, prompt_number, full_run["dump"], RunStatus.BANKRUPT
+        )
 
 
 class InterleavingProbeAdapter(ScriptedNoOpAdapter):

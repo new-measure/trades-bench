@@ -55,7 +55,7 @@ def test_ws02_roster_and_coverage(tmp_path):
             assert t["joined_on"] < "2026-04-01"
     assert [t["employment_status"] for t in techs] == ["active"] * 4
     assert [t["availability_status"] for t in techs] == ["available"] * 4
-    assert [t["hourly_wage_cents"] for t in techs] == [3500, 4000, 3200, 3400]
+    assert [t["hourly_wage_cents"] for t in techs] == [5000, 5500, 4800, 5200]
     quals: dict[int, list[str]] = {}
     for row in conn.execute(
         "SELECT technician_id, skill_code FROM _technician_skills ORDER BY id"
@@ -234,8 +234,8 @@ def test_ws09_fixture_form_views(tmp_path):
     assert hr["minimum_experience_years"] == 3
     assert hr["preferred_home_zone_id"] == 4
     assert hr["committed_start_date"] == "2026-08-03"
-    assert hr["committed_hourly_wage_cents"] == 4000
-    assert hr["recruiting_cost_cents"] == 40000
+    assert hr["committed_hourly_wage_cents"] == 5500
+    assert hr["recruiting_cost_cents"] == 55000
     assert hr["technician_id"] == 2
     assert hr["requested_at"] == clock.phoenix_instant(2026, 7, 1, 9, 0)
 

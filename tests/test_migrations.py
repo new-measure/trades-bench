@@ -21,6 +21,7 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     (9, "drop_attempt_count"),
     (10, "prospect_registration"),
     (11, "run_score_and_invocation_origin"),
+    (12, "address_pool_indexes"),
 )
 
 UNUSED_VERSION = max(version for version, _name in MIGRATIONS) + 1

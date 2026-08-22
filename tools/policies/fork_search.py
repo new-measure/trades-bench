@@ -27,11 +27,15 @@ POLICY_NAME = "oracle_fork_search"
 
 FORKS_PER_CALL = 2
 FORKED_DECISIONS_PER_DAY = 1
-FORKED_DECISION_LIMIT = 4
+FORKED_DECISION_LIMIT = 8
+LOOKAHEAD_DEPTH = 2
+INCLUDE_REJECT = True
 
 BRANCH_PREFIX = "br"
 FORK_DIR_PREFIX = "oracle-fork-"
 FORK_DB_SUFFIX = "-fork.db"
+BASELINE_SCRATCH_DIR = "baseline-mainlines"
+REJECT_RANK = -1
 
 NEW_JOB_PAYLOAD_KEY = "address"
 
@@ -45,6 +49,27 @@ class ForkBudget:
     forks_per_call: int = FORKS_PER_CALL
     decisions_per_day: int = FORKED_DECISIONS_PER_DAY
     decision_limit: int = FORKED_DECISION_LIMIT
+    lookahead_depth: int = LOOKAHEAD_DEPTH
+    include_reject: bool = INCLUDE_REJECT
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("forks_per_call", self.forks_per_call),
+            ("decisions_per_day", self.decisions_per_day),
+            ("decision_limit", self.decision_limit),
+            ("lookahead_depth", self.lookahead_depth),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        if not isinstance(self.include_reject, bool):
+            raise ValueError("include_reject must be a boolean")
+
+
+@dataclass(frozen=True)
+class BaselineOutcome:
+
+    baseline: str
+    score_cents: int
 
 
 @dataclass(frozen=True)
@@ -70,6 +95,8 @@ class ForkSearchResult:
 
     run: PolicyRunResult
     decisions: tuple[SearchDecision, ...]
+    baseline: str = oracle.BASELINE_GREEDY
+    baseline_outcomes: tuple[BaselineOutcome, ...] = ()
 
 
 @dataclass
@@ -98,28 +125,40 @@ class BranchDispatcher(oracle.OracleDispatcher):
         horizon_days: int = DEFAULT_HORIZON_DAYS,
         branch: str = "",
         override: tuple[int, int] | None = None,
+        baseline: str = oracle.BASELINE_GREEDY,
     ) -> None:
-        super().__init__(read_conn, horizon_days=horizon_days, branch=branch)
+        super().__init__(
+            read_conn, horizon_days=horizon_days, branch=branch, baseline=baseline
+        )
         self.override = override
         self.override_reachable = False
+
+    def _decide(self, prompt):
+        if self.override == (int(prompt.payload["call_id"]), REJECT_RANK):
+            call_id = int(prompt.payload["call_id"])
+            self.override = None
+            self.override_reachable = True
+            return self._reject(call_id, "fork override")
+        return super()._decide(prompt)
 
     def rank(
         self, call_id: int, ranked: list[oracle.Candidate]
     ) -> list[oracle.Candidate]:
+        ordered = super().rank(call_id, ranked)
         if self.override is None:
-            return ranked
+            return ordered
         target_call_id, target_rank = self.override
         if call_id != target_call_id:
-            return ranked
+            return ordered
         self.override = None
-        if target_rank >= len(ranked):
-            return ranked
-        if ranked[target_rank].score_cents <= 0:
-            return ranked
+        if target_rank >= len(ordered):
+            return ordered
+        if ordered[target_rank].score_cents <= 0:
+            return ordered
         self.override_reachable = True
         if target_rank == 0:
-            return ranked
-        return [ranked[target_rank], *ranked[:target_rank], *ranked[target_rank + 1 :]]
+            return ordered
+        return [ordered[target_rank], *ordered[:target_rank], *ordered[target_rank + 1 :]]
 
 
 def read_run_config(conn: sqlite3.Connection) -> RunConfig:
@@ -175,6 +214,9 @@ def play_branch(
     horizon_days: int,
     call_id: int,
     rank: int,
+    budget: ForkBudget,
+    search_depth: int,
+    baseline: str = oracle.BASELINE_GREEDY,
 ) -> BranchOutcome:
     conn = run_init.open_run_db(fork_path, artifact_dir=geo_dir)
     read_conn = oracle.open_read_connection(fork_path)
@@ -185,10 +227,21 @@ def play_branch(
             horizon_days=horizon_days,
             branch=f"{BRANCH_PREFIX}{rank}",
             override=(call_id, rank),
+            baseline=baseline,
         )
         controller = Controller(conn, config, dispatcher, artifact_dir=geo_dir)
         dispatcher.controller = controller
-        run_status = controller.run().value
+        controller.step()
+        run_status = play_remaining_search(
+            controller,
+            dispatcher,
+            fork_path,
+            geo_dir=geo_dir,
+            horizon_days=horizon_days,
+            budget=budget,
+            remaining_search_decisions=search_depth - 1,
+            baseline=baseline,
+        )
         return BranchOutcome(
             rank=rank,
             run_status=run_status,
@@ -200,8 +253,15 @@ def play_branch(
         conn.close()
 
 
+def _rank_priority(rank: int) -> int:
+    return rank if rank >= 0 else 2**63
+
+
 def best_outcome(outcomes: Sequence[BranchOutcome]) -> BranchOutcome:
-    return max(outcomes, key=lambda outcome: (outcome.score_cents, -outcome.rank))
+    return max(
+        outcomes,
+        key=lambda outcome: (outcome.score_cents, -_rank_priority(outcome.rank)),
+    )
 
 
 def explore(
@@ -212,8 +272,11 @@ def explore(
     call_id: int,
     service_date: str,
     budget: ForkBudget,
+    search_depth: int | None = None,
+    baseline: str = oracle.BASELINE_GREEDY,
 ) -> SearchDecision:
     outcomes: list[BranchOutcome] = []
+    depth = budget.lookahead_depth if search_depth is None else search_depth
     with tempfile.TemporaryDirectory(
         prefix=FORK_DIR_PREFIX, dir=db_path.parent
     ) as fork_dir:
@@ -226,11 +289,30 @@ def explore(
                 horizon_days=horizon_days,
                 call_id=call_id,
                 rank=rank,
+                budget=budget,
+                search_depth=depth,
+                baseline=baseline,
             )
             fork_path.unlink()
             outcomes.append(outcome)
             if not outcome.reachable:
                 break
+        if budget.include_reject:
+            fork_path = Path(fork_dir) / f"{BRANCH_PREFIX}{REJECT_RANK}{FORK_DB_SUFFIX}"
+            shutil.copyfile(db_path, fork_path)
+            outcomes.append(
+                play_branch(
+                    fork_path,
+                    geo_dir=geo_dir,
+                    horizon_days=horizon_days,
+                    call_id=call_id,
+                    rank=REJECT_RANK,
+                    budget=budget,
+                    search_depth=depth,
+                    baseline=baseline,
+                )
+            )
+            fork_path.unlink()
     chosen = best_outcome(outcomes)
     return SearchDecision(
         call_id=call_id,
@@ -240,6 +322,39 @@ def explore(
     )
 
 
+def play_remaining_search(
+    controller: Controller,
+    dispatcher: BranchDispatcher,
+    db_path: Path,
+    *,
+    geo_dir: str | Path | None,
+    horizon_days: int,
+    budget: ForkBudget,
+    remaining_search_decisions: int,
+    baseline: str,
+) -> str:
+    while True:
+        opened = controller.advance_to_invocation()
+        if opened is None:
+            return controller.status().value
+        call_id = decidable_call_id(dispatcher.read_conn, opened)
+        if call_id is not None and remaining_search_decisions > 0:
+            decision = explore(
+                db_path,
+                geo_dir=geo_dir,
+                horizon_days=horizon_days,
+                call_id=call_id,
+                service_date=clock.service_date_for_ms(opened.ts_ms),
+                budget=budget,
+                search_depth=remaining_search_decisions,
+                baseline=baseline,
+            )
+            dispatcher.override = (decision.call_id, decision.chosen_rank)
+            dispatcher.override_reachable = False
+            remaining_search_decisions -= 1
+        controller.step()
+
+
 def drive_fork_search(
     db_path: str | Path,
     *,
@@ -247,6 +362,7 @@ def drive_fork_search(
     geo_dir: str | Path | None = None,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     budget: ForkBudget = ForkBudget(),
+    baseline: str = oracle.BASELINE_GREEDY,
 ) -> tuple[str, tuple[SearchDecision, ...]]:
     path = Path(db_path)
     conn = run_init.open_run_db(path, artifact_dir=geo_dir)
@@ -254,7 +370,9 @@ def drive_fork_search(
     ledger = BudgetLedger(budget=budget)
     decisions: list[SearchDecision] = []
     try:
-        dispatcher = BranchDispatcher(read_conn, horizon_days=horizon_days)
+        dispatcher = BranchDispatcher(
+            read_conn, horizon_days=horizon_days, baseline=baseline
+        )
         controller = Controller(conn, config, dispatcher, artifact_dir=geo_dir)
         dispatcher.controller = controller
         while True:
@@ -271,6 +389,7 @@ def drive_fork_search(
                     call_id=call_id,
                     service_date=service_date,
                     budget=budget,
+                    baseline=baseline,
                 )
                 dispatcher.override = (decision.call_id, decision.chosen_rank)
                 dispatcher.override_reachable = False
@@ -281,6 +400,79 @@ def drive_fork_search(
     finally:
         read_conn.close()
         conn.close()
+
+
+def play_baseline(
+    baseline: str,
+    *,
+    config: RunConfig,
+    master_seed: int,
+    run_dir: Path,
+    geo_dir: str | Path | None,
+    horizon_days: int,
+    dataset_version: str,
+) -> BaselineOutcome:
+    paths = PolicyRunPaths.under(run_dir)
+    paths.run_dir.mkdir(parents=True, exist_ok=True)
+    run_init.initialize_run(
+        paths.db_path,
+        master_seed=master_seed,
+        config=config,
+        dataset_version=dataset_version,
+        artifact_dir=geo_dir,
+        harness_name=oracle.POLICY_NAME,
+        harness_version=oracle.POLICY_VERSION,
+        track=oracle.TRACK,
+    )
+    oracle.drive_oracle(
+        paths.db_path,
+        config=config,
+        geo_dir=geo_dir,
+        horizon_days=horizon_days,
+        baseline=baseline,
+    )
+    conn = run_init.open_run_db(paths.db_path, artifact_dir=geo_dir)
+    try:
+        return BaselineOutcome(baseline=baseline, score_cents=score_cents(conn, config))
+    finally:
+        conn.close()
+
+
+def best_baseline(outcomes: Sequence[BaselineOutcome]) -> BaselineOutcome:
+    return max(
+        outcomes,
+        key=lambda outcome: (
+            outcome.score_cents,
+            -oracle.BASELINE_NAMES.index(outcome.baseline),
+        ),
+    )
+
+
+def choose_baseline(
+    *,
+    config: RunConfig,
+    master_seed: int,
+    run_dir: Path,
+    geo_dir: str | Path | None,
+    horizon_days: int,
+    dataset_version: str,
+) -> tuple[BaselineOutcome, ...]:
+    scratch = run_dir / BASELINE_SCRATCH_DIR
+    try:
+        return tuple(
+            play_baseline(
+                baseline,
+                config=config,
+                master_seed=master_seed,
+                run_dir=scratch / baseline,
+                geo_dir=geo_dir,
+                horizon_days=horizon_days,
+                dataset_version=dataset_version,
+            )
+            for baseline in oracle.BASELINE_NAMES
+        )
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def run_fork_search(
@@ -297,6 +489,15 @@ def run_fork_search(
 ) -> ForkSearchResult:
     paths = PolicyRunPaths.under(run_dir)
     paths.run_dir.mkdir(parents=True, exist_ok=True)
+    baseline_outcomes = choose_baseline(
+        config=config,
+        master_seed=master_seed,
+        run_dir=paths.run_dir,
+        geo_dir=geo_dir,
+        horizon_days=horizon_days,
+        dataset_version=dataset_version,
+    )
+    baseline = best_baseline(baseline_outcomes).baseline
     run_id = run_init.initialize_run(
         paths.db_path,
         master_seed=master_seed,
@@ -313,6 +514,7 @@ def run_fork_search(
         geo_dir=geo_dir,
         horizon_days=horizon_days,
         budget=budget,
+        baseline=baseline,
     )
     report = build_report(
         paths.db_path,
@@ -332,29 +534,40 @@ def run_fork_search(
             report_path=report_path,
         ),
         decisions=tuple(decisions),
+        baseline=baseline,
+        baseline_outcomes=baseline_outcomes,
     )
 
 
 __all__ = [
+    "BASELINE_SCRATCH_DIR",
     "BRANCH_PREFIX",
     "FORKED_DECISIONS_PER_DAY",
     "FORKED_DECISION_LIMIT",
     "FORKS_PER_CALL",
+    "INCLUDE_REJECT",
     "LEDGER_TOTAL_SQL",
+    "LOOKAHEAD_DEPTH",
     "POLICY_NAME",
+    "REJECT_RANK",
     "RUN_CONFIG_SQL",
+    "BaselineOutcome",
     "BranchDispatcher",
     "BranchOutcome",
     "BudgetLedger",
     "ForkBudget",
     "ForkSearchResult",
     "SearchDecision",
+    "best_baseline",
     "best_outcome",
+    "choose_baseline",
     "decidable_call_id",
     "drive_fork_search",
     "explore",
     "new_job_call_id",
+    "play_baseline",
     "play_branch",
+    "play_remaining_search",
     "read_run_config",
     "run_fork_search",
     "score_cents",

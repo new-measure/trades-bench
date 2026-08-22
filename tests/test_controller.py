@@ -259,7 +259,6 @@ def test_settlement_posts_expected_ledger_rows_in_order(completed_run):
     ).fetchall()
     assert len(technicians) == 4
     overhead = config.get_int("finance.daily_operating_overhead")
-    assert overhead == 30_000
     for service_date in DATES:
         rows = conn.execute(
             "SELECT * FROM _ledger_entries WHERE service_date = ? AND origin = 'run' "

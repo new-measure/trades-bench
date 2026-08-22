@@ -29,6 +29,19 @@ SERVICE_DATE = "2026-10-01"
 SERVICE_DATE_NEXT = "2026-10-02"
 
 
+def _legacy_address_pool_ids(conn, *, zone_id, segment, outlying):
+    zone_clause = "ac.zone_id IS NULL AND ac.effective_zone_id = ?" if outlying else "ac.zone_id = ?"
+    sql = (
+        "SELECT ac.id FROM _address_catalog ac WHERE ac.status = 'usable' "
+        f"AND {zone_clause} "
+        "AND (',' || ac.segment_eligibility || ',') LIKE ('%,' || ? || ',%') "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM _locations l WHERE l.address_catalog_id = ac.id AND l.active = 1"
+        ") ORDER BY ac.id"
+    )
+    return [row["id"] for row in conn.execute(sql, (zone_id, segment)).fetchall()]
+
+
 def _scenario(overrides: dict | None = None):
     keys = {
         "geography.artifact_id": GEO_ARTIFACT_ID,
@@ -341,9 +354,9 @@ def test_ordinal_discipline_matches_hand_recomputation(tmp_path):
         [((cid, name), demand._to_micros(mass)) for cid, name, mass in dist], draw(1)
     )
     want_outlying = chance(draw(2), config.get_prob_threshold("demand.outlying_address_share"))
-    pool_ids = demand._address_pool_ids(conn, zone_id=zone_id, segment=segment, outlying=want_outlying)
+    pool_ids = _legacy_address_pool_ids(conn, zone_id=zone_id, segment=segment, outlying=want_outlying)
     if not pool_ids:
-        pool_ids = demand._address_pool_ids(
+        pool_ids = _legacy_address_pool_ids(
             conn, zone_id=zone_id, segment=segment, outlying=not want_outlying
         )
     u3 = draw(3)
@@ -415,9 +428,11 @@ def test_ordinal_discipline_matches_hand_recomputation_for_every_slot(tmp_path):
             [((cid, name), demand._to_micros(mass)) for cid, name, mass in dist], draw(1)
         )
         want_outlying = chance(draw(2), config.get_prob_threshold("demand.outlying_address_share"))
-        pool_ids = demand._address_pool_ids(conn, zone_id=zone_id, segment=segment, outlying=want_outlying)
+        pool_ids = _legacy_address_pool_ids(
+            conn, zone_id=zone_id, segment=segment, outlying=want_outlying
+        )
         if not pool_ids:
-            pool_ids = demand._address_pool_ids(
+            pool_ids = _legacy_address_pool_ids(
                 conn, zone_id=zone_id, segment=segment, outlying=not want_outlying
             )
         u3 = draw(3)
@@ -621,8 +636,161 @@ def test_address_pool_eligibility_and_empty_pool_invariant(many_seed_dataset, tm
 
 
 def test_address_pool_queries_pin_an_explicit_deterministic_order():
-    assert "ORDER BY ac.id" in inspect.getsource(demand._address_pool_ids)
-    assert "ORDER BY ac.id" in inspect.getsource(demand._new_location_pool_ids)
+    assert "ORDER BY ac.id" in inspect.getsource(demand._address_pool_pick)
+    assert "ORDER BY ac.id" in inspect.getsource(demand._new_location_pool_pick)
+
+
+def test_the_pool_count_and_pick_reproduce_the_old_list_query_for_every_combination(tmp_path):
+    config = _zone4_scenario()
+    conn, _run_id = _init(tmp_path, 1, config)
+    zone_ids = [row["id"] for row in conn.execute("SELECT id FROM _zones ORDER BY id").fetchall()]
+    combinations = 0
+
+    for zone_id in zone_ids:
+        for segment in sorted(demand._SEGMENTS):
+            for outlying in (False, True):
+                expected = _legacy_address_pool_ids(
+                    conn, zone_id=zone_id, segment=segment, outlying=outlying
+                )
+                count = demand._address_pool_count(
+                    conn, zone_id=zone_id, segment=segment, outlying=outlying
+                )
+                picked = [
+                    demand._address_pool_pick(
+                        conn, zone_id=zone_id, segment=segment, outlying=outlying, index=index
+                    )
+                    for index in range(count)
+                ]
+                assert count == len(expected)
+                assert picked == expected
+                combinations += 1
+
+    assert combinations == len(zone_ids) * len(demand._SEGMENTS) * 2
+
+
+def test_a_new_caller_slot_falls_back_to_the_other_outlying_flag_when_its_pool_is_empty(tmp_path):
+    config = _zone4_scenario(**{"demand.base_new_caller_rate_per_day": 15})
+    conn, _run_id = _init(tmp_path, 1, config)
+    conn.execute("UPDATE _address_catalog SET zone_id = NULL WHERE effective_zone_id = 4")
+    for segment in sorted(demand._SEGMENTS):
+        assert demand._address_pool_count(conn, zone_id=4, segment=segment, outlying=False) == 0
+        assert demand._address_pool_count(conn, zone_id=4, segment=segment, outlying=True) > 0
+
+    _generate(conn, config, 1, SERVICE_DATE)
+
+    chosen = [
+        row["address_catalog_id"]
+        for row in _pending_rows(conn, SERVICE_DATE)
+        if row["channel"] == "new_caller"
+    ]
+    outlying_ids = {
+        catalog_id
+        for segment in sorted(demand._SEGMENTS)
+        for catalog_id in _legacy_address_pool_ids(
+            conn, zone_id=4, segment=segment, outlying=True
+        )
+    }
+    assert chosen
+    assert set(chosen) <= outlying_ids
+
+
+def test_an_empty_pool_on_both_outlying_flags_fails_the_address_floor_check(tmp_path):
+    config = _zone4_scenario()
+    conn, _run_id = _init(tmp_path, 1, config)
+    conn.execute("UPDATE _address_catalog SET status = 'unusable' WHERE effective_zone_id = 4")
+    for segment in sorted(demand._SEGMENTS):
+        assert demand._address_pool_count(conn, zone_id=4, segment=segment, outlying=False) == 0
+        assert demand._address_pool_count(conn, zone_id=4, segment=segment, outlying=True) == 0
+
+    with pytest.raises(EngineError) as excinfo:
+        demand._validate_address_pool_floors(conn, config)
+
+    assert excinfo.value.code is ErrorCode.INVARIANT_VIOLATED
+
+
+class _RecordingConnection:
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.statements: list[tuple[str, tuple]] = []
+
+    def execute(self, sql, params=()):
+        self.statements.append((sql, tuple(params)))
+        return self._conn.execute(sql, params)
+
+
+def _plan_details(conn, sql, params):
+    return [row["detail"] for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params)]
+
+
+def _pool_statements(conn):
+    recorder = _RecordingConnection(conn)
+    for outlying in (False, True):
+        demand._address_pool_count(
+            recorder, zone_id=4, segment="residential", outlying=outlying
+        )
+    demand._address_pool_pick(
+        recorder, zone_id=4, segment="residential", outlying=False, index=0
+    )
+    demand._new_location_pool_count(recorder, zone_id=4, segment="commercial")
+    demand._new_location_pool_pick(recorder, zone_id=4, segment="commercial", index=0)
+    return recorder.statements
+
+
+POOL_SCAN_INDEXES = (
+    "idx_address_pool_zone_residential",
+    "idx_address_pool_eff_residential",
+    "idx_address_pool_zone_residential",
+    "idx_address_pool_eff_commercial",
+    "idx_address_pool_eff_commercial",
+)
+LOCATION_PROBE_INDEX = "idx_locations_address_catalog"
+
+
+def test_every_pool_statement_plans_the_scan_and_the_probe_on_its_index(tmp_path):
+    config = _zone4_scenario()
+    conn, _run_id = _init(tmp_path, 1, config)
+    statements = _pool_statements(conn)
+
+    assert len(statements) == len(POOL_SCAN_INDEXES)
+    for (sql, params), scan_index in zip(statements, POOL_SCAN_INDEXES, strict=True):
+        details = _plan_details(conn, sql, params)
+        assert any(
+            f"USING INDEX {scan_index}" in detail for detail in details
+        ), (scan_index, details)
+        assert any(
+            f"USING INDEX {LOCATION_PROBE_INDEX}" in detail for detail in details
+        ), details
+        assert not any("SCAN _address_catalog" in detail for detail in details), details
+        assert not any("SCAN l" in detail for detail in details), details
+
+
+def test_a_bound_segment_parameter_would_lose_the_partial_index_plan(tmp_path):
+    config = _zone4_scenario()
+    conn, _run_id = _init(tmp_path, 1, config)
+    literal_sql, literal_params = _pool_statements(conn)[0]
+    bound_sql = literal_sql.replace("'%,residential,%'", "('%,' || ? || ',%')")
+    bound_params = (*literal_params, "residential")
+
+    assert bound_sql != literal_sql
+    assert any(
+        "USING INDEX idx_address_pool_zone_residential" in detail
+        for detail in _plan_details(conn, literal_sql, literal_params)
+    )
+    assert not any(
+        "idx_address_pool_zone_residential" in detail
+        for detail in _plan_details(conn, bound_sql, bound_params)
+    )
+
+
+def test_the_pool_queries_reject_a_segment_outside_the_frozen_set(tmp_path):
+    config = _zone4_scenario()
+    conn, _run_id = _init(tmp_path, 1, config)
+
+    with pytest.raises(EngineError) as excinfo:
+        demand._address_pool_count(conn, zone_id=4, segment="industrial", outlying=False)
+
+    assert excinfo.value.code is ErrorCode.INVARIANT_VIOLATED
 
 
 def test_identity_pools_and_phone_format(many_seed_dataset):

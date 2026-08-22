@@ -900,6 +900,27 @@ CREATE INDEX _pending_calls_order ON _pending_calls (service_date, arrival_at)
 CREATE INDEX _random_audit_key ON _random_audit
     (stream_name, entity_type, entity_id, scope, event_kind, draw_index)
 
+-- index: idx_address_pool_eff_apartment
+CREATE INDEX idx_address_pool_eff_apartment ON _address_catalog(effective_zone_id, id) WHERE status = 'usable' AND (',' || segment_eligibility || ',') LIKE '%,apartment,%'
+
+-- index: idx_address_pool_eff_commercial
+CREATE INDEX idx_address_pool_eff_commercial ON _address_catalog(effective_zone_id, id) WHERE status = 'usable' AND (',' || segment_eligibility || ',') LIKE '%,commercial,%'
+
+-- index: idx_address_pool_eff_residential
+CREATE INDEX idx_address_pool_eff_residential ON _address_catalog(effective_zone_id, id) WHERE status = 'usable' AND (',' || segment_eligibility || ',') LIKE '%,residential,%'
+
+-- index: idx_address_pool_zone_apartment
+CREATE INDEX idx_address_pool_zone_apartment ON _address_catalog(zone_id, id) WHERE status = 'usable' AND (',' || segment_eligibility || ',') LIKE '%,apartment,%'
+
+-- index: idx_address_pool_zone_commercial
+CREATE INDEX idx_address_pool_zone_commercial ON _address_catalog(zone_id, id) WHERE status = 'usable' AND (',' || segment_eligibility || ',') LIKE '%,commercial,%'
+
+-- index: idx_address_pool_zone_residential
+CREATE INDEX idx_address_pool_zone_residential ON _address_catalog(zone_id, id) WHERE status = 'usable' AND (',' || segment_eligibility || ',') LIKE '%,residential,%'
+
+-- index: idx_locations_address_catalog
+CREATE INDEX idx_locations_address_catalog ON _locations(address_catalog_id)
+
 -- trigger: trg_appointment_blocks_ordinal_start
 CREATE TRIGGER trg_appointment_blocks_ordinal_start
 BEFORE INSERT ON _appointment_blocks

@@ -63,8 +63,8 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
-    assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.0"
-    assert len(rc.resolved) == 161
+    assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.2"
+    assert len(rc.resolved) == 163
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     with pytest.raises(TypeError):
         rc.resolved["constants.opening_hour"] = 9  # type: ignore[index]
@@ -107,12 +107,16 @@ def test_valid_override_succeeds_for_non_constant_key():
 
 def test_domain_keys_resolve_from_shipped_defaults():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
-    assert rc.get_int("finance.starting_cash") == 20_000_000
+    assert rc.get_int("finance.starting_cash") == 2_950_000
+    assert rc.get_int("finance.daily_operating_overhead") == 180_000
+    assert rc.get_int("payroll.off_hours_bonus_per_job") == 50_000
+    assert rc.get_decimal("demand.base_new_caller_rate_per_day") == 6
+    assert rc.get_int("calibration.accept_all_max_final_cash") == 3_050_000
     assert rc.resolved["hiring.base_hourly_wage_by_trade"] == {
-        "hvac_service": 3500,
-        "hvac_install": 4000,
-        "plumbing": 3200,
-        "electrical": 3400,
+        "hvac_service": 5000,
+        "hvac_install": 5500,
+        "plumbing": 4800,
+        "electrical": 5200,
     }
 
 
@@ -159,6 +163,57 @@ def test_reject_out_of_range_probability():
 
 def test_reject_negative_cost():
     _bad('{"keys": {"test.cost_cents": -5}}', ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_calibration_seed_set_resolves_to_an_immutable_int_tuple():
+    rc = _load('{"keys": {"calibration.seed_set": [7, 9]}}')
+    assert rc.get_int_list("calibration.seed_set") == (7, 9)
+    assert isinstance(rc.resolved["calibration.seed_set"], tuple)
+
+
+def test_get_int_list_rejects_a_key_that_is_not_an_int_list():
+    rc = _load()
+    with pytest.raises(TypeError):
+        rc.get_int_list("demand.unsupported_categories")
+
+
+def test_reject_empty_calibration_seed_set():
+    _bad('{"keys": {"calibration.seed_set": []}}', ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_duplicate_calibration_seed():
+    _bad('{"keys": {"calibration.seed_set": [5, 5]}}', ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_negative_calibration_seed():
+    _bad('{"keys": {"calibration.seed_set": [-1]}}', ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_calibration_seed_above_the_u64_ceiling():
+    _bad(
+        '{"keys": {"calibration.seed_set": [18446744073709551616]}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_bool_calibration_seed_element():
+    _bad('{"keys": {"calibration.seed_set": [true]}}', ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_non_integer_calibration_seed_element():
+    _bad('{"keys": {"calibration.seed_set": [5.5]}}', ErrorCode.CONFIG_VALUE_INVALID)
+    _bad('{"keys": {"calibration.seed_set": ["5"]}}', ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_non_list_calibration_seed_set():
+    _bad('{"keys": {"calibration.seed_set": 5}}', ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_negative_accept_all_cash_ceiling():
+    _bad(
+        '{"keys": {"calibration.accept_all_max_final_cash": -1}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
 
 
 def test_cost_map_validation_matrix():
@@ -1092,7 +1147,7 @@ def test_reject_material_installation_min_below_a_service_min():
 
 def test_reject_material_installation_max_below_a_service_max():
     def mutate(ranges):
-        ranges["hvac_service"]["max_basis_points"] = 4600
+        ranges["hvac_service"]["max_basis_points"] = 5100
 
     _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
 

@@ -1,0 +1,9 @@
+{
+  "seeds": [11, 23, 47, 89, 157, 271, 443, 701, 1103, 1601],
+  "trials": [
+    {
+      "name": "held_out_defaults",
+      "overrides": {}
+    }
+  ]
+}

@@ -1,0 +1,1011 @@
+{
+  "spec_version": "1.0.0",
+  "config_version": "1.0.0",
+  "master_seed": 5,
+  "scenarios": {
+    "oct_default": {
+      "do_nothing": {
+        "appointments": {
+          "cancelled": 0,
+          "completed": 0,
+          "failed": 0,
+          "no_show": 0
+        },
+        "bankruptcy_date": null,
+        "bookings_by_urgency": {
+          "standard": {
+            "booked": 0,
+            "calls": 123
+          },
+          "urgent": {
+            "booked": 0,
+            "calls": 16
+          }
+        },
+        "calls": {
+          "cancellation": {
+            "acknowledged": 0,
+            "active": 0,
+            "booked": 0,
+            "declined": 0,
+            "rejected": 0,
+            "unanswered": 0
+          },
+          "new_job": {
+            "acknowledged": 0,
+            "active": 0,
+            "booked": 0,
+            "declined": 0,
+            "rejected": 0,
+            "unanswered": 139
+          }
+        },
+        "config_hash": "931d8657145fa4de79588f7f1dcd97a8363ab2b1d6a940a5bb121e219c6bffaf",
+        "config_version": "1.0.0",
+        "daily_cash_cents": [
+          [
+            "2026-10-01",
+            19829000
+          ],
+          [
+            "2026-10-02",
+            19658000
+          ],
+          [
+            "2026-10-03",
+            19628000
+          ],
+          [
+            "2026-10-04",
+            19598000
+          ],
+          [
+            "2026-10-05",
+            19427000
+          ],
+          [
+            "2026-10-06",
+            19256000
+          ],
+          [
+            "2026-10-07",
+            19085000
+          ],
+          [
+            "2026-10-08",
+            18914000
+          ],
+          [
+            "2026-10-09",
+            18743000
+          ],
+          [
+            "2026-10-10",
+            18713000
+          ],
+          [
+            "2026-10-11",
+            18683000
+          ],
+          [
+            "2026-10-12",
+            18512000
+          ],
+          [
+            "2026-10-13",
+            18341000
+          ],
+          [
+            "2026-10-14",
+            18170000
+          ]
+        ],
+        "dump_hash": "0883a4359c00c6a3203bd69769fcf7f9ecd067ea1826bf63ca84c19576a92978",
+        "final_cash_cents": 18170000,
+        "first_service_date": "2026-10-01",
+        "last_service_date": "2026-10-14",
+        "ledger_by_category": {
+          "material_cost": 0,
+          "opening_balance_adjustment": 20040000,
+          "operating_overhead": -420000,
+          "payroll_base": -1410000,
+          "payroll_off_hours": 0,
+          "payroll_off_hours_bonus": 0,
+          "recruiting_cost": -40000,
+          "revenue": 0,
+          "training_cost": 0
+        },
+        "master_seed": 5,
+        "policy": "do_nothing",
+        "report_version": "1.0.0",
+        "run_status": "completed",
+        "scenario": "oct_default",
+        "score_cents": -1830000,
+        "spec_version": "1.0.0",
+        "starting_cash_cents": 20000000,
+        "utilization": {
+          "assigned_blocks": 0,
+          "shift_blocks": 302
+        },
+        "ledger_digest": "5ffb5702aefaae4641bc2a99067a7686e63ed71c6bac8431f1c550aeb746b262"
+      },
+      "accept_all": {
+        "appointments": {
+          "cancelled": 4,
+          "completed": 93,
+          "failed": 0,
+          "no_show": 18
+        },
+        "bankruptcy_date": null,
+        "bookings_by_urgency": {
+          "standard": {
+            "booked": 101,
+            "calls": 128
+          },
+          "urgent": {
+            "booked": 14,
+            "calls": 17
+          }
+        },
+        "calls": {
+          "cancellation": {
+            "acknowledged": 4,
+            "active": 0,
+            "booked": 0,
+            "declined": 0,
+            "rejected": 0,
+            "unanswered": 0
+          },
+          "new_job": {
+            "acknowledged": 0,
+            "active": 0,
+            "booked": 115,
+            "declined": 14,
+            "rejected": 15,
+            "unanswered": 1
+          }
+        },
+        "config_hash": "931d8657145fa4de79588f7f1dcd97a8363ab2b1d6a940a5bb121e219c6bffaf",
+        "config_version": "1.0.0",
+        "daily_cash_cents": [
+          [
+            "2026-10-01",
+            20240025
+          ],
+          [
+            "2026-10-02",
+            21417146
+          ],
+          [
+            "2026-10-03",
+            21584972
+          ],
+          [
+            "2026-10-04",
+            21586702
+          ],
+          [
+            "2026-10-05",
+            22650228
+          ],
+          [
+            "2026-10-06",
+            23225662
+          ],
+          [
+            "2026-10-07",
+            24511051
+          ],
+          [
+            "2026-10-08",
+            25297528
+          ],
+          [
+            "2026-10-09",
+            26042381
+          ],
+          [
+            "2026-10-10",
+            26092282
+          ],
+          [
+            "2026-10-11",
+            26062282
+          ],
+          [
+            "2026-10-12",
+            26820376
+          ],
+          [
+            "2026-10-13",
+            27517507
+          ],
+          [
+            "2026-10-14",
+            28779485
+          ]
+        ],
+        "dump_hash": "46a8abb7b61727ab846bf88676ee8331161fed559a4c34649d4c79392a28301a",
+        "final_cash_cents": 28779485,
+        "first_service_date": "2026-10-01",
+        "last_service_date": "2026-10-14",
+        "ledger_by_category": {
+          "material_cost": -5330063,
+          "opening_balance_adjustment": 20040000,
+          "operating_overhead": -420000,
+          "payroll_base": -1410000,
+          "payroll_off_hours": -163400,
+          "payroll_off_hours_bonus": -120000,
+          "recruiting_cost": -40000,
+          "revenue": 16222948,
+          "training_cost": 0
+        },
+        "master_seed": 5,
+        "policy": "accept_all",
+        "report_version": "1.0.0",
+        "run_status": "completed",
+        "scenario": "oct_default",
+        "score_cents": 8779485,
+        "spec_version": "1.0.0",
+        "starting_cash_cents": 20000000,
+        "utilization": {
+          "assigned_blocks": 125,
+          "shift_blocks": 302
+        },
+        "ledger_digest": "2c57480375be0d8dfa5ac7a6d0a263d786794777c643491c50fe21e701319330"
+      },
+      "reject_heavy": {
+        "appointments": {
+          "cancelled": 1,
+          "completed": 21,
+          "failed": 0,
+          "no_show": 1
+        },
+        "bankruptcy_date": null,
+        "bookings_by_urgency": {
+          "standard": {
+            "booked": 19,
+            "calls": 125
+          },
+          "urgent": {
+            "booked": 4,
+            "calls": 16
+          }
+        },
+        "calls": {
+          "cancellation": {
+            "acknowledged": 1,
+            "active": 0,
+            "booked": 0,
+            "declined": 0,
+            "rejected": 0,
+            "unanswered": 0
+          },
+          "new_job": {
+            "acknowledged": 0,
+            "active": 0,
+            "booked": 23,
+            "declined": 3,
+            "rejected": 115,
+            "unanswered": 0
+          }
+        },
+        "config_hash": "931d8657145fa4de79588f7f1dcd97a8363ab2b1d6a940a5bb121e219c6bffaf",
+        "config_version": "1.0.0",
+        "daily_cash_cents": [
+          [
+            "2026-10-01",
+            19883468
+          ],
+          [
+            "2026-10-02",
+            19712468
+          ],
+          [
+            "2026-10-03",
+            19713504
+          ],
+          [
+            "2026-10-04",
+            19683504
+          ],
+          [
+            "2026-10-05",
+            19638481
+          ],
+          [
+            "2026-10-06",
+            19972241
+          ],
+          [
+            "2026-10-07",
+            20460898
+          ],
+          [
+            "2026-10-08",
+            20289898
+          ],
+          [
+            "2026-10-09",
+            20178580
+          ],
+          [
+            "2026-10-10",
+            20148580
+          ],
+          [
+            "2026-10-11",
+            20118580
+          ],
+          [
+            "2026-10-12",
+            19947580
+          ],
+          [
+            "2026-10-13",
+            19867262
+          ],
+          [
+            "2026-10-14",
+            19845253
+          ]
+        ],
+        "dump_hash": "e4ab636c46229e18e66b78ff956304a6a5fbb567d59f96a40c005f4aace1255c",
+        "final_cash_cents": 19845253,
+        "first_service_date": "2026-10-01",
+        "last_service_date": "2026-10-14",
+        "ledger_by_category": {
+          "material_cost": -877321,
+          "opening_balance_adjustment": 20040000,
+          "operating_overhead": -420000,
+          "payroll_base": -1410000,
+          "payroll_off_hours": -33600,
+          "payroll_off_hours_bonus": -25000,
+          "recruiting_cost": -40000,
+          "revenue": 2611174,
+          "training_cost": 0
+        },
+        "master_seed": 5,
+        "policy": "reject_heavy",
+        "report_version": "1.0.0",
+        "run_status": "completed",
+        "scenario": "oct_default",
+        "score_cents": -154747,
+        "spec_version": "1.0.0",
+        "starting_cash_cents": 20000000,
+        "utilization": {
+          "assigned_blocks": 24,
+          "shift_blocks": 302
+        },
+        "ledger_digest": "46897c33879699bc15cfd60e6a1daa8058a6f48f8d898bb3f33dbccdde902f4a"
+      },
+      "oracle_fork_search": {
+        "appointments": {
+          "cancelled": 4,
+          "completed": 94,
+          "failed": 0,
+          "no_show": 17
+        },
+        "bankruptcy_date": null,
+        "bookings_by_urgency": {
+          "standard": {
+            "booked": 102,
+            "calls": 128
+          },
+          "urgent": {
+            "booked": 14,
+            "calls": 17
+          }
+        },
+        "calls": {
+          "cancellation": {
+            "acknowledged": 4,
+            "active": 0,
+            "booked": 0,
+            "declined": 0,
+            "rejected": 0,
+            "unanswered": 0
+          },
+          "new_job": {
+            "acknowledged": 0,
+            "active": 0,
+            "booked": 116,
+            "declined": 14,
+            "rejected": 15,
+            "unanswered": 0
+          }
+        },
+        "config_hash": "931d8657145fa4de79588f7f1dcd97a8363ab2b1d6a940a5bb121e219c6bffaf",
+        "config_version": "1.0.0",
+        "daily_cash_cents": [
+          [
+            "2026-10-01",
+            20240025
+          ],
+          [
+            "2026-10-02",
+            21417146
+          ],
+          [
+            "2026-10-03",
+            21584972
+          ],
+          [
+            "2026-10-04",
+            21586702
+          ],
+          [
+            "2026-10-05",
+            22650228
+          ],
+          [
+            "2026-10-06",
+            23225662
+          ],
+          [
+            "2026-10-07",
+            24511051
+          ],
+          [
+            "2026-10-08",
+            25324720
+          ],
+          [
+            "2026-10-09",
+            26069573
+          ],
+          [
+            "2026-10-10",
+            26119474
+          ],
+          [
+            "2026-10-11",
+            26089474
+          ],
+          [
+            "2026-10-12",
+            26847568
+          ],
+          [
+            "2026-10-13",
+            27544699
+          ],
+          [
+            "2026-10-14",
+            28806677
+          ]
+        ],
+        "dump_hash": "00eab2a0b787743cdad8be4423a2993cf3d06915b9a04716fbc2179338109b4d",
+        "final_cash_cents": 28806677,
+        "first_service_date": "2026-10-01",
+        "last_service_date": "2026-10-14",
+        "ledger_by_category": {
+          "material_cost": -5339732,
+          "opening_balance_adjustment": 20040000,
+          "operating_overhead": -420000,
+          "payroll_base": -1410000,
+          "payroll_off_hours": -163400,
+          "payroll_off_hours_bonus": -120000,
+          "recruiting_cost": -40000,
+          "revenue": 16259809,
+          "training_cost": 0
+        },
+        "master_seed": 5,
+        "policy": "oracle_fork_search",
+        "report_version": "1.0.0",
+        "run_status": "completed",
+        "scenario": "oct_default",
+        "score_cents": 8806677,
+        "spec_version": "1.0.0",
+        "starting_cash_cents": 20000000,
+        "utilization": {
+          "assigned_blocks": 126,
+          "shift_blocks": 302
+        },
+        "ledger_digest": "c37d9d582905bbb66dee70bb2d81ddb769d880dba8cb7a0de0ccb15f3ad02aa1"
+      }
+    },
+    "july_monsoon": {
+      "do_nothing": {
+        "appointments": {
+          "cancelled": 0,
+          "completed": 0,
+          "failed": 0,
+          "no_show": 0
+        },
+        "bankruptcy_date": null,
+        "bookings_by_urgency": {
+          "standard": {
+            "booked": 0,
+            "calls": 187
+          },
+          "urgent": {
+            "booked": 0,
+            "calls": 62
+          }
+        },
+        "calls": {
+          "cancellation": {
+            "acknowledged": 0,
+            "active": 0,
+            "booked": 0,
+            "declined": 0,
+            "rejected": 0,
+            "unanswered": 0
+          },
+          "new_job": {
+            "acknowledged": 0,
+            "active": 0,
+            "booked": 0,
+            "declined": 0,
+            "rejected": 0,
+            "unanswered": 249
+          }
+        },
+        "config_hash": "79e1370f6b79660eb2902d4ea54d4f050eaca70289d5e8f457343f53072e247b",
+        "config_version": "1.0.0",
+        "daily_cash_cents": [
+          [
+            "2027-07-01",
+            19829000
+          ],
+          [
+            "2027-07-02",
+            19658000
+          ],
+          [
+            "2027-07-03",
+            19628000
+          ],
+          [
+            "2027-07-04",
+            19598000
+          ],
+          [
+            "2027-07-05",
+            19427000
+          ],
+          [
+            "2027-07-06",
+            19256000
+          ],
+          [
+            "2027-07-07",
+            19085000
+          ],
+          [
+            "2027-07-08",
+            18914000
+          ],
+          [
+            "2027-07-09",
+            18743000
+          ],
+          [
+            "2027-07-10",
+            18713000
+          ],
+          [
+            "2027-07-11",
+            18683000
+          ],
+          [
+            "2027-07-12",
+            18512000
+          ],
+          [
+            "2027-07-13",
+            18341000
+          ],
+          [
+            "2027-07-14",
+            18170000
+          ]
+        ],
+        "dump_hash": "120e2f0b81dcf04b4fe2dff4282edc7080892729fb5e8a3ee77ff7a68c9c44a8",
+        "final_cash_cents": 18170000,
+        "first_service_date": "2027-07-01",
+        "last_service_date": "2027-07-14",
+        "ledger_by_category": {
+          "material_cost": 0,
+          "opening_balance_adjustment": 20040000,
+          "operating_overhead": -420000,
+          "payroll_base": -1410000,
+          "payroll_off_hours": 0,
+          "payroll_off_hours_bonus": 0,
+          "recruiting_cost": -40000,
+          "revenue": 0,
+          "training_cost": 0
+        },
+        "master_seed": 5,
+        "policy": "do_nothing",
+        "report_version": "1.0.0",
+        "run_status": "completed",
+        "scenario": "july_monsoon",
+        "score_cents": -1830000,
+        "spec_version": "1.0.0",
+        "starting_cash_cents": 20000000,
+        "utilization": {
+          "assigned_blocks": 0,
+          "shift_blocks": 302
+        },
+        "ledger_digest": "f51222ad7851044a39e76b971834bad4bb90fb028a50cab69bdbf4a9d1176a51"
+      },
+      "accept_all": {
+        "appointments": {
+          "cancelled": 8,
+          "completed": 129,
+          "failed": 0,
+          "no_show": 44
+        },
+        "bankruptcy_date": null,
+        "bookings_by_urgency": {
+          "standard": {
+            "booked": 137,
+            "calls": 195
+          },
+          "urgent": {
+            "booked": 44,
+            "calls": 64
+          }
+        },
+        "calls": {
+          "cancellation": {
+            "acknowledged": 8,
+            "active": 0,
+            "booked": 0,
+            "declined": 0,
+            "rejected": 0,
+            "unanswered": 0
+          },
+          "new_job": {
+            "acknowledged": 0,
+            "active": 0,
+            "booked": 181,
+            "declined": 31,
+            "rejected": 37,
+            "unanswered": 10
+          }
+        },
+        "config_hash": "79e1370f6b79660eb2902d4ea54d4f050eaca70289d5e8f457343f53072e247b",
+        "config_version": "1.0.0",
+        "daily_cash_cents": [
+          [
+            "2027-07-01",
+            20283004
+          ],
+          [
+            "2027-07-02",
+            20489144
+          ],
+          [
+            "2027-07-03",
+            20698230
+          ],
+          [
+            "2027-07-04",
+            20668230
+          ],
+          [
+            "2027-07-05",
+            21313260
+          ],
+          [
+            "2027-07-06",
+            21520049
+          ],
+          [
+            "2027-07-07",
+            21966524
+          ],
+          [
+            "2027-07-08",
+            22352851
+          ],
+          [
+            "2027-07-09",
+            23011480
+          ],
+          [
+            "2027-07-10",
+            23195647
+          ],
+          [
+            "2027-07-11",
+            23182008
+          ],
+          [
+            "2027-07-12",
+            23365268
+          ],
+          [
+            "2027-07-13",
+            24199895
+          ],
+          [
+            "2027-07-14",
+            24577455
+          ]
+        ],
+        "dump_hash": "1e567653f3d7856cd9d4235bef93a8c01175e5f07dbbf4061472ba888cceddb6",
+        "final_cash_cents": 24577455,
+        "first_service_date": "2027-07-01",
+        "last_service_date": "2027-07-14",
+        "ledger_by_category": {
+          "material_cost": -2266794,
+          "opening_balance_adjustment": 20040000,
+          "operating_overhead": -420000,
+          "payroll_base": -1410000,
+          "payroll_off_hours": -259000,
+          "payroll_off_hours_bonus": -190000,
+          "recruiting_cost": -40000,
+          "revenue": 9123249,
+          "training_cost": 0
+        },
+        "master_seed": 5,
+        "policy": "accept_all",
+        "report_version": "1.0.0",
+        "run_status": "completed",
+        "scenario": "july_monsoon",
+        "score_cents": 4577455,
+        "spec_version": "1.0.0",
+        "starting_cash_cents": 20000000,
+        "utilization": {
+          "assigned_blocks": 179,
+          "shift_blocks": 302
+        },
+        "ledger_digest": "13659e057f6735cc9eef8102f91e7c6b2987fb5eed18fb2ef2f86cfbd0bff1f4"
+      },
+      "reject_heavy": {
+        "appointments": {
+          "cancelled": 2,
+          "completed": 28,
+          "failed": 0,
+          "no_show": 4
+        },
+        "bankruptcy_date": null,
+        "bookings_by_urgency": {
+          "standard": {
+            "booked": 31,
+            "calls": 187
+          },
+          "urgent": {
+            "booked": 3,
+            "calls": 62
+          }
+        },
+        "calls": {
+          "cancellation": {
+            "acknowledged": 2,
+            "active": 0,
+            "booked": 0,
+            "declined": 0,
+            "rejected": 0,
+            "unanswered": 0
+          },
+          "new_job": {
+            "acknowledged": 0,
+            "active": 0,
+            "booked": 34,
+            "declined": 5,
+            "rejected": 210,
+            "unanswered": 0
+          }
+        },
+        "config_hash": "79e1370f6b79660eb2902d4ea54d4f050eaca70289d5e8f457343f53072e247b",
+        "config_version": "1.0.0",
+        "daily_cash_cents": [
+          [
+            "2027-07-01",
+            19877038
+          ],
+          [
+            "2027-07-02",
+            19797149
+          ],
+          [
+            "2027-07-03",
+            19767149
+          ],
+          [
+            "2027-07-04",
+            19737149
+          ],
+          [
+            "2027-07-05",
+            19781389
+          ],
+          [
+            "2027-07-06",
+            20262639
+          ],
+          [
+            "2027-07-07",
+            20219588
+          ],
+          [
+            "2027-07-08",
+            20226086
+          ],
+          [
+            "2027-07-09",
+            20179756
+          ],
+          [
+            "2027-07-10",
+            20149756
+          ],
+          [
+            "2027-07-11",
+            20119756
+          ],
+          [
+            "2027-07-12",
+            20006204
+          ],
+          [
+            "2027-07-13",
+            20463047
+          ],
+          [
+            "2027-07-14",
+            21101328
+          ]
+        ],
+        "dump_hash": "3fad6c9b341cfc6b9b08234f109d0f10d9881850bae78c7e26e4a86780e9b09d",
+        "final_cash_cents": 21101328,
+        "first_service_date": "2027-07-01",
+        "last_service_date": "2027-07-14",
+        "ledger_by_category": {
+          "material_cost": -1440086,
+          "opening_balance_adjustment": 20040000,
+          "operating_overhead": -420000,
+          "payroll_base": -1410000,
+          "payroll_off_hours": -21000,
+          "payroll_off_hours_bonus": -15000,
+          "recruiting_cost": -40000,
+          "revenue": 4407414,
+          "training_cost": 0
+        },
+        "master_seed": 5,
+        "policy": "reject_heavy",
+        "report_version": "1.0.0",
+        "run_status": "completed",
+        "scenario": "july_monsoon",
+        "score_cents": 1101328,
+        "spec_version": "1.0.0",
+        "starting_cash_cents": 20000000,
+        "utilization": {
+          "assigned_blocks": 35,
+          "shift_blocks": 302
+        },
+        "ledger_digest": "56775a899de0ca0a951932ff5fa0e08e7441fc01338dd59a479ec027a3baa78a"
+      },
+      "oracle_fork_search": {
+        "appointments": {
+          "cancelled": 7,
+          "completed": 120,
+          "failed": 0,
+          "no_show": 49
+        },
+        "bankruptcy_date": null,
+        "bookings_by_urgency": {
+          "standard": {
+            "booked": 131,
+            "calls": 193
+          },
+          "urgent": {
+            "booked": 45,
+            "calls": 64
+          }
+        },
+        "calls": {
+          "cancellation": {
+            "acknowledged": 7,
+            "active": 0,
+            "booked": 0,
+            "declined": 0,
+            "rejected": 0,
+            "unanswered": 0
+          },
+          "new_job": {
+            "acknowledged": 0,
+            "active": 0,
+            "booked": 176,
+            "declined": 32,
+            "rejected": 49,
+            "unanswered": 0
+          }
+        },
+        "config_hash": "79e1370f6b79660eb2902d4ea54d4f050eaca70289d5e8f457343f53072e247b",
+        "config_version": "1.0.0",
+        "daily_cash_cents": [
+          [
+            "2027-07-01",
+            20191772
+          ],
+          [
+            "2027-07-02",
+            20517788
+          ],
+          [
+            "2027-07-03",
+            20679587
+          ],
+          [
+            "2027-07-04",
+            20649587
+          ],
+          [
+            "2027-07-05",
+            21555639
+          ],
+          [
+            "2027-07-06",
+            21868774
+          ],
+          [
+            "2027-07-07",
+            23113755
+          ],
+          [
+            "2027-07-08",
+            24454065
+          ],
+          [
+            "2027-07-09",
+            25477605
+          ],
+          [
+            "2027-07-10",
+            25593482
+          ],
+          [
+            "2027-07-11",
+            25563482
+          ],
+          [
+            "2027-07-12",
+            25809784
+          ],
+          [
+            "2027-07-13",
+            26752480
+          ],
+          [
+            "2027-07-14",
+            27459577
+          ]
+        ],
+        "dump_hash": "8a0e8580de5e499a763ff23e09df5e309b74a54bec145b715c5ac8776079997b",
+        "final_cash_cents": 27459577,
+        "first_service_date": "2027-07-01",
+        "last_service_date": "2027-07-14",
+        "ledger_by_category": {
+          "material_cost": -4104320,
+          "opening_balance_adjustment": 20040000,
+          "operating_overhead": -420000,
+          "payroll_base": -1410000,
+          "payroll_off_hours": -171200,
+          "payroll_off_hours_bonus": -125000,
+          "recruiting_cost": -40000,
+          "revenue": 13690097,
+          "training_cost": 0
+        },
+        "master_seed": 5,
+        "policy": "oracle_fork_search",
+        "report_version": "1.0.0",
+        "run_status": "completed",
+        "scenario": "july_monsoon",
+        "score_cents": 7459577,
+        "spec_version": "1.0.0",
+        "starting_cash_cents": 20000000,
+        "utilization": {
+          "assigned_blocks": 178,
+          "shift_blocks": 302
+        },
+        "ledger_digest": "fedc47bfab7b23c666ff3db3d1b0bb40a800489611fa28eb61b5e8be6f1ab04d"
+      }
+    }
+  }
+}
