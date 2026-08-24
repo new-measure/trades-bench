@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 dir="${1:-data/geography-arizona-v1}"
-base="https://trades-bench-data.s3.us-east-2.amazonaws.com/map/arizona-v1"
+base="https://huggingface.co/datasets/adityabressl/trades-bench/resolve/main/geography-arizona-v1"
 mkdir -p "$dir/addresses" "$dir/routing"
 curl -fL "$base/addresses/catalog.csv" -o "$dir/addresses/catalog.csv"
 curl -fL "$base/routing/anchor_distance.bin" -o "$dir/routing/anchor_distance.bin"
