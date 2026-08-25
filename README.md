@@ -1,4 +1,4 @@
-
+<div align="center">
 
 # Trades Bench
 
@@ -6,6 +6,7 @@
 
 [Read the results](https://aditya-borse.github.io/trades-bench-writeup/) · [Explore the published runs](https://huggingface.co/datasets/adityabressl/trades-bench)
 
+</div>
 
 
 Trades Bench measures how well an AI agent can operate Sunridge Services, a fictional
