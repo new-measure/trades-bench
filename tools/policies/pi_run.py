@@ -39,10 +39,9 @@ def run_pi_agent(
     master_seed: int,
     run_dir: str | Path,
     geo_dir: str | Path,
-    pi_config: PiConfig | None = None,
+    pi_config: PiConfig,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    pi_config = pi_config or PiConfig()
     geo_dir = Path(geo_dir)
     scenario, config = scenario_config(SCENARIO_DIR / f"{scenario_name}.json")
     paths = PolicyRunPaths.under(run_dir)
@@ -120,9 +119,9 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--scenario", default="oct_default")
     result.add_argument("--seed", type=int, default=5)
     result.add_argument("--geo-dir", type=Path, default=DEFAULT_GEO_DIR)
-    result.add_argument("--provider", default=PiConfig.provider)
-    result.add_argument("--model", default=PiConfig.model)
-    result.add_argument("--thinking")
+    result.add_argument("--provider", required=True)
+    result.add_argument("--model", required=True)
+    result.add_argument("--thinking", required=True)
     result.add_argument("--executable", default=PiConfig.executable)
     return result
 

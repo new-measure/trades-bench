@@ -259,6 +259,22 @@ def test_launch_reads_the_ready_file_and_stops_with_sigterm(tmp_path: Path) -> N
     assert marker == str(int(signal.SIGTERM))
 
 
+def test_launch_resolves_a_relative_run_directory(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    spec = EngineLaunchSpec(
+        db_path=tmp_path / "run.db",
+        run_dir=Path("private"),
+        entry=(str(_stub(tmp_path, "relative_ready_stub.py", _READY_STUB)),),
+    )
+    engine = launch_engine(spec)
+    try:
+        assert engine.port == 45001
+        assert engine.run_dir == (tmp_path / "private").resolve()
+        assert (tmp_path / "private" / launcher.READY_FILENAME).is_file()
+    finally:
+        engine.stop()
+
+
 def test_stop_falls_back_to_sigkill(tmp_path: Path) -> None:
     spec = _spec(
         tmp_path, _stub(tmp_path, "stubborn_stub.py", _STUBBORN_STUB), stop_timeout_seconds=0.5

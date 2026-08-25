@@ -67,3 +67,39 @@ uv sync --group geo
 uv run --group geo pytest -m docker -q
 ```
 
+## Run the benchmark
+
+Before
+running a policy, fetch and verify the geography artifact required by the runner:
+
+```bash
+sh tools/fetch_geography.sh
+```
+
+The Docker command in Quick start rebuilds and verifies the artifact instead. To
+run an LLM policy, install [Node.js](https://nodejs.org/) and
+[pnpm](https://pnpm.io/installation), then install Pi and authenticate it with your
+provider:
+
+```bash
+pnpm add -g --ignore-scripts @earendil-works/pi-coding-agent
+pi
+```
+
+Run `/login` in Pi to select a subscription provider, or configure an API key.
+The run uses your provider account and may incur usage charges. You must explicitly
+choose the Pi provider, model, and reasoning effort for every run. For example,
+run this seed-5 experiment:
+
+```bash
+PYTHONPATH=tools uv run python -m policies.pi_run \
+  --run-dir runs/seed-5 \
+  --seed 5 \
+  --provider openai-codex \
+  --model gpt-5.6-luna \
+  --thinking high
+```
+
+`--provider`, `--model`, and `--thinking` are required. Use `--executable` to select
+a Pi executable other than `pi`.
+

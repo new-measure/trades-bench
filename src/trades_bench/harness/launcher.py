@@ -196,7 +196,7 @@ def launch_engine(
     base_env: Mapping[str, str] | None = None,
 ) -> EngineProcess:
     tokens = tokens or EngineTokens.mint()
-    run_dir = Path(spec.run_dir)
+    run_dir = Path(spec.run_dir).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
     ready_file = run_dir / READY_FILENAME
     if ready_file.exists():

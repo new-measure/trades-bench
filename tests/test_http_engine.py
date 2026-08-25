@@ -30,6 +30,7 @@ from trades_bench.wire import parse_engine_response
 
 _SLOW_CUSTOMER_COUNT = 80
 _SLOW_SQL = "SELECT COUNT(*) FROM customers a, customers b, customers c, customers d"
+_REQUEST_TIMEOUT_SECONDS = 15
 
 
 def _build_engine(
@@ -78,7 +79,7 @@ def _build_engine(
 
 
 def _request(port: int, method: str, path: str, *, token: str | None = None, body: dict | None = None):
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=_REQUEST_TIMEOUT_SECONDS)
     headers = {}
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"

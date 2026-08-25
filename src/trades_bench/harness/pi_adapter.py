@@ -37,10 +37,10 @@ class PiAdapterError(RuntimeError):
 
 @dataclass(frozen=True)
 class PiConfig:
+    provider: str
+    model: str
+    thinking: str
     executable: str = "pi"
-    provider: str = "opencode-go"
-    model: str = "gpt-5.6-luna:high"
-    thinking: str | None = None
     output_mode: str = "json"
     session_prefix: str = "sunridge"
     no_context_files: bool = True
@@ -101,9 +101,9 @@ class PiAdapter:
         session_dir: Path,
         log_dir: Path,
         run_label: str,
-        config: PiConfig | None = None,
+        config: PiConfig,
     ) -> None:
-        self.config = config or PiConfig()
+        self.config = config
         self.session_dir = Path(session_dir)
         self.log_dir = Path(log_dir)
         self.run_label = _sanitize_id(run_label)

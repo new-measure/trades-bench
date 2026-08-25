@@ -62,7 +62,7 @@ class PolicyRunPaths:
 
     @classmethod
     def under(cls, run_dir: str | Path) -> PolicyRunPaths:
-        base = Path(run_dir)
+        base = Path(run_dir).resolve()
         return cls(run_dir=base, workspace=base / "workspace", db_path=base / "run.db")
 
     def create(self) -> None:
