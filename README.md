@@ -4,7 +4,7 @@
 
 *How good are LLMs at running a simulated home services business?*
 
-[Read the results](https://aditya-borse.github.io/trades-bench-writeup/) · [Explore the published runs](https://huggingface.co/datasets/adityabressl/trades-bench)
+[Read the results](https://newmeasure.ai/benchmarks/tradesbench) · [Explore the published runs](https://huggingface.co/datasets/adityabressl/trades-bench)
 
 </div>
 
@@ -22,7 +22,7 @@ simulated world. This remains true when a run resumes from a copied SQLite file.
 
 ## Results
 
-The [full write up](https://aditya-borse.github.io/trades-bench-writeup/) explains the
+The [full write up](https://newmeasure.ai/benchmarks/tradesbench) explains the
 methodology and reports the evaluation - 14 configurations across claude-opus-5,
 grok-4.6, gpt-5.6-sol, gpt-5.6-terra, and gpt-5.6-luna. Each configuration received
 three attempts, with the best attempt reported.
