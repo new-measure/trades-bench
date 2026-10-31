@@ -1,0 +1,6 @@
+app/node_modules/
+app/.next/
+app/out/
+app/next-env.d.ts
+app/tsconfig.tsbuildinfo
+app/public/data/
