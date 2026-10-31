@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from trades_bench import clock
-from trades_bench.adapter import AgentTurn, RunMetadata
+from trades_bench.adapter import AdapterIntegrityError, AgentTurn, RunMetadata
 from trades_bench.harness import prompts, trajectory
 from trades_bench.harness.client import ControlClient, ControlResult
 from trades_bench.harness.runner import (
@@ -106,11 +106,13 @@ class FakeControl(ControlClient):
         *,
         attempt_script: Mapping | None = None,
         fail_script: Sequence[str] = (),
+        status_script: Sequence[bool] = (),
     ):
         super().__init__(port=0, token="unused-in-tests")
         self.invocations = list(invocations)
         self.attempt_script = dict(attempt_script or {})
         self.fail_script = list(fail_script)
+        self.status_script = list(status_script)
         self.sent: list[tuple[str, dict]] = []
 
     def request_ids(self, operation: str) -> list[str]:
@@ -142,6 +144,14 @@ class FakeControl(ControlClient):
             if scripted == "mismatch":
                 return 409, _conflict("attempt_number_mismatch")
             return 409, _conflict("attempt_number_mismatch", expected=int(scripted))
+        if operation == "call_status":
+            active = self.status_script.pop(0) if self.status_script else True
+            data = {
+                "call_id": int(body["call_id"]),
+                "status": "active" if active else "booked",
+                "active": active,
+            }
+            return 200, {"data": data, "meta": {}}
         if operation == "fail_run":
             index = len(self.request_ids("fail_run")) - 1
             scripted = self.fail_script[index] if index < len(self.fail_script) else "ok"
@@ -202,6 +212,8 @@ class FakeAdapter:
         behaviour = self.script[index] if index < len(self.script) else "ok"
         if behaviour == "raise":
             raise ConnectionError("provider unavailable")
+        if behaviour == "integrity":
+            raise AdapterIntegrityError("pi applied thinking level low but high was requested")
         if behaviour == "timeout":
             raise TimeoutError("the adapter enforced its deadline")
         if behaviour == "incomplete":
@@ -236,11 +248,14 @@ def _build(
     *,
     adapter: FakeAdapter | None = None,
     attempt_script: Mapping | None = None,
+    status_script: Sequence[bool] = (),
     limits: HarnessLimits = LIMITS,
     memory: str = "",
 ) -> tuple[ControlledRunner, FakeControl, FakeAdapter, list[float], Path, FakeEngine]:
     adapter = adapter or FakeAdapter()
-    control = FakeControl(invocations, attempt_script=attempt_script)
+    control = FakeControl(
+        invocations, attempt_script=attempt_script, status_script=status_script
+    )
     writer = trajectory.TrajectoryWriter(tmp_path / "private", "run-under-test")
     workspace = _workspace(tmp_path, memory)
     slept: list[float] = []
@@ -460,6 +475,7 @@ def test_acceptance_37_retries_are_not_attempts(tmp_path: Path) -> None:
 
     assert len(adapter.sent) == 3
     assert slept == [5.0, 5.0]
+    assert control.request_ids("call_status") == [f"call-status-{CALL_ID}"] * 2
     assert len(control.request_ids("record_call_attempt")) == 1
     assert len(_kinds(_records(run_dir), "model_turn")) == 1
     assert len(_kinds(_records(run_dir), "prompt_issued")) == 1
@@ -679,3 +695,124 @@ def test_resume_rebuilds_the_day_and_restores_the_attempt_counter(tmp_path: Path
         "next-invocation-2",
         "next-invocation-3",
     ]
+
+
+def test_a_call_settled_during_a_failed_turn_is_never_re_sent(tmp_path: Path) -> None:
+    runner, control, adapter, slept, run_dir, _ = _build(
+        tmp_path,
+        [_opening(), _call(), _closing()],
+        adapter=FakeAdapter(script=("ok", "raise", "ok")),
+        status_script=(False,),
+    )
+
+    assert runner.run() == "completed"
+
+    assert [kind for _, kind, _ in adapter.sent] == ["opening", "call", "closing"]
+    assert slept == []
+    assert control.request_ids("call_status") == [f"call-status-{CALL_ID}"]
+    assert control.request_ids("record_call_attempt") == []
+    assert control.request_ids("record_final_unanswered_attempt") == []
+    assert _kinds(_records(run_dir), "reminder_issued") == []
+    assert f"complete-invocation-{_call()['invocation_id']}" in control.request_ids(
+        "complete_invocation"
+    )
+    assert control.request_ids("fail_run") == []
+
+
+def test_a_reminder_settled_during_an_abnormal_turn_is_never_re_sent(tmp_path: Path) -> None:
+    runner, control, adapter, _, _, _ = _build(
+        tmp_path,
+        [_call()],
+        adapter=FakeAdapter(script=("ok", "incomplete")),
+        status_script=(False,),
+    )
+
+    assert runner.run() == "completed"
+
+    assert [kind for _, kind, _ in adapter.sent] == ["call", "reminder"]
+    assert control.request_ids("record_call_attempt") == [f"call-attempt-{CALL_ID}-1"]
+    assert control.request_ids("record_final_unanswered_attempt") == []
+
+
+def test_a_failed_turn_is_retried_while_the_call_is_still_active(tmp_path: Path) -> None:
+    runner, control, adapter, slept, _, _ = _build(
+        tmp_path,
+        [_call()],
+        adapter=FakeAdapter(script=("raise", "ok")),
+        attempt_script={(CALL_ID, 1): "call_not_active"},
+        status_script=(True,),
+    )
+
+    assert runner.run() == "completed"
+
+    assert [kind for _, kind, _ in adapter.sent] == ["call", "call"]
+    assert adapter.sent[0][0] == adapter.sent[1][0]
+    assert slept == [5.0]
+    assert control.request_ids("call_status") == [f"call-status-{CALL_ID}"]
+
+
+def test_a_call_settled_on_the_last_failed_retry_does_not_fail_the_run(tmp_path: Path) -> None:
+    runner, control, adapter, _, _, _ = _build(
+        tmp_path,
+        [_call()],
+        adapter=FakeAdapter(script=("raise", "raise", "raise")),
+        status_script=(True, True, False),
+    )
+
+    assert runner.run() == "completed"
+
+    assert len(adapter.sent) == 3
+    assert control.request_ids("fail_run") == []
+    assert control.request_ids("record_call_attempt") == []
+
+
+def test_opening_retries_never_ask_for_a_call_status(tmp_path: Path) -> None:
+    runner, control, adapter, _, _, _ = _build(
+        tmp_path,
+        [_opening()],
+        adapter=FakeAdapter(script=("raise", "ok")),
+    )
+
+    runner.run()
+
+    assert len(adapter.sent) == 2
+    assert control.request_ids("call_status") == []
+
+
+def test_an_adapter_integrity_failure_fails_the_run_without_retrying(tmp_path: Path) -> None:
+    runner, control, adapter, slept, run_dir, _ = _build(
+        tmp_path,
+        [_opening()],
+        adapter=FakeAdapter(script=("integrity", "ok")),
+    )
+
+    with pytest.raises(HarnessRunFailed) as caught:
+        runner.run()
+
+    assert len(adapter.sent) == 1
+    assert slept == []
+    assert "integrity" in caught.value.reason
+    assert control.request_ids("fail_run") == ["fail-run-1"]
+    assert adapter.ended_status == "failed"
+    assert _kinds(_records(run_dir), "run_outcome")[0]["run_status"] == "failed"
+
+
+class _DayIntegrityAdapter(FakeAdapter):
+
+    def end_day(self, service_date: date) -> None:
+        super().end_day(service_date)
+        raise AdapterIntegrityError("pi sent a system preamble that differs")
+
+
+def test_an_integrity_failure_at_day_end_fails_the_run(tmp_path: Path) -> None:
+    runner, control, _, _, _, _ = _build(
+        tmp_path,
+        [_opening(), _closing()],
+        adapter=_DayIntegrityAdapter(),
+    )
+
+    with pytest.raises(HarnessRunFailed) as caught:
+        runner.run()
+
+    assert "preamble" in caught.value.reason
+    assert control.request_ids("fail_run") == ["fail-run-1"]

@@ -70,15 +70,47 @@ uv run --group geo pytest -m docker -q
 
 ## Run the benchmark
 
-Before
-running a policy, fetch and verify the geography artifact required by the runner:
+Fetch and verify the geography artifact, which the benchmark image bundles:
 
 ```bash
 sh tools/fetch_geography.sh
 ```
 
-The Docker command in Quick start rebuilds and verifies the artifact instead. To
-run an LLM policy, install [Node.js](https://nodejs.org/) and
+Then build the image and run a model with [Docker](https://docs.docker.com/get-docker/)
+on macOS, Linux, or Windows. This is the same isolation used for the published runs, except
+for the network: a local container has open internet access, while the published runs could
+reach only the model provider's API and `pi.dev`.
+
+```bash
+docker build -t trades-bench .
+mkdir -p runs
+docker run --rm \
+  -e OPENAI_API_KEY \
+  -e TB_PROVIDER=openai \
+  -e TB_MODEL=gpt-5.6-luna \
+  -e TB_THINKING=high \
+  -v "$PWD/runs:/var/lib/trades-bench/results" \
+  trades-bench
+```
+
+`TB_PROVIDER`, `TB_MODEL`, and `TB_THINKING` are required. The provider is one of
+`openai`, `anthropic`, `google`, `xai`, or `meta`, and needs its Pi API key variable:
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, or
+`META_API_KEY`. Optional settings are `TB_SEED` (default `5`), `TB_SCENARIO` (default
+`oct_default`), and `TB_LABEL` (default `<model>-<thinking>-a1`). Results are written to
+`runs/<label>/`, including the policy report, the run database, per-turn logs, and the
+agent's final workspace. The container refuses a label that already holds results, so
+set `TB_LABEL` (for example `-e TB_LABEL=gpt-5.6-luna-high-a2`) for each further attempt.
+
+To
+stop a run early, use `docker stop -t 120 <container>`. The container then records the run
+as failed with reason `interrupted`, writes the usage so far, and copies the run database
+before it exits.
+
+### Development runs
+
+You can also run the driver directly on your machine. This path is for development
+only and is not isolated. Install [Node.js](https://nodejs.org/) and
 [pnpm](https://pnpm.io/installation), then install Pi and authenticate it with your
 provider:
 
@@ -87,10 +119,8 @@ pnpm add -g --ignore-scripts @earendil-works/pi-coding-agent
 pi
 ```
 
-Run `/login` in Pi to select a subscription provider, or configure an API key.
-The run uses your provider account and may incur usage charges. You must explicitly
-choose the Pi provider, model, and reasoning effort for every run. For example,
-run this seed-5 experiment:
+Run `/login` in Pi to select a subscription provider, or configure an API key. For
+example, run this seed-5 experiment:
 
 ```bash
 PYTHONPATH=tools uv run python -m policies.pi_run \
@@ -103,4 +133,3 @@ PYTHONPATH=tools uv run python -m policies.pi_run \
 
 `--provider`, `--model`, and `--thinking` are required. Use `--executable` to select
 a Pi executable other than `pi`.
-

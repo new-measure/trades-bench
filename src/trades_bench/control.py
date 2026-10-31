@@ -48,6 +48,17 @@ def _incomplete_attempt_count(conn: sqlite3.Connection, call_id: int) -> int:
     return int(row["c"])
 
 
+def call_status(conn: sqlite3.Connection, *, call_id: int) -> dict:
+    surface.require_id("call_id", call_id)
+    call = _call_row(conn, call_id)
+    status = str(call["status"])
+    return {
+        "call_id": call_id,
+        "status": status,
+        "active": status == "active" and calls.current_active_call_id(conn) == call_id,
+    }
+
+
 def record_call_attempt(
     ctx: TxnContext, config: RunConfig, *, call_id: int, attempt_number: int
 ) -> dict:
@@ -218,6 +229,7 @@ def record_final_unanswered_attempt_op(
 
 
 __all__ = [
+    "call_status",
     "mark_call_unanswered",
     "mark_call_unanswered_op",
     "record_call_attempt",

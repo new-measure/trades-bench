@@ -11,11 +11,10 @@ from policies import oracle
 from policies.base import DEFAULT_HORIZON_DAYS
 from policies.runner import (
     DEFAULT_SCENARIO,
-    REPORT_FILENAME,
     PolicyRunPaths,
     PolicyRunResult,
     build_report,
-    report_bytes,
+    write_scored_report,
 )
 from trades_bench import clock, db, run_init
 from trades_bench.config import RunConfig, config_from_canonical
@@ -523,8 +522,7 @@ def run_fork_search(
         scenario=scenario,
         geo_dir=geo_dir,
     )
-    report_path = paths.run_dir / REPORT_FILENAME
-    report_path.write_bytes(report_bytes(report))
+    report_path = write_scored_report(paths.run_dir, report)
     return ForkSearchResult(
         run=PolicyRunResult(
             run_id=run_id,

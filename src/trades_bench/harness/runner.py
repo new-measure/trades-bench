@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from trades_bench import clock, run_init
-from trades_bench.adapter import HarnessAdapter
+from trades_bench.adapter import AdapterIntegrityError, HarnessAdapter
 from trades_bench.config import RunConfig
 from trades_bench.errors import EngineError, ErrorCode
 from trades_bench.harness import prompts, trajectory
@@ -235,6 +235,7 @@ class _TurnOutcome:
 
     text: str
     timed_out: bool
+    settled: bool = False
 
 
 @dataclass(frozen=True)
@@ -364,7 +365,10 @@ class ControlledRunner:
     def _close_day(self) -> None:
         if self._day is None:
             return
-        self.adapter.end_day(date.fromisoformat(self._day))
+        try:
+            self.adapter.end_day(date.fromisoformat(self._day))
+        except AdapterIntegrityError as exc:
+            self._fail(f"adapter integrity check failed: {exc}")
         self.trajectory.close_day()
         self._day = None
 
@@ -381,10 +385,14 @@ class ControlledRunner:
         failure = "no attempt was made"
         for attempt in range(allowed):
             if attempt:
+                if kind in (CALL, REMINDER) and not self._call_still_active(inv):
+                    return _TurnOutcome(text="", timed_out=False, settled=True)
                 self.sleep(float(self.limits.model_retry_backoff_seconds))
             started = self.monotonic()
             try:
                 turn = self.adapter.send(text, kind, deadline_s)
+            except AdapterIntegrityError as exc:
+                self._fail(f"adapter integrity check failed: {exc}")
             except TimeoutError:
                 self.trajectory.model_turn(
                     invocation_id=inv.invocation_id,
@@ -422,9 +430,17 @@ class ControlledRunner:
                 ended_normally=True,
             )
             return _TurnOutcome(text=turn.text, timed_out=False)
+        if kind in (CALL, REMINDER) and not self._call_still_active(inv):
+            return _TurnOutcome(text="", timed_out=False, settled=True)
         self._fail(
             f"model turn failed after {self.limits.model_retry_limit} retries: {failure}"
         )
+
+    def _call_still_active(self, inv: Invocation) -> bool:
+        result = self._record_response(self.client.call_status(int(inv.payload["call_id"])))
+        if not result.ok:
+            self._fail(f"call_status refused: {result.describe_failure()}")
+        return result.data.get("active") is True
 
     def _drive_call(self, inv: Invocation) -> None:
         call_id = int(inv.payload["call_id"])
@@ -432,7 +448,8 @@ class ControlledRunner:
         text = prompts.render_call(inv.payload)
         kind = CALL
         while True:
-            self._send(inv, text, kind)
+            if self._send(inv, text, kind).settled:
+                return
             outcome = self._record_attempt(inv, call_id, attempts + 1)
             if outcome.mismatch:
                 outcome = self._resync_attempt(inv, call_id, attempts + 1, outcome.expected)

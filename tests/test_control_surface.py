@@ -18,6 +18,7 @@ from _helpers import (
     geo_artifact_sha256,
 )
 from trades_bench import SPEC_VERSION, clock, geo_reader
+from trades_bench._dump import dump_hash
 from trades_bench.config import load_run_config
 from trades_bench.enums import RunStatus
 from trades_bench.events import Events
@@ -523,6 +524,7 @@ def test_agent_token_on_every_control_operation_matches_the_unknown_route_bytes(
         "record_final_unanswered_attempt",
         "mark_call_unanswered",
         "fail_run",
+        "call_status",
     ):
         status, body, _replay = control.post(
             operation,
@@ -531,3 +533,68 @@ def test_agent_token_on_every_control_operation_matches_the_unknown_route_bytes(
         )
         assert status == unknown_status
         assert body == unknown_body
+
+
+def _side_effect_fingerprint(conn) -> tuple[str, int]:
+    run_id = str(conn.execute("SELECT run_id FROM _run").fetchone()["run_id"])
+    stored = int(conn.execute("SELECT COUNT(*) c FROM _idempotency").fetchone()["c"])
+    return dump_hash(conn, run_id), stored
+
+
+def test_call_status_reports_an_active_call_and_changes_nothing(control):
+    invocation = control.drive_to_call()
+    call_id = int(invocation["payload"]["call_id"])
+    conn = control.engine.services.conn
+    before = _side_effect_fingerprint(conn)
+
+    for _ in range(2):
+        status, body, replay = control.post(
+            "call_status", {"request_id": f"call-status-{call_id}", "call_id": call_id}
+        )
+        assert status == 200, body
+        assert replay is None
+        assert body["data"] == {"call_id": call_id, "status": "active", "active": True}
+
+    assert _side_effect_fingerprint(conn) == before
+
+
+def test_call_status_reports_a_settled_call_as_inactive(control):
+    invocation = control.drive_to_call()
+    call_id = int(invocation["payload"]["call_id"])
+    for attempt in (1, 2):
+        status, body, _replay = control.post(
+            "record_call_attempt",
+            {
+                "request_id": f"call-attempt-{call_id}-{attempt}",
+                "call_id": call_id,
+                "attempt_number": attempt,
+            },
+        )
+        assert status == 200, body
+    status, body, _replay = control.post(
+        "record_final_unanswered_attempt",
+        {"request_id": f"call-final-{call_id}", "call_id": call_id, "attempt_number": 3},
+    )
+    assert status == 200, body
+    before = _side_effect_fingerprint(control.engine.services.conn)
+
+    status, body, _replay = control.post(
+        "call_status", {"request_id": f"call-status-{call_id}", "call_id": call_id}
+    )
+
+    assert status == 200, body
+    assert body["data"] == {"call_id": call_id, "status": "unanswered", "active": False}
+    assert _side_effect_fingerprint(control.engine.services.conn) == before
+
+
+def test_call_status_for_an_unknown_call_is_not_found_and_changes_nothing(control):
+    control.drive_to_call()
+    before = _side_effect_fingerprint(control.engine.services.conn)
+
+    status, body, _replay = control.post(
+        "call_status", {"request_id": "call-status-999999", "call_id": 999999}
+    )
+
+    assert status == 404, body
+    assert body["error"]["code"] == "not_found"
+    assert _side_effect_fingerprint(control.engine.services.conn) == before

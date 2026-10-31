@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import signal
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -297,6 +299,33 @@ def test_ready_wait_is_bounded_and_terminates_the_process(tmp_path: Path) -> Non
     with pytest.raises(EngineLaunchError) as excinfo:
         launch_engine(spec)
     assert "readiness" in str(excinfo.value)
+
+
+def test_an_interrupted_ready_wait_stops_the_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = _spec(
+        tmp_path, _stub(tmp_path, "silent_stub.py", _SILENT_STUB), stop_timeout_seconds=2.0
+    )
+    started: list[object] = []
+    popen = launcher.subprocess.Popen
+
+    def recording_popen(*args: object, **kwargs: object) -> object:
+        started.append(popen(*args, **kwargs))
+        return started[-1]
+
+    def interrupt(seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(launcher.subprocess, "Popen", recording_popen)
+    monkeypatch.setattr(
+        launcher, "time", SimpleNamespace(monotonic=time.monotonic, sleep=interrupt)
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        launch_engine(spec)
+
+    assert started[0].poll() == -int(signal.SIGTERM)
 
 
 def test_launch_reports_an_engine_that_dies_before_readiness(tmp_path: Path) -> None:

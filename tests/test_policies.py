@@ -29,10 +29,19 @@ from policies.base import (
 )
 from policies.do_nothing import DoNothingPolicy
 from policies.reject_heavy import RejectHeavyPolicy, reject_draw
-from policies.runner import PolicyRunResult, run_policy
+from policies.runner import (
+    FAILURE_FILENAME,
+    REPORT_FILENAME,
+    PolicyRunResult,
+    RunNotScored,
+    drive_scored,
+    run_policy,
+    write_scored_report,
+)
 from trades_bench import clock
 from trades_bench.config import RunConfig, load_run_config
 from trades_bench.harness import prompts
+from trades_bench.harness.runner import HarnessRunFailed
 from trades_bench.registry import OPERATIONS_BY_NAME
 from trades_bench.run_init import open_run_db
 
@@ -63,6 +72,7 @@ OPERATOR_MODULE_NAMES = (
     "calibration",
     "experiment",
     "pi_run",
+    "container_run",
 )
 FORBIDDEN_POLICY_IMPORTS = (
     "sqlite3",
@@ -836,3 +846,59 @@ def test_no_policy_module_reaches_around_the_public_http_boundary():
     assert package_files == set(scanned) | {
         f"{name}.py" for name in OPERATOR_MODULE_NAMES
     }
+
+
+class _ScriptedRunner:
+
+    def __init__(self, outcome: object) -> None:
+        self.outcome = outcome
+
+    def run(self) -> str:
+        if isinstance(self.outcome, Exception):
+            raise self.outcome
+        return str(self.outcome)
+
+
+def test_a_harness_failure_is_recorded_and_never_scored(tmp_path):
+    with pytest.raises(RunNotScored) as raised:
+        drive_scored(_ScriptedRunner(HarnessRunFailed("model turn failed")), tmp_path)
+
+    assert raised.value.run_status == "failed"
+    failure = json.loads((tmp_path / FAILURE_FILENAME).read_text(encoding="utf-8"))
+    assert failure == {"reason": "model turn failed", "run_status": "failed"}
+    assert not (tmp_path / REPORT_FILENAME).exists()
+
+
+def test_an_engine_failed_status_is_recorded_and_never_scored(tmp_path):
+    with pytest.raises(RunNotScored):
+        drive_scored(_ScriptedRunner("failed"), tmp_path)
+
+    assert json.loads((tmp_path / FAILURE_FILENAME).read_text())["run_status"] == "failed"
+
+
+@pytest.mark.parametrize("status", ["completed", "bankrupt"])
+def test_scored_statuses_pass_through(tmp_path, status):
+    assert drive_scored(_ScriptedRunner(status), tmp_path) == status
+    assert not (tmp_path / FAILURE_FILENAME).exists()
+
+
+def test_a_report_for_an_unscored_run_file_is_withheld(tmp_path):
+    with pytest.raises(RunNotScored):
+        write_scored_report(tmp_path, {"run_status": "active"}, extra={"agent": "x"})
+
+    assert not (tmp_path / REPORT_FILENAME).exists()
+    failure = json.loads((tmp_path / FAILURE_FILENAME).read_text(encoding="utf-8"))
+    assert failure["run_status"] == "active"
+    assert failure["agent"] == "x"
+
+
+def test_an_unexpected_harness_error_is_recorded_and_re_raised(tmp_path):
+    with pytest.raises(ConnectionResetError):
+        drive_scored(_ScriptedRunner(ConnectionResetError("engine went away")), tmp_path)
+
+    failure = json.loads((tmp_path / FAILURE_FILENAME).read_text(encoding="utf-8"))
+    assert failure == {
+        "reason": "the harness raised ConnectionResetError: engine went away",
+        "run_status": "failed",
+    }
+    assert not (tmp_path / REPORT_FILENAME).exists()

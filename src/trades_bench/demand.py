@@ -530,7 +530,8 @@ def _generate_new_caller_slot(
     if returning_flag:
         prospects = conn.execute(
             "SELECT id, identity_key, caller_name, caller_phone FROM _prospect_state "
-            "WHERE home_zone_id = ? AND segment = ? AND registered_customer_id IS NULL",
+            "WHERE home_zone_id = ? AND segment = ? AND registered_customer_id IS NULL "
+            "ORDER BY identity_key",
             (zone_id, segment),
         ).fetchall()
     if returning_flag and prospects:

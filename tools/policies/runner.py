@@ -26,12 +26,15 @@ from trades_bench.harness.launcher import (
 from trades_bench.harness.runner import (
     ControlledRunner,
     HarnessLimits,
+    HarnessRunFailed,
     initialize_controlled_run,
 )
 from trades_bench.harness.trajectory import TrajectoryWriter
 
 REPORT_FILENAME = "policy-report.json"
+FAILURE_FILENAME = "run-failure.json"
 REPORT_VERSION = "1.0.0"
+SCORED_STATUSES: tuple[str, ...] = ("completed", "bankrupt")
 
 DEFAULT_SCENARIO = "defaults"
 
@@ -61,9 +64,12 @@ class PolicyRunPaths:
     db_path: Path
 
     @classmethod
-    def under(cls, run_dir: str | Path) -> PolicyRunPaths:
+    def under(
+        cls, run_dir: str | Path, *, workspace: str | Path | None = None
+    ) -> PolicyRunPaths:
         base = Path(run_dir).resolve()
-        return cls(run_dir=base, workspace=base / "workspace", db_path=base / "run.db")
+        chosen = base / "workspace" if workspace is None else Path(workspace).resolve()
+        return cls(run_dir=base, workspace=chosen, db_path=base / "run.db")
 
     def create(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -82,6 +88,63 @@ class PolicyRunResult:
     @property
     def report_bytes(self) -> bytes:
         return report_bytes(self.report)
+
+
+class RunNotScored(RuntimeError):
+
+    def __init__(self, run_status: str, reason: str) -> None:
+        super().__init__(f"run ended {run_status}: {reason}")
+        self.run_status = run_status
+        self.reason = reason
+
+
+def write_run_failure(
+    run_dir: str | Path,
+    *,
+    run_status: str,
+    reason: str,
+    extra: Mapping[str, Any] | None = None,
+) -> Path:
+    path = Path(run_dir) / FAILURE_FILENAME
+    payload = {"run_status": run_status, "reason": reason, **dict(extra or {})}
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def write_scored_report(
+    run_dir: str | Path,
+    report: Mapping[str, Any],
+    *,
+    extra: Mapping[str, Any] | None = None,
+) -> Path:
+    run_status = str(report["run_status"])
+    if run_status not in SCORED_STATUSES:
+        reason = f"the run file reports status {run_status}"
+        write_run_failure(run_dir, run_status=run_status, reason=reason, extra=extra)
+        raise RunNotScored(run_status, reason)
+    path = Path(run_dir) / REPORT_FILENAME
+    path.write_bytes(report_bytes(report))
+    return path
+
+
+def crash_reason(exc: BaseException) -> str:
+    return f"the harness raised {type(exc).__name__}: {exc}"
+
+
+def drive_scored(runner: ControlledRunner, run_dir: str | Path) -> str:
+    try:
+        run_status = runner.run()
+    except HarnessRunFailed as exc:
+        write_run_failure(run_dir, run_status="failed", reason=exc.reason)
+        raise RunNotScored("failed", exc.reason) from exc
+    except Exception as exc:
+        write_run_failure(run_dir, run_status="failed", reason=crash_reason(exc))
+        raise
+    if run_status not in SCORED_STATUSES:
+        reason = f"the engine finished the run as {run_status}"
+        write_run_failure(run_dir, run_status=run_status, reason=reason)
+        raise RunNotScored(run_status, reason)
+    return run_status
 
 
 def report_bytes(report: Mapping[str, Any]) -> bytes:
@@ -131,7 +194,7 @@ def run_policy(
             engine=engine,
             sleep=sleep,
         )
-        run_status = runner.run()
+        run_status = drive_scored(runner, paths.run_dir)
     finally:
         engine.stop()
 
@@ -142,8 +205,7 @@ def run_policy(
         scenario=scenario,
         geo_dir=geo_dir,
     )
-    report_path = paths.run_dir / REPORT_FILENAME
-    report_path.write_bytes(report_bytes(report))
+    report_path = write_scored_report(paths.run_dir, report)
     return PolicyRunResult(
         run_id=run_id,
         run_status=run_status,
@@ -337,12 +399,19 @@ __all__ = [
     "CALL_KINDS",
     "CALL_STATUSES",
     "DEFAULT_SCENARIO",
+    "FAILURE_FILENAME",
     "REPORT_FILENAME",
     "REPORT_VERSION",
+    "SCORED_STATUSES",
     "URGENCY_CLASSES",
     "PolicyRunPaths",
     "PolicyRunResult",
+    "RunNotScored",
     "build_report",
+    "crash_reason",
+    "drive_scored",
     "report_bytes",
     "run_policy",
+    "write_run_failure",
+    "write_scored_report",
 ]

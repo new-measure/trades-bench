@@ -363,6 +363,7 @@ def _trial_summary(
                 ]
                 valid = (
                     "error" not in oracle
+                    and "error" not in accept_all
                     and oracle["run_status"] == calibration.COMPLETED_RUN_STATUS
                     and oracle["bankruptcy_date"] is None
                     and int(oracle["final_cash_cents"])

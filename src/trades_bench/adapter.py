@@ -11,6 +11,10 @@ from .enums import PromptKind
 HarnessPromptKind = Literal["opening", "call", "reminder", "closing"]
 
 
+class AdapterIntegrityError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class AdapterPrompt:
 
@@ -75,6 +79,7 @@ class HarnessAdapter(Protocol):
 
 
 __all__ = [
+    "AdapterIntegrityError",
     "AdapterPrompt",
     "AdapterResponse",
     "AgentTurn",

@@ -18,7 +18,7 @@ from . import appointments, booking, calls, clock, control, crm, db
 from .config import RunConfig
 from .controller import Controller
 from .enums import InvocationType, RunStatus
-from .errors import EngineError, ErrorCode
+from .errors import EngineError, ErrorCode, ok_response
 from .geo_reader import GeoArtifact
 from .ops_read import (
     execute_maps,
@@ -77,6 +77,7 @@ _CONTROL_FIELDS: dict[str, frozenset[str]] = {
     "record_final_unanswered_attempt": frozenset({"request_id", "call_id", "attempt_number"}),
     "mark_call_unanswered": frozenset({"request_id", "call_id"}),
     "fail_run": frozenset({"request_id", "reason"}),
+    "call_status": frozenset({"request_id", "call_id"}),
 }
 
 _CONTROL_OPERATIONS = frozenset(_CONTROL_FIELDS)
@@ -759,6 +760,7 @@ class _Handler(BaseHTTPRequestHandler):
             "record_final_unanswered_attempt": self._record_final_unanswered_attempt,
             "mark_call_unanswered": self._mark_call_unanswered,
             "fail_run": self._fail_run,
+            "call_status": self._call_status,
         }[operation]
         engine_bytes, invocation_id, fired, replayed = handler(body, request_id, deadline_at)
 
@@ -942,6 +944,27 @@ class _Handler(BaseHTTPRequestHandler):
         )
         response, replayed = outcome
         return response, None, fired, replayed
+
+    def _call_status(
+        self, body: dict, request_id: str, deadline_at: float
+    ) -> tuple[bytes, int | None, str | None, bool]:
+        engine = self.engine
+        try:
+            call_id = _required_int(body, "call_id")
+        except EngineError as exc:
+            return exc.to_response(), None, None, False
+        active = engine.services.invocations.active()
+        invocation_id = None if active is None else int(active["invocation_id"])
+
+        def read() -> bytes:
+            try:
+                return ok_response(control.call_status(engine.services.conn, call_id=call_id))
+            except EngineError as exc:
+                return exc.to_response()
+
+        response, fired = self._under_watchdog(deadline_at, read)
+        assert isinstance(response, bytes)
+        return response, invocation_id, fired, False
 
     def _privileged_control_op(
         self,

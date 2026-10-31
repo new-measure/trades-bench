@@ -16,6 +16,7 @@ RECORD_CALL_ATTEMPT = "record_call_attempt"
 RECORD_FINAL_UNANSWERED_ATTEMPT = "record_final_unanswered_attempt"
 MARK_CALL_UNANSWERED = "mark_call_unanswered"
 FAIL_RUN = "fail_run"
+CALL_STATUS = "call_status"
 
 CONTROL_OPERATIONS = (
     NEXT_INVOCATION,
@@ -24,6 +25,7 @@ CONTROL_OPERATIONS = (
     RECORD_FINAL_UNANSWERED_ATTEMPT,
     MARK_CALL_UNANSWERED,
     FAIL_RUN,
+    CALL_STATUS,
 )
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
@@ -55,6 +57,10 @@ def call_unanswered_request_id(call_id: int) -> str:
 
 def fail_run_request_id(ordinal: int) -> str:
     return f"fail-run-{int(ordinal)}"
+
+
+def call_status_request_id(call_id: int) -> str:
+    return f"call-status-{int(call_id)}"
 
 
 @dataclass(frozen=True)
@@ -190,6 +196,12 @@ class ControlClient:
             {"request_id": fail_run_request_id(ordinal), "reason": str(reason)},
         )
 
+    def call_status(self, call_id: int) -> ControlResult:
+        return self.post(
+            CALL_STATUS,
+            {"request_id": call_status_request_id(call_id), "call_id": int(call_id)},
+        )
+
     def post(self, operation: str, body: Mapping[str, Any]) -> ControlResult:
         if operation not in CONTROL_OPERATIONS:
             raise ValueError(f"unknown control operation {operation!r}")
@@ -231,6 +243,7 @@ class ControlClient:
 
 
 __all__ = [
+    "CALL_STATUS",
     "CONTROL_OPERATIONS",
     "CONTROL_PREFIX",
     "COMPLETE_INVOCATION",
@@ -246,6 +259,7 @@ __all__ = [
     "RECORD_FINAL_UNANSWERED_ATTEMPT",
     "REPLAY_HEADER",
     "call_attempt_request_id",
+    "call_status_request_id",
     "call_final_request_id",
     "call_unanswered_request_id",
     "complete_invocation_request_id",

@@ -983,7 +983,8 @@ def first_trip_dispatch_handler(config: RunConfig, artifact: GeoArtifact | None)
             "SELECT a.id AS appointment_id FROM _appointments a "
             "JOIN _appointment_blocks ab ON ab.appointment_id = a.id AND ab.ordinal = 1 "
             f"WHERE a.status NOT IN ({_TERMINAL_PLACEHOLDERS}) "
-            "AND ab.block_start >= ? AND ab.block_start < ?",
+            "AND ab.block_start >= ? AND ab.block_start < ? "
+            "ORDER BY a.id",
             (*_TERMINAL, day_start, day_end),
         ).fetchall()
 

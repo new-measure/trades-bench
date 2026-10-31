@@ -230,28 +230,29 @@ def launch_engine(
         streams=(stdout_stream, stderr_stream),
     )
 
-    deadline = time.monotonic() + spec.ready_timeout_seconds
-    while True:
-        if ready_file.is_file():
-            try:
-                engine.port = _read_port(ready_file)
-            except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
-                engine.stop()
-                raise EngineLaunchError("engine ready file is unreadable") from exc
-            return engine
-        if process.poll() is not None:
-            engine.stop()
-            raise EngineLaunchError(
-                f"engine process exited with code {process.returncode} before signalling "
-                f"readiness: {_tail(stderr_path)}"
-            )
-        if time.monotonic() >= deadline:
-            engine.stop()
-            raise EngineLaunchError(
-                f"engine did not signal readiness within {spec.ready_timeout_seconds} seconds: "
-                f"{_tail(stderr_path)}"
-            )
-        time.sleep(READY_POLL_SECONDS)
+    try:
+        deadline = time.monotonic() + spec.ready_timeout_seconds
+        while True:
+            if ready_file.is_file():
+                try:
+                    engine.port = _read_port(ready_file)
+                except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                    raise EngineLaunchError("engine ready file is unreadable") from exc
+                return engine
+            if process.poll() is not None:
+                raise EngineLaunchError(
+                    f"engine process exited with code {process.returncode} before signalling "
+                    f"readiness: {_tail(stderr_path)}"
+                )
+            if time.monotonic() >= deadline:
+                raise EngineLaunchError(
+                    f"engine did not signal readiness within {spec.ready_timeout_seconds} seconds: "
+                    f"{_tail(stderr_path)}"
+                )
+            time.sleep(READY_POLL_SECONDS)
+    except BaseException:
+        engine.stop()
+        raise
 
 
 __all__ = [

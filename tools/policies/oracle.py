@@ -12,11 +12,10 @@ from typing import Any
 from policies.base import DEFAULT_HORIZON_DAYS
 from policies.runner import (
     DEFAULT_SCENARIO,
-    REPORT_FILENAME,
     PolicyRunPaths,
     PolicyRunResult,
     build_report,
-    report_bytes,
+    write_scored_report,
 )
 from trades_bench import (
     appointments,
@@ -700,8 +699,7 @@ def run_oracle(
         scenario=scenario,
         geo_dir=geo_dir,
     )
-    report_path = paths.run_dir / REPORT_FILENAME
-    report_path.write_bytes(report_bytes(report))
+    report_path = write_scored_report(paths.run_dir, report)
     return PolicyRunResult(
         run_id=run_id,
         run_status=run_status,
