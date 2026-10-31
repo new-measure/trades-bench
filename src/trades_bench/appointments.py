@@ -5,7 +5,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date
 
-from . import calls, clock, constants, surface
+from . import calls, clock, constants, origin_keys, surface
 from .config import RunConfig
 from .enums import DayType, EntityType, EventKind
 from .errors import EngineError, ErrorCode
@@ -385,6 +385,7 @@ def create_booking(
             first_off_hours_start,
             entity_type=EntityType.APPOINTMENT.value,
             entity_id=appointment_id,
+            order_key=origin_keys.of_appointment(conn, appointment_id),
             payload={"appointment_id": appointment_id, "block_hours": 2 * scheduled_blocks},
         )
 
@@ -393,6 +394,7 @@ def create_booking(
         windows[0][1],
         entity_type=EntityType.APPOINTMENT.value,
         entity_id=appointment_id,
+        order_key=origin_keys.of_appointment(conn, appointment_id),
         payload={"appointment_id": appointment_id},
     )
 

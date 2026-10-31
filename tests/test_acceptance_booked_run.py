@@ -28,7 +28,12 @@ DAY_ONE = "2026-10-01"
 DAY_TWO = "2026-10-02"
 DAY_THREE = "2026-10-03"
 STARTING_CASH = 4_200_000
-FINAL_CASH = 3_356_527
+FINAL_CASH = 3_969_792
+OVERTIME_ROWS = (
+    (-2_083, DAY_ONE, 1),
+    (-550, DAY_ONE, 2),
+    (-1_280, DAY_THREE, 3),
+)
 MIN_TRAVEL_MINUTES = 20
 SINGLE_BLOCK_HOURS = 2
 OVERRUN_DURATION_MINUTES = 600
@@ -160,49 +165,37 @@ DAY_TWO_TRACE = [
     ("first_block_lock", "2026-10-02T06:45:00-07:00", 905),
     ("first_trip_dispatch", "2026-10-02T06:45:00-07:00", 906),
     ("appointment_arrival", "2026-10-02T07:05:00-07:00", 310),
-    ("appointment_arrival", "2026-10-02T07:05:00-07:00", 310),
     ("work_started", "2026-10-02T07:05:00-07:00", 320),
-    ("work_started", "2026-10-02T07:05:00-07:00", 320),
-    ("call_invocation", "2026-10-02T07:25:00-07:00", 910),
-    ("call_invocation", "2026-10-02T08:03:00-07:00", 910),
-    ("call_invocation", "2026-10-02T08:08:00-07:00", 910),
+    ("call_invocation", "2026-10-02T07:15:00-07:00", 910),
+    ("call_invocation", "2026-10-02T08:16:00-07:00", 910),
     ("block_lock", "2026-10-02T09:00:00-07:00", 200),
-    ("work_completed", "2026-10-02T09:00:00-07:00", 330),
     ("company_no_show", "2026-10-02T09:00:00-07:00", 335),
-    ("company_no_show", "2026-10-02T09:00:00-07:00", 335),
-    ("technician_return_home", "2026-10-02T09:00:00-07:00", 350),
-    ("call_invocation", "2026-10-02T09:04:00-07:00", 910),
-    ("work_completed", "2026-10-02T09:05:00-07:00", 330),
-    ("technician_return_home", "2026-10-02T09:05:00-07:00", 350),
-    ("technician_home_arrival", "2026-10-02T09:20:00-07:00", 360),
-    ("call_invocation", "2026-10-02T09:23:00-07:00", 910),
-    ("technician_home_arrival", "2026-10-02T09:25:00-07:00", 360),
-    ("call_invocation", "2026-10-02T09:50:00-07:00", 910),
-    ("call_invocation", "2026-10-02T10:05:00-07:00", 910),
-    ("call_invocation", "2026-10-02T10:07:00-07:00", 910),
+    ("call_invocation", "2026-10-02T09:08:00-07:00", 910),
+    ("work_completed", "2026-10-02T09:11:00-07:00", 330),
+    ("technician_return_home", "2026-10-02T09:11:00-07:00", 350),
+    ("call_invocation", "2026-10-02T09:13:00-07:00", 910),
+    ("technician_home_arrival", "2026-10-02T09:31:00-07:00", 360),
+    ("call_invocation", "2026-10-02T09:34:00-07:00", 910),
+    ("call_invocation", "2026-10-02T10:38:00-07:00", 910),
+    ("call_invocation", "2026-10-02T10:49:00-07:00", 910),
     ("block_lock", "2026-10-02T11:00:00-07:00", 200),
-    ("call_invocation", "2026-10-02T11:15:00-07:00", 910),
-    ("call_invocation", "2026-10-02T11:52:00-07:00", 910),
-    ("call_invocation", "2026-10-02T11:58:00-07:00", 910),
+    ("call_invocation", "2026-10-02T11:48:00-07:00", 910),
     ("appointment_dispatch", "2026-10-02T12:40:00-07:00", 300),
-    ("call_invocation", "2026-10-02T12:56:00-07:00", 910),
+    ("call_invocation", "2026-10-02T12:40:00-07:00", 910),
     ("block_lock", "2026-10-02T13:00:00-07:00", 200),
     ("appointment_arrival", "2026-10-02T13:00:00-07:00", 310),
-    ("work_started", "2026-10-02T13:06:00-07:00", 320),
-    ("call_invocation", "2026-10-02T14:56:00-07:00", 910),
+    ("work_started", "2026-10-02T13:00:00-07:00", 320),
+    ("call_invocation", "2026-10-02T14:14:00-07:00", 910),
     ("block_lock", "2026-10-02T15:00:00-07:00", 200),
     ("company_no_show", "2026-10-02T15:00:00-07:00", 335),
-    ("work_completed", "2026-10-02T15:03:00-07:00", 330),
-    ("technician_return_home", "2026-10-02T15:03:00-07:00", 350),
+    ("work_completed", "2026-10-02T15:04:00-07:00", 330),
+    ("technician_return_home", "2026-10-02T15:04:00-07:00", 350),
     ("call_invocation", "2026-10-02T15:09:00-07:00", 910),
-    ("call_invocation", "2026-10-02T15:11:00-07:00", 910),
-    ("call_invocation", "2026-10-02T15:12:00-07:00", 910),
-    ("technician_home_arrival", "2026-10-02T15:23:00-07:00", 360),
-    ("call_invocation", "2026-10-02T15:44:00-07:00", 910),
-    ("call_invocation", "2026-10-02T16:01:00-07:00", 910),
+    ("technician_home_arrival", "2026-10-02T15:24:00-07:00", 360),
+    ("call_invocation", "2026-10-02T16:51:00-07:00", 910),
     ("block_lock", "2026-10-02T17:00:00-07:00", 200),
-    ("call_invocation", "2026-10-02T17:49:00-07:00", 910),
-    ("call_invocation", "2026-10-02T17:54:00-07:00", 910),
+    ("call_invocation", "2026-10-02T17:10:00-07:00", 910),
+    ("call_invocation", "2026-10-02T17:50:00-07:00", 910),
     ("closing_invocation", "2026-10-02T19:00:00-07:00", 920),
     ("daily_settlement", "2026-10-02T19:00:00-07:00", 950),
     ("checkpoint", "2026-10-02T19:00:00-07:00", 960),
@@ -318,8 +311,18 @@ def _config(**overrides):
     return load_run_config(scenario_json=json.dumps({"keys": keys}))
 
 
+BOOKED_RUN_CANCELLATIONS = {
+    "cancellations.base_probability_by_segment": {
+        "residential": 0.0, "commercial": 0.0, "apartment": 1.0,
+    },
+}
+
+
 def _booked_config():
-    return _config(**BOOKED_RUN_DEMAND, **{"travel.min_travel_minutes": MIN_TRAVEL_MINUTES})
+    return _config(
+        **BOOKED_RUN_DEMAND, **BOOKED_RUN_CANCELLATIONS,
+        **{"travel.min_travel_minutes": MIN_TRAVEL_MINUTES},
+    )
 
 
 def _init(path, config):
@@ -411,7 +414,7 @@ def test_day_two_of_the_booked_run_replays_the_pinned_trace(booked_run):
     rows = conn.execute(
         "SELECT kind, scheduled_at_ms, priority FROM _events WHERE status = 'applied' "
         "AND scheduled_at_ms >= ? AND scheduled_at_ms < ? "
-        "ORDER BY scheduled_at_ms, priority, event_id",
+        "ORDER BY scheduled_at_ms, priority, order_key, event_id",
         (_ms(DAY_TWO, 0, 0), _ms(DAY_THREE, 0, 0)),
     ).fetchall()
     for row in rows:
@@ -427,7 +430,8 @@ def test_day_two_of_the_booked_run_replays_the_pinned_trace(booked_run):
 def test_morning_first_dispatches_are_floor_clamped_to_the_planning_instant(booked_run):
     conn = booked_run["conn"]
     planning_instant = _ms(DAY_TWO, 6, 45)
-    for key in ("next-morning-hvac", "next-morning-plumbing"):
+    assert _event_chain(conn, _appointment_id(conn, "next-morning-hvac")) == ["cancelled"]
+    for key in ("next-morning-plumbing",):
         appointment_id = _appointment_id(conn, key)
         dispatched = conn.execute(
             "SELECT occurred_at FROM _appointment_events WHERE appointment_id = ? "
@@ -463,6 +467,8 @@ def test_final_cash_matches_the_hand_derived_booked_arithmetic(booked_run):
     bonus = config.get_int("payroll.off_hours_bonus_per_job")
     after_hours_technician = ORDERS_BY_KEY["after-hours"].technician_id
     after_hours_job_pay = SINGLE_BLOCK_HOURS * wages[after_hours_technician] + bonus
+    weekend_technician = ORDERS_BY_KEY["weekend"].technician_id
+    weekend_job_pay = SINGLE_BLOCK_HOURS * wages[weekend_technician] + bonus
     invoice_totals = conn.execute(
         "SELECT COALESCE(SUM(total_cents), 0) revenue, "
         "COALESCE(SUM(material_cost_cents), 0) materials FROM _invoices"
@@ -474,6 +480,8 @@ def test_final_cash_matches_the_hand_derived_booked_arithmetic(booked_run):
         - weekday_count * daily_payroll
         - day_count * overhead
         - after_hours_job_pay
+        - weekend_job_pay
+        + sum(amount for amount, _date, _technician in OVERTIME_ROWS)
     )
     assert expected == FINAL_CASH
     balance = conn.execute(
@@ -482,8 +490,14 @@ def test_final_cash_matches_the_hand_derived_booked_arithmetic(booked_run):
     assert balance == expected
     off_hours_rows = conn.execute(
         "SELECT entry_type, amount_cents, service_date, technician_id FROM _ledger_entries "
-        "WHERE entry_type IN ('payroll_off_hours', 'payroll_off_hours_bonus') ORDER BY id"
+        "WHERE entry_type IN ('payroll_off_hours', 'payroll_off_hours_bonus') "
+        "AND description NOT LIKE 'overtime wages%' ORDER BY id"
     ).fetchall()
+    overtime_rows = conn.execute(
+        "SELECT amount_cents, service_date, technician_id FROM _ledger_entries "
+        "WHERE description LIKE 'overtime wages%' ORDER BY id"
+    ).fetchall()
+    assert tuple(tuple(row) for row in overtime_rows) == OVERTIME_ROWS
     assert [tuple(row) for row in off_hours_rows] == [
         (
             "payroll_off_hours",
@@ -492,6 +506,13 @@ def test_final_cash_matches_the_hand_derived_booked_arithmetic(booked_run):
             after_hours_technician,
         ),
         ("payroll_off_hours_bonus", -bonus, DAY_ONE, after_hours_technician),
+        (
+            "payroll_off_hours",
+            -SINGLE_BLOCK_HOURS * wages[weekend_technician],
+            DAY_THREE,
+            weekend_technician,
+        ),
+        ("payroll_off_hours_bonus", -bonus, DAY_THREE, weekend_technician),
     ]
 
 
@@ -502,8 +523,8 @@ def test_booked_appointments_complete_or_are_acknowledged_as_cancelled(booked_ru
         "j.summary FROM _appointments a JOIN _jobs j ON j.id = a.job_id ORDER BY a.id"
     ).fetchall()
     assert [row["summary"] for row in rows] == [
-        "Plumbing", "HVAC service", "Plumbing", "HVAC installation",
-        "HVAC service", "HVAC service", "Electrical", "HVAC service",
+        "HVAC service", "HVAC service", "HVAC installation", "HVAC service",
+        "Plumbing", "Plumbing", "HVAC service", "Electrical",
     ]
     for row in rows:
         if row["status"] == "cancelled":
@@ -518,10 +539,10 @@ def test_booked_appointments_complete_or_are_acknowledged_as_cancelled(booked_ru
             assert int(row["lateness_minutes"]) >= 0
             assert _event_chain(conn, int(row["id"])) == COMPLETED_CHAIN
     assert [row["status"] for row in rows] == [
-        "completed", "completed", "cancelled", "cancelled",
+        "completed", "completed", "completed", "cancelled",
         "completed", "completed", "completed", "completed",
     ]
-    assert [row["lateness_minutes"] for row in rows] == [0, 0, None, None, 9, 0, 0, 0]
+    assert [row["lateness_minutes"] for row in rows] == [0, 13, 0, None, 0, 0, 0, 0]
     guard_rows = conn.execute(
         "SELECT entity_id, status FROM _events WHERE kind = 'company_no_show' ORDER BY event_id"
     ).fetchall()
@@ -531,7 +552,7 @@ def test_booked_appointments_complete_or_are_acknowledged_as_cancelled(booked_ru
         for row in guard_rows
     ]
     assert sorted(int(row["entity_id"]) for row in guard_rows) == sorted(appointment_statuses)
-    assert conn.execute("SELECT COUNT(*) c FROM _notifications").fetchone()["c"] == 2
+    assert conn.execute("SELECT COUNT(*) c FROM _notifications").fetchone()["c"] == 1
     days = conn.execute("SELECT * FROM _day_state ORDER BY service_date").fetchall()
     assert [row["service_date"] for row in days] == [DAY_ONE, DAY_TWO, DAY_THREE]
     for day in days:

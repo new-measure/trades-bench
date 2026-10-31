@@ -49,8 +49,12 @@ def _independent_noise_multiplier(
 
 
 def test_inbound_trip_noise_key_matches_the_exact_spec_key_tuple():
-    key = travel.inbound_trip_noise_key(appointment_id=7, service_date="2026-10-01", trip_index=2)
-    assert key == travel.TravelNoiseKey("appointment", 7, "2026-10-01", "travel_noise", 2)
+    key = travel.inbound_trip_noise_key(
+        appointment_origin="n:2026-09-30:4:7", service_date="2026-10-01", trip_index=2
+    )
+    assert key == travel.TravelNoiseKey(
+        "appointment_origin", 1, "n:2026-09-30:4:7|2026-10-01", "travel_noise", 2
+    )
 
 
 def test_return_home_trip_noise_key_matches_the_exact_spec_key_tuple():
@@ -65,7 +69,7 @@ def test_return_home_trip_noise_key_matches_the_exact_spec_key_tuple():
 def test_det07a_identical_trips_at_identical_times_reproduce_identical_minutes():
     rng_a = _rng()
     rng_b = _rng()
-    key = travel.inbound_trip_noise_key(1, "2026-10-01", 0)
+    key = travel.inbound_trip_noise_key("n:2026-10-01:4:1", "2026-10-01", 0)
     minutes_a = travel.actual_travel_minutes(
         rng_a,
         CONFIG,
@@ -111,14 +115,14 @@ def test_actual_travel_minutes_returns_a_bare_integer_with_no_decomposition():
         day_type="weekday",
         minute_of_day=600,
         condition_code=ConditionCode.CLEAR,
-        noise_key=travel.inbound_trip_noise_key(1, "2026-10-01", 0),
+        noise_key=travel.inbound_trip_noise_key("n:2026-10-01:4:1", "2026-10-01", 0),
     )
     assert type(result) is int
 
 
 def test_det07d_an_unrelated_entitys_draw_does_not_shift_this_trips_noise():
     rng = _rng()
-    key = travel.inbound_trip_noise_key(1, "2026-10-01", 0)
+    key = travel.inbound_trip_noise_key("n:2026-10-01:4:1", "2026-10-01", 0)
 
     minutes_before = travel.actual_travel_minutes(
         rng,
@@ -148,7 +152,7 @@ def test_det07d_an_unrelated_entitys_draw_does_not_shift_this_trips_noise():
 
 def test_peak_band_yields_strictly_more_minutes_than_off_peak_at_fixed_distance():
     rng = _rng()
-    key = travel.inbound_trip_noise_key(1, "2026-10-01", 0)
+    key = travel.inbound_trip_noise_key("n:2026-10-01:4:1", "2026-10-01", 0)
     peak_minute = 400
     off_peak_minute = 600
     assert travel.band_for_minute(CONFIG, peak_minute) == "morning_peak"
@@ -177,7 +181,7 @@ def test_peak_band_yields_strictly_more_minutes_than_off_peak_at_fixed_distance(
 
 def test_storm_yields_strictly_more_minutes_than_clear_at_fixed_distance():
     rng = _rng()
-    key = travel.inbound_trip_noise_key(1, "2026-10-01", 0)
+    key = travel.inbound_trip_noise_key("n:2026-10-01:4:1", "2026-10-01", 0)
 
     storm = travel.actual_travel_minutes(
         rng,
@@ -217,7 +221,7 @@ def test_noise_multiplier_is_clamped_and_strictly_positive():
     lo = CONFIG.get_decimal("travel.noise.min_multiplier")
     hi = CONFIG.get_decimal("travel.noise.max_multiplier")
     for entity_id in range(1, 30):
-        key = travel.inbound_trip_noise_key(entity_id, "2026-10-01", 0)
+        key = travel.inbound_trip_noise_key(f"n:2026-10-01:4:{entity_id}", "2026-10-01", 0)
         multiplier = travel.noise_multiplier(rng, CONFIG, key)
         assert lo <= multiplier <= hi
         assert multiplier > 0
@@ -229,7 +233,7 @@ def test_noise_multiplier_property_always_within_configured_clamp(entity_id):
     rng = _rng()
     lo = CONFIG.get_decimal("travel.noise.min_multiplier")
     hi = CONFIG.get_decimal("travel.noise.max_multiplier")
-    key = travel.inbound_trip_noise_key(entity_id, "2026-10-01", 0)
+    key = travel.inbound_trip_noise_key(f"n:2026-10-01:4:{entity_id}", "2026-10-01", 0)
     multiplier = travel.noise_multiplier(rng, CONFIG, key)
     assert lo <= multiplier <= hi
 
@@ -244,7 +248,7 @@ def test_actual_travel_minutes_floors_at_the_configured_minimum():
         day_type="weekday",
         minute_of_day=600,
         condition_code=ConditionCode.CLEAR,
-        noise_key=travel.inbound_trip_noise_key(1, "2026-10-01", 0),
+        noise_key=travel.inbound_trip_noise_key("n:2026-10-01:4:1", "2026-10-01", 0),
     )
     assert minutes == floor
 
@@ -272,19 +276,19 @@ def test_actual_travel_minutes_rejects_an_invalid_day_type():
             day_type="holiday",
             minute_of_day=600,
             condition_code=ConditionCode.CLEAR,
-            noise_key=travel.inbound_trip_noise_key(1, "2026-10-01", 0),
+            noise_key=travel.inbound_trip_noise_key("n:2026-10-01:4:1", "2026-10-01", 0),
         )
     assert ei.value.code is ErrorCode.INVALID_ARGUMENT
 
 
 def test_noise_multiplier_inbound_key_matches_an_independently_built_uniform01_draw():
     rng = _rng()
-    appointment_id = 4
+    appointment_origin = "r:2026-10-01:n:2026-09-28:4:3"
     service_date = "2026-10-01"
     trip_index = 1
-    key = travel.inbound_trip_noise_key(appointment_id, service_date, trip_index)
+    key = travel.inbound_trip_noise_key(appointment_origin, service_date, trip_index)
     expected = _independent_noise_multiplier(
-        "appointment", appointment_id, service_date, "travel_noise", trip_index
+        "appointment_origin", 1, f"{appointment_origin}|{service_date}", "travel_noise", trip_index
     )
     assert travel.noise_multiplier(rng, CONFIG, key) == expected
 
@@ -303,7 +307,7 @@ def test_noise_multiplier_return_home_key_matches_an_independently_built_uniform
 
 def test_noise_multiplier_is_repeatable_for_the_same_key():
     rng = _rng()
-    key = travel.inbound_trip_noise_key(4, "2026-10-01", 1)
+    key = travel.inbound_trip_noise_key("n:2026-10-01:4:4", "2026-10-01", 1)
     first = travel.noise_multiplier(rng, CONFIG, key)
     second = travel.noise_multiplier(rng, CONFIG, key)
     assert first == second
@@ -333,11 +337,11 @@ def test_noise_multiplier_from_uniform01_stays_finite_and_clamped_at_the_bottom_
 
 def test_reassignment_style_trip_index_bump_draws_fresh_noise():
     rng = _rng()
-    original = travel.noise_multiplier(rng, CONFIG, travel.inbound_trip_noise_key(1, "2026-10-01", 0))
+    original = travel.noise_multiplier(rng, CONFIG, travel.inbound_trip_noise_key("n:2026-10-01:4:1", "2026-10-01", 0))
     redispatched = travel.noise_multiplier(
-        rng, CONFIG, travel.inbound_trip_noise_key(1, "2026-10-01", 1)
+        rng, CONFIG, travel.inbound_trip_noise_key("n:2026-10-01:4:1", "2026-10-01", 1)
     )
     unrelated_appointment = travel.noise_multiplier(
-        rng, CONFIG, travel.inbound_trip_noise_key(2, "2026-10-01", 0)
+        rng, CONFIG, travel.inbound_trip_noise_key("n:2026-10-01:4:2", "2026-10-01", 0)
     )
     assert len({original, redispatched, unrelated_appointment}) == 3

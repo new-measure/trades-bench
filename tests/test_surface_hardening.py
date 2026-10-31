@@ -14,6 +14,7 @@ from _helpers import (
     GEO_FIXTURE_ZONE_WEIGHTS,
     audit_count,
     geo_artifact_sha256,
+    next_test_origin,
 )
 from trades_bench import appointments, booking, calls, clock, crm, db
 from trades_bench.config import load_run_config
@@ -108,8 +109,8 @@ def _insert_customer(conn, now, segment="residential", propensity_micros=1_000_0
     customer_id = int(cur.lastrowid)
     conn.execute(
         "INSERT INTO _customer_repeat_state (customer_id, propensity_micros, last_outcome, "
-        "competitor_captured_at, updated_at) VALUES (?, ?, NULL, NULL, ?)",
-        (customer_id, propensity_micros, now),
+        "competitor_captured_at, updated_at, origin_key) VALUES (?, ?, NULL, NULL, ?, ?)",
+        (customer_id, propensity_micros, now, f"t:customer:{customer_id}"),
     )
     return customer_id
 
@@ -156,6 +157,7 @@ def _insert_pending(conn, now, arrival_at, **overrides):
         "prospect_id": None,
         "related_job_id": None,
         "slot_index": None,
+        "origin_key": next_test_origin(conn),
         "created_at": now,
     }
     fields.update(overrides)

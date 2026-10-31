@@ -22,6 +22,7 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     (10, "prospect_registration"),
     (11, "run_score_and_invocation_origin"),
     (12, "address_pool_indexes"),
+    (13, "origin_keys"),
 )
 
 UNUSED_VERSION = max(version for version, _name in MIGRATIONS) + 1
@@ -300,3 +301,36 @@ def test_malformed_filename_raises(conn, tmp_path):
     with pytest.raises(EngineError) as ei:
         migrate(conn, migrations_path=dst)
     assert ei.value.code is ErrorCode.MIGRATION_FAILED
+
+
+ORIGIN_KEY_COLUMNS = (
+    ("_pending_calls", "origin_key"),
+    ("_call_hidden", "origin_key"),
+    ("_customer_repeat_state", "origin_key"),
+    ("_events", "order_key"),
+)
+
+
+def test_origin_key_migration_adds_private_columns_unique_indexes_and_event_order(conn):
+    migrate(conn)
+    for table, column in ORIGIN_KEY_COLUMNS:
+        assert column in {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        registry_row = conn.execute(
+            'SELECT visibility_class FROM _visibility_registry WHERE "table" = ? AND "column" = ?',
+            (table, column),
+        ).fetchone()
+        assert registry_row["visibility_class"] == "private_engine"
+    unique_origin_indexes = {
+        row["name"]
+        for table in ("_pending_calls", "_call_hidden", "_customer_repeat_state")
+        for row in conn.execute(f"PRAGMA index_list({table})")
+        if row["unique"] and row["name"].endswith("_origin_key")
+    }
+    assert unique_origin_indexes == {
+        "_pending_calls_origin_key",
+        "_call_hidden_origin_key",
+        "_customer_repeat_state_origin_key",
+    }
+    assert [row["name"] for row in conn.execute("PRAGMA index_info(_events_order)")] == [
+        "scheduled_at_ms", "priority", "order_key", "event_id",
+    ]

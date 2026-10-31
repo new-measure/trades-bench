@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from . import appointments, clock, constants, geography, travel
+from . import appointments, clock, constants, geography, origin_keys, travel
 from .config import RunConfig
 from .enums import (
     ConditionCode,
@@ -15,6 +15,7 @@ from .enums import (
     EventKind,
     KeyedStreamName,
     LedgerCategory,
+    OriginEntity,
 )
 from .errors import EngineError, ErrorCode
 from .events import EventHandler, Events
@@ -173,23 +174,23 @@ def planned_travel_minutes(
     return max(minutes, config.get_int("travel.min_travel_minutes"))
 
 
-def start_variation_minutes(rng: Rng, appointment_id: int, service_date: str) -> int:
+def start_variation_minutes(rng: Rng, appointment_origin: str, service_date: str) -> int:
     return rng.inverse_cdf_variation(
         KeyedStreamName.JOB_EXECUTION.value,
-        EntityType.APPOINTMENT.value,
-        appointment_id,
-        service_date,
+        OriginEntity.APPOINTMENT.value,
+        origin_keys.ENTITY_ID,
+        origin_keys.scoped(appointment_origin, service_date),
         "start_variation",
         0,
     )
 
 
-def duration_variation_minutes(rng: Rng, appointment_id: int, service_date: str) -> int:
+def duration_variation_minutes(rng: Rng, appointment_origin: str, service_date: str) -> int:
     return rng.inverse_cdf_variation(
         KeyedStreamName.JOB_EXECUTION.value,
-        EntityType.APPOINTMENT.value,
-        appointment_id,
-        service_date,
+        OriginEntity.APPOINTMENT.value,
+        origin_keys.ENTITY_ID,
+        origin_keys.scoped(appointment_origin, service_date),
         "duration_variation",
         0,
     )
@@ -460,7 +461,8 @@ def _pending_work_failed_event(conn: sqlite3.Connection, appointment_id: int) ->
 def pending_dispatch_for_technician(conn: sqlite3.Connection, technician_id: int) -> sqlite3.Row | None:
     rows = conn.execute(
         "SELECT event_id, entity_id, payload FROM _events "
-        "WHERE kind = ? AND status = 'pending'",
+        "WHERE kind = ? AND status = 'pending' "
+        "ORDER BY scheduled_at_ms, priority, order_key, event_id",
         (EventKind.APPOINTMENT_DISPATCH.value,),
     ).fetchall()
     for candidate in rows:
@@ -495,7 +497,9 @@ def dispatch_trip(
     minute_of_day = _minute_of_day(departure_ms)
     condition_code = _destination_condition_code(conn, destination.effective_zone_id, service_date)
     trip_index = appointments.trip_index_for_appointment(conn, appointment_id)
-    noise_key = travel.inbound_trip_noise_key(appointment_id, service_date, trip_index)
+    noise_key = travel.inbound_trip_noise_key(
+        origin_keys.of_appointment(conn, appointment_id), service_date, trip_index
+    )
     actual_minutes = travel.actual_travel_minutes(
         ctx.rng,
         config,
@@ -531,6 +535,7 @@ def dispatch_trip(
         arrival_ms,
         entity_type=EntityType.APPOINTMENT.value,
         entity_id=appointment_id,
+        order_key=origin_keys.of_appointment(conn, appointment_id),
         payload={"appointment_id": appointment_id, "technician_id": technician_id},
     )
     return arrival_ms
@@ -567,6 +572,7 @@ def plan_dispatch_from_home(
         departure,
         entity_type=EntityType.APPOINTMENT.value,
         entity_id=appointment_id,
+        order_key=origin_keys.of_appointment(conn, appointment_id),
         payload={"appointment_id": appointment_id, "technician_id": technician_id},
     )
     return departure
@@ -1001,7 +1007,8 @@ def first_trip_dispatch_handler(config: RunConfig, artifact: GeoArtifact | None)
             "JOIN _appointment_blocks ab ON ab.appointment_id = a.id AND ab.ordinal = 1 "
             "WHERE aa.status = 'active' "
             f"AND a.status NOT IN ({_TERMINAL_PLACEHOLDERS}) "
-            "AND ab.block_start >= ? AND ab.block_start < ?",
+            "AND ab.block_start >= ? AND ab.block_start < ? "
+            "ORDER BY aa.technician_id",
             (*_TERMINAL, day_start, day_end),
         ).fetchall()
 
@@ -1041,6 +1048,7 @@ def first_trip_dispatch_handler(config: RunConfig, artifact: GeoArtifact | None)
                 Events(conn, ctx.rng).schedule(
                     EventKind.APPOINTMENT_DISPATCH, departure,
                     entity_type=EntityType.APPOINTMENT.value, entity_id=appointment_id,
+                    order_key=origin_keys.of_appointment(conn, appointment_id),
                     payload={"appointment_id": appointment_id, "technician_id": technician_id},
                 )
         return None
@@ -1123,6 +1131,7 @@ def appointment_arrival_handler(config: RunConfig, artifact: GeoArtifact | None)
             Events(conn, ctx.rng).schedule(
                 EventKind.WORK_FAILED, failed_at,
                 entity_type=EntityType.APPOINTMENT.value, entity_id=appointment_id,
+                order_key=origin_keys.of_appointment(conn, appointment_id),
                 payload={
                     "appointment_id": appointment_id,
                     "technician_id": technician_id,
@@ -1130,13 +1139,15 @@ def appointment_arrival_handler(config: RunConfig, artifact: GeoArtifact | None)
                 },
             )
             return None
-        start_variation = start_variation_minutes(ctx.rng, appointment_id, service_date)
+        appointment_origin = origin_keys.of_appointment(conn, appointment_id)
+        start_variation = start_variation_minutes(ctx.rng, appointment_origin, service_date)
         work_started_ms = max(now, int(appt["scheduled_start"]) + start_variation * 60000)
         if work_started_ms > int(appt["arrival_window_end"]):
             return None
         Events(conn, ctx.rng).schedule(
             EventKind.WORK_STARTED, work_started_ms,
             entity_type=EntityType.APPOINTMENT.value, entity_id=appointment_id,
+            order_key=appointment_origin,
             payload={"appointment_id": appointment_id, "technician_id": technician_id},
         )
         return None
@@ -1173,16 +1184,13 @@ def work_started_handler(config: RunConfig) -> EventHandler:
             conn, appointment_id=appointment_id, technician_id=technician_id,
             event_type="work_started", occurred_at=now, service_date=service_date,
         )
-        reserved_blocks = int(
-            conn.execute(
-                "SELECT COUNT(*) c FROM _appointment_blocks WHERE appointment_id = ?",
-                (appointment_id,),
-            ).fetchone()["c"]
-        )
+        job_id, _location_id = _appointment_job_location_id(conn, appointment_id)
+        true_blocks = int(true_job_type(conn, job_id)["scheduled_blocks"])
         multiplier = execution_duration_multiplier(config)
-        base = Decimal(120 * reserved_blocks) * multiplier
+        base = Decimal(120 * true_blocks) * multiplier
         base_minutes = int(base.to_integral_value(rounding=ROUND_HALF_UP))
-        duration_variation = duration_variation_minutes(ctx.rng, appointment_id, service_date)
+        appointment_origin = origin_keys.of_appointment(conn, appointment_id)
+        duration_variation = duration_variation_minutes(ctx.rng, appointment_origin, service_date)
         duration_minutes = max(
             base_minutes + duration_variation,
             config.get_int("appointments.min_actual_duration_minutes"),
@@ -1191,6 +1199,7 @@ def work_started_handler(config: RunConfig) -> EventHandler:
         Events(conn, ctx.rng).schedule(
             EventKind.WORK_COMPLETED, completion_ms,
             entity_type=EntityType.APPOINTMENT.value, entity_id=appointment_id,
+            order_key=appointment_origin,
             payload={"appointment_id": appointment_id, "technician_id": technician_id},
         )
         return None
@@ -1292,7 +1301,8 @@ def company_no_show_handler(config: RunConfig, artifact: GeoArtifact | None) -> 
 
 def true_job_type(conn: sqlite3.Connection, job_id: int) -> sqlite3.Row:
     row = conn.execute(
-        "SELECT jt.code AS code, jt.name AS name, jt.business_unit_id AS business_unit_id "
+        "SELECT jt.code AS code, jt.name AS name, jt.business_unit_id AS business_unit_id, "
+        "jt.scheduled_blocks AS scheduled_blocks "
         "FROM _jobs j JOIN _call_hidden ch ON ch.call_id = j.call_id "
         "JOIN _service_catalog sc ON sc.id = ch.requested_category_id "
         "JOIN _job_types jt ON jt.id = sc.supported_job_type_id "
@@ -1326,15 +1336,16 @@ def post_paid_completion(ctx, config: RunConfig, *, job_id: int, now_ms: int) ->
     job_type_code = str(job_type["code"])
     completion_date = clock.service_date_for_ms(now_ms)
 
+    finance_scope = origin_keys.scoped(origin_keys.of_job(conn, job_id), completion_date)
     amounts = config.resolved["invoices.amount"][job_type_code][segment]
     subtotal_cents = ctx.rng.triangular_cents(
-        KeyedStreamName.JOB_FINANCE.value, EntityType.JOB.value, job_id, completion_date,
+        KeyedStreamName.JOB_FINANCE.value, OriginEntity.JOB.value, origin_keys.ENTITY_ID, finance_scope,
         "invoice_amount",
         amounts["min_cents"], amounts["mode_cents"], amounts["max_cents"], 0,
     )
     percent_range = config.resolved["materials.percent_range"][job_type_code]
     material_percent_basis_points = ctx.rng.bounded_int(
-        KeyedStreamName.JOB_FINANCE.value, EntityType.JOB.value, job_id, completion_date,
+        KeyedStreamName.JOB_FINANCE.value, OriginEntity.JOB.value, origin_keys.ENTITY_ID, finance_scope,
         "material_percentage",
         percent_range["min_basis_points"], percent_range["max_basis_points"], 0,
     )

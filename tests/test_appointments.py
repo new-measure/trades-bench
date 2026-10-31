@@ -12,6 +12,7 @@ from _helpers import (
     GEO_FIXTURE_ZONE_WEIGHTS,
     audit_count,
     geo_artifact_sha256,
+    next_test_origin,
     register_conn,
 )
 from trades_bench import appointments, clock, demand, execution, geo_reader
@@ -60,6 +61,7 @@ def _build(tmp_path):
 
 def _customer_location_call(conn, now_ms: int, service_date: str, config=None) -> int:
     row_id = next(_id_seq)
+    origin_key = next_test_origin(conn)
     conn.execute(
         "INSERT INTO _customers (id, name, segment, status, created_at, modified_at) "
         "VALUES (?, 'Acme', 'commercial', 'active', ?, ?)",
@@ -67,7 +69,8 @@ def _customer_location_call(conn, now_ms: int, service_date: str, config=None) -
     )
     if config is not None:
         demand.register_customer_repeat_state(
-            conn, config, customer_id=row_id, segment="commercial", now_ms=now_ms
+            conn, config, customer_id=row_id, segment="commercial",
+            origin_key=origin_key, now_ms=now_ms,
         )
     conn.execute(
         "INSERT INTO _locations (id, customer_id, name, street, unit, city, state, "
@@ -84,6 +87,12 @@ def _customer_location_call(conn, now_ms: int, service_date: str, config=None) -
         "caller_name, caller_phone, requested_service_name, urgent, created_at) "
         "VALUES (?, ?, ?, 'new_job', 'booked', 'A', '555', 'HVAC service', 0, ?)",
         (row_id, now_ms, service_date, now_ms),
+    )
+    conn.execute(
+        "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
+        "prospect_id, arrival_event_id, origin_key, created_at) "
+        "VALUES (?, 'commercial', 2, NULL, NULL, ?, ?)",
+        (row_id, origin_key, now_ms),
     )
     return row_id
 

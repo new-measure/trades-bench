@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from _helpers import make_services, register_conn
+from trades_bench import SPEC_VERSION
 from trades_bench.db import begin, commit, connect, insert_run, new_run_id, rollback
 from trades_bench.errors import EngineError, ErrorCode
 from trades_bench.migrations import migrate
@@ -226,7 +227,7 @@ def test_unbound_rng_needs_no_database(tmp_path):
 
 def test_counter_follows_the_command_transaction():
     conn, rid, sv, _, _, rng = make_services(active_invocation=True, master_seed=7)
-    seed = stream_seed(7, "1.0.0", STREAM)
+    seed = stream_seed(7, SPEC_VERSION, STREAM)
 
     drawn: list[int] = []
 

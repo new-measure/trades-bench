@@ -5,6 +5,8 @@ from datetime import date, timedelta
 from decimal import Decimal, localcontext
 from itertools import count
 
+import pytest
+
 from _adapters import ScriptedNoOpAdapter
 from _helpers import (
     GEO_ARTIFACT_DIR,
@@ -12,14 +14,28 @@ from _helpers import (
     GEO_FIXTURE_ZONE_WEIGHTS,
     audit_count,
     geo_artifact_sha256,
+    next_test_origin,
     register_conn,
 )
-from trades_bench import booking, calls, clock, crm, db, geo_reader
+from trades_bench import (
+    appointments,
+    booking,
+    calls,
+    clock,
+    crm,
+    db,
+    geo_reader,
+    ops_read,
+    origin_keys,
+    sql_gate,
+)
+from trades_bench.adapter import AdapterResponse
 from trades_bench.config import load_run_config
 from trades_bench.controller import Controller
-from trades_bench.enums import EventKind
+from trades_bench.enums import EventKind, RunStatus
 from trades_bench.errors import ErrorCode
 from trades_bench.events import Events
+from trades_bench.registry import OPERATIONS_BY_NAME
 from trades_bench.run_init import initialize_run, open_run_db
 
 SEED = 17
@@ -113,8 +129,8 @@ def _insert_customer(conn, now, segment="residential", propensity_micros=1_000_0
     customer_id = int(cur.lastrowid)
     conn.execute(
         "INSERT INTO _customer_repeat_state (customer_id, propensity_micros, last_outcome, "
-        "competitor_captured_at, updated_at) VALUES (?, ?, NULL, NULL, ?)",
-        (customer_id, propensity_micros, now),
+        "competitor_captured_at, updated_at, origin_key) VALUES (?, ?, NULL, NULL, ?, ?)",
+        (customer_id, propensity_micros, now, f"t:customer:{customer_id}"),
     )
     return customer_id
 
@@ -173,6 +189,7 @@ def _insert_pending(conn, now, arrival_at, **overrides):
         "prospect_id": None,
         "related_job_id": None,
         "slot_index": None,
+        "origin_key": next_test_origin(conn),
         "created_at": now,
     }
     fields.update(overrides)
@@ -570,26 +587,27 @@ def _decline_via(tmp_path, name, *, via_booking):
         "terminal_reason": call["terminal_reason"],
         "terminal_at": call["terminal_at"],
     }
-    competitor_rows = _audit_rows(conn, stream_name="competitor_leak", entity_id=call_id)
-    acceptance_rows = _audit_rows(conn, stream_name="acceptance", entity_id=call_id)
+    call_origin = origin_keys.of_call(conn, call_id)
+    competitor_rows = _audit_rows(conn, stream_name="competitor_leak", scope=call_origin)
+    acceptance_rows = _audit_rows(conn, stream_name="acceptance", scope=call_origin)
     conn.close()
-    return snapshot, competitor_rows, acceptance_rows, call_id
+    return snapshot, competitor_rows, acceptance_rows, call_origin
 
 
 def test_decline_via_booking_equals_decline_via_reject(tmp_path):
-    snap_booking, comp_booking, accept_booking, call_id_booking = _decline_via(
+    snap_booking, comp_booking, accept_booking, origin_booking = _decline_via(
         tmp_path, "decline_via_booking.db", via_booking=True,
     )
-    snap_reject, comp_reject, accept_reject, call_id_reject = _decline_via(
+    snap_reject, comp_reject, accept_reject, origin_reject = _decline_via(
         tmp_path, "decline_via_reject.db", via_booking=False,
     )
 
-    assert call_id_booking == call_id_reject
+    assert origin_booking == origin_reject
     assert comp_booking == comp_reject
     assert len(comp_booking) == 2
     assert accept_reject == []
     assert accept_booking == [
-        ("acceptance", "call", call_id_booking, "", "offer_acceptance", 0),
+        ("acceptance", "call_origin", 1, origin_booking, "offer_acceptance", 0),
     ]
 
     assert snap_booking["propensity_micros"] == snap_reject["propensity_micros"]
@@ -660,7 +678,7 @@ def test_acceptance_outcome_is_independent_of_technician_identity(tmp_path):
         outcomes[technician_id] = (
             result["outcome"],
             hidden["acceptance_result"],
-            _audit_rows(conn, entity_id=call_id),
+            _audit_rows(conn, scope=origin_keys.of_call(conn, call_id)),
         )
         conn.close()
 
@@ -829,66 +847,460 @@ def test_cancellation_arrival_window_multi_day_index_mapping():
         assert booking._nth_cancellation_arrival(window, index) == instant
 
 
-def test_booking_isolation_unrelated_activity_does_not_shift_the_outcome(tmp_path):
-    config = _config()
+DET04_SERVICE_DATE = "2026-10-02"
+DET04_DAY_ONE = "2026-10-01"
+DET04_SEED = 28
+DET04_TECHNICIAN_BY_SERVICE = {
+    "hvac service": (1, 1),
+    "hvac installation": (2, 2),
+    "plumbing": (3, 3),
+    "electrical": (4, 4),
+}
+DET04_CANCELLATION = {
+    "cancellations.base_probability_by_segment": {
+        "residential": 0.5, "commercial": 0.5, "apartment": 0.5,
+    },
+    "cancellations.lead_days_coefficient": 0,
+    "cancellations.storm_multiplier": 1,
+    "cancellations.urgent_multiplier": 1,
+}
+DET04_D_BLOCKS = ("13:00", "11:00", "15:00")
+DET04_B_DRAW_KINDS = (
+    "offer_acceptance", "complexity", "cancellation_exists", "travel_noise",
+    "start_variation", "duration_variation", "invoice_amount", "material_percentage",
+    "repeat_call",
+)
+DET04_CONFIG = {
+    **DET04_CANCELLATION,
+    "demand.base_new_caller_rate_per_day": 20,
+    "finance.starting_cash": 50_000_000,
+    "run.end_date": DET04_SERVICE_DATE,
+}
 
-    conn_a, cfg_a, controller_a = _build(tmp_path, config=config, name="det04_clean.db")
-    now_a = _now_ms(conn_a)
-    catalog_a1, catalog_a2 = _usable_catalog_rows(conn_a, 2)
-    _open_invocation(conn_a, now_a)
-    call_a_id, _, _ = _fresh_registered_call(conn_a, controller_a, catalog_a1)
-    call_b_id, customer_b_id, location_b_id = _fresh_registered_call(conn_a, controller_a, catalog_a2)
-    _, clean_body = _book(
-        controller_a, cfg_a,
-        call_id=call_b_id, customer_id=customer_b_id, location_id=location_b_id,
-        job_type_id=1, service_date=START_DATE, block_start="09:00", technician_id=1,
+
+def _register_and_book(
+    controller, cfg, *, call_id, catalog, technician_id, prefix,
+    service_date=DET04_SERVICE_DATE, block_start="09:00", job_type_id=1,
+):
+    customer_id = _ok(json.loads(crm.create_customer_command(
+        controller.services, f"{prefix}-customer", cfg, call_id=call_id,
+        name="Fixture Caller", segment="residential",
+        contacts=[{"contact_type": "phone", "value": "4805551234"}],
+    )))["customer_id"]
+    location_id = _ok(json.loads(crm.create_location_command(
+        controller.services, f"{prefix}-location", cfg, call_id=call_id,
+        customer_id=customer_id, address=catalog["formatted_address"], artifact=ARTIFACT,
+    )))["location_id"]
+    _, body = _book(
+        controller, cfg, request_id=f"{prefix}-book",
+        call_id=call_id, customer_id=customer_id, location_id=location_id,
+        job_type_id=job_type_id, service_date=service_date, block_start=block_start,
+        technician_id=technician_id,
     )
-    result_clean = _ok(clean_body)
-    hidden_clean = conn_a.execute(
-        "SELECT acceptance_result FROM _call_hidden WHERE call_id = ?", (call_b_id,)
-    ).fetchone()["acceptance_result"]
-    audit_clean = _audit_rows(conn_a, stream_name="acceptance", entity_id=call_b_id)
-    conn_a.close()
+    return customer_id, location_id, _ok(body)
 
-    conn_b, cfg_b, controller_b = _build(tmp_path, config=config, name="det04_noisy.db")
-    now_b = _now_ms(conn_b)
-    catalog_b1, catalog_b2 = _usable_catalog_rows(conn_b, 2)
-    _open_invocation(conn_b, now_b)
-    call_a_id_2, _, _ = _fresh_registered_call(conn_b, controller_b, catalog_b1)
-    assert call_a_id_2 == call_a_id
 
-    reject_request_id = _next_request_id("det04_reject")
-    _, reject_body = _reject(controller_b, cfg_b, call_id=call_a_id_2, request_id=reject_request_id)
-    _ok(reject_body)
-    _, replay_body = _reject(controller_b, cfg_b, call_id=call_a_id_2, request_id=reject_request_id)
-    _ok(replay_body)
+class _Det04Adapter(ScriptedNoOpAdapter):
 
-    call_b_id_2, customer_b_id_2, location_b_id_2 = _fresh_registered_call(
-        conn_b, controller_b, catalog_b2,
+    def __init__(self, handle_a, b_origin=None, b_rejects=False, d_origin=None, d_block=None):
+        super().__init__()
+        self.d_origin = d_origin
+        self.d_block = d_block
+        self.d = None
+        self.d_attempts = 0
+        self.preconditions = {}
+        self.controller = None
+        self.handle_a = handle_a
+        self.b_rejects = b_rejects
+        self.b_origin = b_origin
+        self.a_origin = None
+        self.a_cancellation_seen = False
+        self.c_slot = None
+        self.b = None
+        self.interleavings = {}
+
+    def send(self, prompt):
+        self.prompts.append(prompt)
+        if prompt.kind.value != "call":
+            return AdapterResponse(text="", terminal_action_taken=False)
+        controller = self.controller
+        payload = prompt.payload
+        call_id = int(payload["call_id"])
+        origin = origin_keys.of_call(controller.conn, call_id)
+        if "appointment_id" in payload:
+            if self.a_origin is not None and origin == f"x:{self.a_origin}":
+                self.a_cancellation_seen = True
+            _ok(json.loads(appointments.acknowledge_cancellation_command(
+                controller.services, f"ack-{call_id}", controller.config,
+                call_id=call_id, artifact=controller.artifact,
+            )))
+            return AdapterResponse(text="", terminal_action_taken=True)
+        service = str(payload["requested_service"]).casefold()
+        supported = service in DET04_TECHNICIAN_BY_SERVICE
+        today = clock.service_date_for_ms(prompt.ts_ms)
+        if origin == self.a_origin:
+            return AdapterResponse(text="", terminal_action_taken=False)
+        if self.a_origin is None and supported and today == DET04_DAY_ONE:
+            self.a_origin = origin
+            return self._handle_a(call_id, payload)
+        if self._is_b(origin, supported, today):
+            self.b_origin = origin
+            if self.b_rejects:
+                self.b = {"call_id": call_id}
+                _ok(json.loads(calls.reject_command(
+                    controller.services, f"b-{call_id}-reject", controller.config,
+                    call_id=call_id,
+                )))
+            else:
+                self._book_b(call_id, payload, service)
+            return AdapterResponse(text="", terminal_action_taken=True)
+        if self._is_d(origin, supported, today):
+            technician_id, job_type_id = DET04_TECHNICIAN_BY_SERVICE[service]
+            block_start = self.d_block or DET04_D_BLOCKS[self.d_attempts % len(DET04_D_BLOCKS)]
+            self.d_attempts += 1
+            booked = self._register_book(
+                call_id, payload, technician_id=technician_id, job_type_id=job_type_id,
+                service_date=DET04_SERVICE_DATE, block_start=block_start, prefix=f"d-{call_id}",
+            )
+            if self.d_origin is not None or self._cancels(booked):
+                self.d_origin = origin
+                self.d_block = block_start
+                self.d = booked
+            return AdapterResponse(text="", terminal_action_taken=True)
+        if (
+            self.handle_a == "creates_entities" and self.c_slot is None and supported
+            and today == DET04_DAY_ONE and not self.a_cancellation_seen
+        ):
+            self.c_slot = (4, DET04_SERVICE_DATE, "11:00")
+            self._register_book(call_id, payload, technician_id=4, job_type_id=4,
+                                service_date=DET04_SERVICE_DATE, block_start="11:00",
+                                prefix=f"c-{call_id}")
+            return AdapterResponse(text="", terminal_action_taken=True)
+        _ok(json.loads(calls.reject_command(
+            controller.services, f"reject-{call_id}", controller.config, call_id=call_id,
+        )))
+        return AdapterResponse(text="", terminal_action_taken=True)
+
+    def _cancels(self, booked):
+        if booked["outcome"] != "accepted":
+            return False
+        row = self.controller.conn.execute(
+            "SELECT cancel_exists FROM _cancellation_schedule WHERE appointment_id = ?",
+            (booked["appointment_id"],),
+        ).fetchone()
+        return bool(row["cancel_exists"])
+
+    def _is_d(self, origin, supported, today):
+        if self.b is None or self.d is not None or self.b_rejects:
+            return False
+        if self.d_origin is not None:
+            return origin == self.d_origin
+        return supported and today == DET04_DAY_ONE
+
+    def _is_b(self, origin, supported, today):
+        if self.b is not None:
+            return False
+        if self.b_origin is not None:
+            return origin == self.b_origin
+        return self.a_cancellation_seen and supported and today == DET04_DAY_ONE
+
+    def _handle_a(self, call_id, payload):
+        controller = self.controller
+        if self.handle_a == "untouched":
+            return AdapterResponse(text="", terminal_action_taken=False)
+        if self.handle_a == "rejects":
+            _ok(json.loads(calls.reject_command(
+                controller.services, f"reject-{call_id}", controller.config, call_id=call_id,
+            )))
+            return AdapterResponse(text="", terminal_action_taken=True)
+        booked = self._register_book(
+            call_id, payload, technician_id=4, job_type_id=4, service_date=DET04_DAY_ONE,
+            block_start="15:00", prefix=f"a-{call_id}",
+        )
+        self.preconditions["a_outcome"] = booked["outcome"]
+        return AdapterResponse(text="", terminal_action_taken=True)
+
+    def _register_book(self, call_id, payload, *, technician_id, job_type_id, service_date,
+                       block_start, prefix):
+        controller = self.controller
+        customer_id = _ok(json.loads(crm.create_customer_command(
+            controller.services, f"{prefix}-customer", controller.config, call_id=call_id,
+            name=str(payload["caller"]), segment=str(payload["customer_type"]),
+            contacts=[{"contact_type": "phone", "value": str(payload["phone"])}],
+        )))["customer_id"]
+        location_id = _ok(json.loads(crm.create_location_command(
+            controller.services, f"{prefix}-location", controller.config, call_id=call_id,
+            customer_id=customer_id, address=str(payload["address"]), artifact=ARTIFACT,
+        )))["location_id"]
+        _, body = _book(
+            controller, controller.config, request_id=f"{prefix}-book", call_id=call_id,
+            customer_id=customer_id, location_id=location_id, job_type_id=job_type_id,
+            service_date=service_date, block_start=block_start, technician_id=technician_id,
+            artifact=ARTIFACT,
+        )
+        return body["result"] if body["ok"] else {"outcome": body["error"]["code"]}
+
+    def _interleave_before_booking_b(self, call_id, customer_id, location_id):
+        controller = self.controller
+        conn = controller.conn
+        audit_before = audit_count(conn)
+        db_path = conn.execute("PRAGMA database_list").fetchone()["file"]
+        agent = sql_gate.open_agent_session(db_path)
+        self.interleavings["sql_rows"] = len(
+            sql_gate.execute_gated(agent, "SELECT id FROM calls").fetchall()
+        )
+        agent.close()
+        spec = OPERATIONS_BY_NAME["calls.list"]
+        self.interleavings["read_rows"] = len(ops_read.execute_view_list(
+            conn, controller.config, spec, ops_read.validate_operation_args(spec, {}),
+        )[0])
+        technician_id, date_, block = self.c_slot
+        _, occupied = _book(
+            controller, controller.config, request_id=f"occupied-{call_id}", call_id=call_id,
+            customer_id=customer_id, location_id=location_id, job_type_id=4,
+            service_date=date_, block_start=block, technician_id=technician_id,
+            artifact=ARTIFACT,
+        )
+        self.interleavings["occupied"] = (occupied.get("error") or {"code": "booked"})["code"]
+        self.interleavings["audit_delta"] = audit_count(conn) - audit_before
+
+    def _book_b(self, call_id, payload, service):
+        controller = self.controller
+        technician_id, job_type_id = DET04_TECHNICIAN_BY_SERVICE[service]
+        customer_id = _ok(json.loads(crm.create_customer_command(
+            controller.services, f"b-{call_id}-customer", controller.config, call_id=call_id,
+            name=str(payload["caller"]), segment=str(payload["customer_type"]),
+            contacts=[{"contact_type": "phone", "value": str(payload["phone"])}],
+        )))["customer_id"]
+        if self.handle_a == "creates_entities":
+            malformed = json.loads(crm.create_location_command(
+                controller.services, f"b-{call_id}-bad-location", controller.config,
+                call_id=call_id, customer_id=customer_id, address="nowhere at all",
+                artifact=ARTIFACT,
+            ))
+            self.interleavings["malformed"] = (malformed.get("error") or {"code": "created"})["code"]
+        location_id = _ok(json.loads(crm.create_location_command(
+            controller.services, f"b-{call_id}-location", controller.config, call_id=call_id,
+            customer_id=customer_id, address=str(payload["address"]), artifact=ARTIFACT,
+        )))["location_id"]
+        if self.handle_a == "creates_entities":
+            self._interleave_before_booking_b(call_id, customer_id, location_id)
+        args = {
+            "call_id": call_id, "customer_id": customer_id, "location_id": location_id,
+            "job_type_id": job_type_id, "service_date": DET04_SERVICE_DATE,
+            "block_start": "09:00", "technician_id": technician_id, "artifact": ARTIFACT,
+        }
+        raw, body = _book(controller, controller.config, request_id=f"b-{call_id}-book", **args)
+        outcome = body["result"] if body["ok"] else {"outcome": body["error"]["code"]}
+        self.b = {"call_id": call_id, "customer_id": customer_id, "location_id": location_id,
+                  **outcome}
+        if self.handle_a == "creates_entities":
+            audit_before = audit_count(controller.conn)
+            replay, _ = _book(
+                controller, controller.config, request_id=f"b-{call_id}-book", **args,
+            )
+            self.interleavings["replay_identical"] = replay == raw
+            self.interleavings["replay_audit_delta"] = audit_count(controller.conn) - audit_before
+
+
+def _det04_b_audit(conn, origin):
+    return [
+        tuple(row)
+        for row in conn.execute(
+            "SELECT stream_name, entity_type, entity_id, scope, event_kind, draw_index "
+            "FROM _random_audit WHERE scope = ? OR scope LIKE ? ORDER BY seq",
+            (origin, f"{origin}|%"),
+        )
+    ]
+
+
+def _det04_rejected_b_run(tmp_path, name, handle_a, b_origin=None):
+    config = _config(**DET04_CONFIG)
+    conn = _init(tmp_path / name, config, seed=DET04_SEED)
+    register_conn(conn)
+    adapter = _Det04Adapter(handle_a, b_origin, b_rejects=True)
+    controller = Controller(conn, config, adapter, artifact_dir=GEO_ARTIFACT_DIR)
+    adapter.controller = controller
+    assert controller.run() is RunStatus.COMPLETED, "DET-04 precondition: the run completes"
+    assert adapter.b is not None, "DET-04 precondition: call B arrived and was handled"
+    return {
+        "origin": adapter.b_origin,
+        "call_id": adapter.b["call_id"],
+        "audit": _det04_b_audit(conn, adapter.b_origin),
+        "cancellation_seen": adapter.a_cancellation_seen,
+    }
+
+
+def _row_tuple(row):
+    return None if row is None else tuple(row)
+
+
+def _det04_precondition_failures(status, adapter):
+    checks = [
+        (status is RunStatus.COMPLETED, f"the run completes (status {status})"),
+        (
+            adapter.handle_a != "creates_entities"
+            or adapter.preconditions.get("a_outcome") == "accepted",
+            f"call A's booking is accepted (got {adapter.preconditions.get('a_outcome')})",
+        ),
+        (
+            adapter.handle_a != "creates_entities" or adapter.a_cancellation_seen,
+            "call A's cancellation call arrives before call B",
+        ),
+        (adapter.b is not None, "call B arrives and is booked"),
+        (
+            adapter.b is None or adapter.b.get("outcome") == "accepted",
+            f"call B's booking is accepted (got {adapter.b and adapter.b.get('outcome')})",
+        ),
+        (
+            adapter.handle_a != "creates_entities"
+            or adapter.interleavings.get("occupied") == "state_illegal",
+            "booking B into call C's held block fails as occupied "
+            f"(got {adapter.interleavings.get('occupied')})",
+        ),
+        (
+            adapter.d is not None and adapter.d.get("outcome") == "accepted",
+            "a later call D is booked and accepted",
+        ),
+    ]
+    return [f"DET-04 precondition failed: {message}" for ok, message in checks if not ok]
+
+
+def _require_det04_preconditions(controller, adapter):
+    failures = _det04_precondition_failures(controller.run(), adapter)
+    assert not failures, failures
+
+
+def _det04_run(tmp_path, name, handle_a, b_origin=None, d=(None, None)):
+    config = _config(**DET04_CONFIG)
+    conn = _init(tmp_path / name, config, seed=DET04_SEED)
+    register_conn(conn)
+    adapter = _Det04Adapter(handle_a, b_origin, d_origin=d[0], d_block=d[1])
+    controller = Controller(conn, config, adapter, artifact_dir=GEO_ARTIFACT_DIR)
+    adapter.controller = controller
+    _require_det04_preconditions(controller, adapter)
+    b = adapter.b
+    origin = adapter.b_origin
+    observed = {
+        "acceptance": conn.execute(
+            "SELECT acceptance_result FROM _call_hidden WHERE call_id = ?", (b["call_id"],)
+        ).fetchone()[0],
+        "blocks": b["blocks"],
+        "complexity": conn.execute(
+            "SELECT complexity_micros FROM _job_outcomes WHERE job_id = ?", (b["job_id"],)
+        ).fetchone()[0],
+        "cancellation": _row_tuple(conn.execute(
+            "SELECT cancel_exists, arrival_at FROM _cancellation_schedule "
+            "WHERE appointment_id = ?", (b["appointment_id"],),
+        ).fetchone()),
+        "execution": [
+            (row["event_type"], row["occurred_at"])
+            for row in conn.execute(
+                "SELECT event_type, occurred_at FROM _appointment_events "
+                "WHERE appointment_id = ? ORDER BY occurred_at, event_type",
+                (b["appointment_id"],),
+            )
+        ],
+        "appointment": _row_tuple(conn.execute(
+            "SELECT status, actual_start, actual_end, lateness_minutes FROM _appointments "
+            "WHERE id = ?", (b["appointment_id"],),
+        ).fetchone()),
+        "finance": _row_tuple(conn.execute(
+            "SELECT subtotal_cents, material_percent_basis_points FROM _invoices "
+            "WHERE job_id = ?", (b["job_id"],),
+        ).fetchone()),
+        "audit": [
+            tuple(row)
+            for row in conn.execute(
+                "SELECT stream_name, entity_type, entity_id, scope, event_kind, draw_index "
+                "FROM _random_audit WHERE scope = ? OR scope LIKE ? ORDER BY seq",
+                (origin, f"{origin}|%"),
+            )
+        ],
+    }
+    observed["d_cancellation"] = _row_tuple(conn.execute(
+        "SELECT cancel_exists, arrival_at FROM _cancellation_schedule WHERE appointment_id = ?",
+        (adapter.d["appointment_id"],),
+    ).fetchone())
+    observed["d_audit"] = _det04_b_audit(conn, adapter.d_origin)
+    ids = (b["call_id"], b["customer_id"], b["location_id"], b["job_id"], b["appointment_id"])
+    return {
+        "origin": origin, "d": (adapter.d_origin, adapter.d_block), "ids": ids,
+        "observed": observed,
+        "adapter": adapter,
+    }
+
+
+@pytest.fixture(scope="module")
+def det04_runs(tmp_path_factory):
+    base = tmp_path_factory.mktemp("det04")
+    created = _det04_run(base, "created.db", "creates_entities")
+    return {
+        "creates_entities": created,
+        "rejects": _det04_run(
+            base, "rejects.db", "rejects", created["origin"], created["d"],
+        ),
+        "untouched": _det04_run(
+            base, "untouched.db", "untouched", created["origin"], created["d"],
+        ),
+    }
+
+
+def test_det04_entities_created_for_a_shift_no_competitor_draw_of_a_rejected_b(tmp_path):
+    created = _det04_rejected_b_run(tmp_path, "b_rejected_created.db", "creates_entities")
+    untouched = _det04_rejected_b_run(
+        tmp_path, "b_rejected_untouched.db", "untouched", created["origin"],
     )
-    assert call_b_id_2 == call_b_id
 
-    _, failed_body = _book(
-        controller_b, cfg_b,
-        call_id=call_b_id_2, customer_id=customer_b_id_2, location_id=location_b_id_2,
-        job_type_id=1, service_date=START_DATE, block_start="09:00", technician_id=999999,
-    )
-    _err(failed_body)
+    assert created["cancellation_seen"]
+    assert untouched["origin"] == created["origin"]
+    assert created["call_id"] > untouched["call_id"]
+    assert [row[4] for row in created["audit"]][:1] == ["competitor_attempt"]
+    assert created["audit"] == untouched["audit"]
 
-    _, noisy_body = _book(
-        controller_b, cfg_b,
-        call_id=call_b_id_2, customer_id=customer_b_id_2, location_id=location_b_id_2,
-        job_type_id=1, service_date=START_DATE, block_start="09:00", technician_id=1,
-    )
-    result_noisy = _ok(noisy_body)
-    hidden_noisy = conn_b.execute(
-        "SELECT acceptance_result FROM _call_hidden WHERE call_id = ?", (call_b_id_2,)
-    ).fetchone()["acceptance_result"]
-    audit_noisy = _audit_rows(conn_b, stream_name="acceptance", entity_id=call_b_id_2)
 
-    assert result_noisy == result_clean
-    assert hidden_noisy == hidden_clean
-    assert audit_noisy == audit_clean
+def test_det04_scenario_preconditions_hold_in_every_world(det04_runs):
+    for name, world in det04_runs.items():
+        adapter = world["adapter"]
+        assert _det04_precondition_failures(RunStatus.COMPLETED, adapter) == [], name
+
+
+def test_det04_a_creates_entities_and_a_cancellation_call_before_b(det04_runs):
+    created = det04_runs["creates_entities"]
+    adapter = created["adapter"]
+
+    assert adapter.a_cancellation_seen
+    assert adapter.c_slot is not None
+    assert created["origin"].startswith(f"n:{DET04_DAY_ONE}:")
+    for other in ("rejects", "untouched"):
+        other_ids = det04_runs[other]["ids"]
+        assert det04_runs[other]["origin"] == created["origin"]
+        assert all(mine > theirs for mine, theirs in zip(created["ids"], other_ids, strict=True))
+
+
+def test_det04_b_keyed_outcomes_and_realized_execution_are_identical(det04_runs):
+    created = det04_runs["creates_entities"]["observed"]
+    rejects = det04_runs["rejects"]["observed"]
+    untouched = det04_runs["untouched"]["observed"]
+
+    assert created["appointment"][0] == "completed"
+    assert sorted(row[4] for row in created["audit"]) == sorted(DET04_B_DRAW_KINDS)
+    assert created["d_cancellation"][0] == 1
+    assert "cancellation_arrival" in {row[4] for row in created["d_audit"]}
+    for key in created:
+        assert created[key] == rejects[key] == untouched[key], key
+
+
+def test_det04_interleavings_change_nothing_and_a_replay_returns_stored_bytes(det04_runs):
+    interleavings = det04_runs["creates_entities"]["adapter"].interleavings
+
+    assert interleavings["sql_rows"] > 0
+    assert interleavings["read_rows"] > 0
+    assert interleavings["occupied"] == "state_illegal"
+    assert interleavings["malformed"] == "invalid_argument"
+    assert interleavings["audit_delta"] == 0
+    assert interleavings["replay_identical"] is True
+    assert interleavings["replay_audit_delta"] == 0
 
 
 def test_cancellation_scheduled_at_a_minute_aligned_instant_within_bounds(tmp_path):
@@ -941,9 +1353,10 @@ def test_cancellation_scheduled_at_a_minute_aligned_instant_within_bounds(tmp_pa
     assert event["status"] == "pending"
     assert event["scheduled_at_ms"] == arrival_at
 
-    assert _audit_rows(conn, stream_name="cancellation", entity_id=appointment_id) == [
-        ("cancellation", "appointment", appointment_id, "", "cancellation_exists", 0),
-        ("cancellation", "appointment", appointment_id, "", "cancellation_arrival", 1),
+    appointment_origin = origin_keys.of_appointment(conn, appointment_id)
+    assert _audit_rows(conn, stream_name="cancellation", scope=appointment_origin) == [
+        ("cancellation", "appointment_origin", 1, appointment_origin, "cancellation_exists", 0),
+        ("cancellation", "appointment_origin", 1, appointment_origin, "cancellation_arrival", 1),
     ]
 
 
@@ -972,8 +1385,9 @@ def test_cancellation_never_exists_writes_null_row_and_takes_one_draw(tmp_path):
     ).fetchone()
     assert (row["cancel_exists"], row["arrival_at"], row["event_id"]) == (0, None, None)
 
-    assert _audit_rows(conn, stream_name="cancellation", entity_id=appointment_id) == [
-        ("cancellation", "appointment", appointment_id, "", "cancellation_exists", 0),
+    appointment_origin = origin_keys.of_appointment(conn, appointment_id)
+    assert _audit_rows(conn, stream_name="cancellation", scope=appointment_origin) == [
+        ("cancellation", "appointment_origin", 1, appointment_origin, "cancellation_exists", 0),
     ]
 
 
@@ -1005,8 +1419,9 @@ def test_cancellation_empty_window_writes_no_arrival_and_takes_no_arrival_draw(t
     ).fetchone()
     assert (row["cancel_exists"], row["arrival_at"], row["event_id"]) == (1, None, None)
 
-    assert _audit_rows(conn, stream_name="cancellation", entity_id=appointment_id) == [
-        ("cancellation", "appointment", appointment_id, "", "cancellation_exists", 0),
+    appointment_origin = origin_keys.of_appointment(conn, appointment_id)
+    assert _audit_rows(conn, stream_name="cancellation", scope=appointment_origin) == [
+        ("cancellation", "appointment_origin", 1, appointment_origin, "cancellation_exists", 0),
     ]
     assert conn.execute(
         "SELECT COUNT(*) c FROM _events WHERE kind = ? AND entity_type = 'appointment' "
@@ -1042,8 +1457,9 @@ def test_cancellation_same_day_empty_window_writes_no_arrival_and_takes_no_arriv
     ).fetchone()
     assert (row["cancel_exists"], row["arrival_at"], row["event_id"]) == (1, None, None)
 
-    assert _audit_rows(conn, stream_name="cancellation", entity_id=appointment_id) == [
-        ("cancellation", "appointment", appointment_id, "", "cancellation_exists", 0),
+    appointment_origin = origin_keys.of_appointment(conn, appointment_id)
+    assert _audit_rows(conn, stream_name="cancellation", scope=appointment_origin) == [
+        ("cancellation", "appointment_origin", 1, appointment_origin, "cancellation_exists", 0),
     ]
     assert conn.execute(
         "SELECT COUNT(*) c FROM _events WHERE kind = ? AND entity_type = 'appointment' "
@@ -1251,8 +1667,9 @@ def test_complexity_draw_within_configured_range_and_keyed_on_job_and_creation_d
     assert lo <= outcome["complexity_micros"] <= hi
 
     creation_date = clock.service_date_for_ms(_now_ms(conn))
-    assert _audit_rows(conn, stream_name="job_quality", entity_id=job_id) == [
-        ("job_quality", "job", job_id, creation_date, "complexity", 0),
+    complexity_scope = f"{origin_keys.of_job(conn, job_id)}|{creation_date}"
+    assert _audit_rows(conn, stream_name="job_quality", scope=complexity_scope) == [
+        ("job_quality", "job_origin", 1, complexity_scope, "complexity", 0),
     ]
 
 
@@ -1333,3 +1750,106 @@ def test_non_canonical_service_date_spellings_never_bypass_a_block_lock(tmp_path
         assert _world_snapshot(conn) == before_world
         assert _rng_snapshot(conn) == before_rng
         assert _call_terminal_snapshot(conn, call_id) == before_terminal
+
+
+def _arrived_call_with_origin(conn, controller, catalog, origin_key, minute):
+    now = _now_ms(conn)
+    arrival_at = clock.phoenix_instant(2026, 10, 1, 9, minute)
+    pending_id = _insert_pending(
+        conn, now, arrival_at, channel="new_caller", zone_id=4,
+        address_catalog_id=catalog["id"], origin_key=origin_key,
+    )
+    return _arrive_applied(conn, controller.services.rng, pending_id, arrival_at)
+
+
+def _pending_event_order(controller, event_ids):
+    conn = controller.conn
+    events = controller.services.events
+    listed = [
+        int(row["event_id"])
+        for row in events.pending_in_order()
+        if int(row["event_id"]) in event_ids
+    ]
+    placeholders = ", ".join("?" for _ in event_ids)
+    conn.execute(
+        f"UPDATE _events SET status = 'cancelled' WHERE status = 'pending' "
+        f"AND event_id NOT IN ({placeholders})",
+        tuple(event_ids),
+    )
+    applied = []
+    while (row := events.next_pending()) is not None:
+        applied.append(int(row["event_id"]))
+        conn.execute("UPDATE _events SET status = 'applied' WHERE event_id = ?", (row["event_id"],))
+    assert applied == listed, (applied, listed)
+    return applied
+
+
+def test_a_cancellation_scheduled_at_booking_ties_after_a_later_new_call_by_origin(tmp_path):
+    config = _config(**_ACCEPT_ALWAYS, **_CANCEL_ALWAYS)
+    conn, cfg, controller = _build(tmp_path, config=config)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, _now_ms(conn))
+    booking_origin = "n:2026-10-01:4:3"
+    call_id = _arrived_call_with_origin(conn, controller, catalog, booking_origin, 0)
+    _, _, booked = _register_and_book(
+        controller, cfg, call_id=call_id, catalog=catalog, technician_id=1, prefix="tie",
+    )
+    cancellation = conn.execute(
+        "SELECT e.event_id, e.scheduled_at_ms, e.order_key FROM _cancellation_schedule s "
+        "JOIN _events e ON e.event_id = s.event_id WHERE s.appointment_id = ?",
+        (booked["appointment_id"],),
+    ).fetchone()
+    assert cancellation["order_key"] == f"x:{booking_origin}"
+
+    later_origin = "n:2026-10-02:4:0"
+    db.begin(conn)
+    controller.services.rng.enter_txn()
+    try:
+        later_event = controller.services.events.schedule(
+            EventKind.CALL_INVOCATION, int(cancellation["scheduled_at_ms"]),
+            entity_type="pending_call", entity_id=999, order_key=later_origin,
+        )
+    finally:
+        controller.services.rng.exit_txn()
+    db.commit(conn)
+
+    assert later_event > int(cancellation["event_id"])
+    assert _pending_event_order(controller, {later_event, int(cancellation["event_id"])}) == [
+        later_event, int(cancellation["event_id"]),
+    ]
+
+
+def test_same_instant_appointment_events_apply_in_origin_order_not_booking_order(tmp_path):
+    config = _config(**_ACCEPT_ALWAYS, **_CANCEL_NEVER)
+    conn, cfg, controller = _build(tmp_path, config=config)
+    catalog_late, catalog_early = _usable_catalog_rows(conn, 2)
+    _open_invocation(conn, _now_ms(conn))
+    late_call = _arrived_call_with_origin(conn, controller, catalog_late, "n:2026-10-01:4:9", 0)
+    _, _, late = _register_and_book(
+        controller, cfg, call_id=late_call, catalog=catalog_late, technician_id=1, prefix="late",
+    )
+    early_call = _arrived_call_with_origin(conn, controller, catalog_early, "n:2026-10-01:4:1", 1)
+    _, _, early = _register_and_book(
+        controller, cfg, call_id=early_call, catalog=catalog_early, technician_id=3,
+        prefix="early",
+    )
+    guards = {
+        int(row["entity_id"]): row
+        for row in conn.execute(
+            "SELECT event_id, entity_id, scheduled_at_ms, priority, order_key FROM _events "
+            "WHERE kind = ? AND status = 'pending'",
+            (EventKind.COMPANY_NO_SHOW.value,),
+        )
+    }
+    late_guard = guards[late["appointment_id"]]
+    early_guard = guards[early["appointment_id"]]
+
+    assert late_guard["scheduled_at_ms"] == early_guard["scheduled_at_ms"]
+    assert late_guard["priority"] == early_guard["priority"]
+    assert int(late_guard["event_id"]) < int(early_guard["event_id"])
+    assert (late_guard["order_key"], early_guard["order_key"]) == (
+        "n:2026-10-01:4:9", "n:2026-10-01:4:1",
+    )
+    assert _pending_event_order(
+        controller, {int(late_guard["event_id"]), int(early_guard["event_id"])}
+    ) == [int(early_guard["event_id"]), int(late_guard["event_id"])]

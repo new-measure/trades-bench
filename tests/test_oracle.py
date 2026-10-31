@@ -30,7 +30,7 @@ from trades_bench.config import RunConfig, load_run_config
 from trades_bench.controller import Controller
 from trades_bench.run_init import open_run_db
 
-SEED = 5
+SEED = 6
 
 TWO_WEEKS = ("2026-10-01", "2026-10-14")
 THREE_DAYS = ("2026-10-01", "2026-10-03")
@@ -147,20 +147,20 @@ REPORT_KEYS: tuple[str, ...] = (
 
 BRANCH_ONLY_DUMP_TABLE = "_idempotency"
 
-PINNED_SHORT_GREEDY_SCORE_CENTS = -943_552
-PINNED_SHORT_SEARCHED_SCORE_CENTS = -943_552
+PINNED_SHORT_GREEDY_SCORE_CENTS = -1_008_185
+PINNED_SHORT_SEARCHED_SCORE_CENTS = -1_008_185
 PINNED_REJECTED_CALL_ID = 1
 PINNED_REJECTED_RANK = 1
-PINNED_REJECTED_BRANCH_SCORE_CENTS = -943_552
+PINNED_REJECTED_BRANCH_SCORE_CENTS = -1_008_185
 
-PINNED_TWO_WEEK_GREEDY_SCORE_CENTS = -4_425_247
-PINNED_TWO_WEEK_DATE_MAJOR_SCORE_CENTS = -4_425_247
+PINNED_TWO_WEEK_GREEDY_SCORE_CENTS = -4_221_342
+PINNED_TWO_WEEK_DATE_MAJOR_SCORE_CENTS = -4_221_342
 
-ADOPTING_SEED = 28
-PINNED_ADOPTING_GREEDY_SCORE_CENTS = -762_306
-PINNED_ADOPTING_DATE_MAJOR_SCORE_CENTS = -762_306
-PINNED_ADOPTING_SEARCHED_SCORE_CENTS = -480_155
-PINNED_ADOPTED_PROMOTIONS = {1: 1}
+ADOPTING_SEED = 5
+PINNED_ADOPTING_GREEDY_SCORE_CENTS = -888_893
+PINNED_ADOPTING_DATE_MAJOR_SCORE_CENTS = -888_893
+PINNED_ADOPTING_SEARCHED_SCORE_CENTS = -822_100
+PINNED_ADOPTED_PROMOTIONS = {2: 1}
 
 MILLISECONDS_PER_DAY = 86_400_000
 WEEKDAY_SERVICE_DATE = "2026-10-01"
@@ -1124,3 +1124,40 @@ def test_pol07_the_dev_fixture_reconciles_raw_final_cash_for_both_policies(
         assert result.report["final_cash_cents"] == (
             result.report["starting_cash_cents"] + result.report["score_cents"]
         )
+
+
+def _weekday_plan(block_code: str, start_hour: int) -> BookingPlan:
+    start_ms = clock.phoenix_instant(2026, 10, 1, start_hour, 0)
+    return BookingPlan(
+        job_type_id=1,
+        job_type_code="hvac_service",
+        business_unit_id=1,
+        scheduled_blocks=1,
+        technician_id=1,
+        service_date=WEEKDAY_SERVICE_DATE,
+        block_codes=(block_code,),
+        windows=((start_ms, start_ms + 7_200_000),),
+    )
+
+
+def test_the_oracle_prices_expected_overtime_with_the_engine_overtime_rule():
+    wage = 6_000
+    last_office = oracle.expected_overtime_cents(
+        _weekday_plan("B15_17", 15), hourly_wage_cents=wage, paid_off_hours=False
+    )
+    after_hours = oracle.expected_overtime_cents(
+        _weekday_plan("B17_19", 17), hourly_wage_cents=wage, paid_off_hours=True
+    )
+    morning = oracle.expected_overtime_cents(
+        _weekday_plan("B09_11", 9), hourly_wage_cents=wage, paid_off_hours=False
+    )
+    hand_computed = Decimal(
+        sum((16 - minutes) * ((minutes * wage + 30) // 60) for minutes in range(1, 16))
+    ) / Decimal(256)
+
+    assert morning == 0
+    assert last_office == after_hours == hand_computed > 0
+    pricing = sample_pricing()
+    assert sample_score(plan=_weekday_plan("B15_17", 15), pricing=pricing, wage=wage) < (
+        sample_score(plan=_weekday_plan("B13_15", 13), pricing=pricing, wage=wage)
+    )

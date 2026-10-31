@@ -147,7 +147,7 @@ CREATE TABLE _call_hidden (
     acceptance_result       INTEGER,
     created_at              INTEGER NOT NULL
 , arrival_event_id INTEGER
-    REFERENCES _events(event_id) ON DELETE RESTRICT)
+    REFERENCES _events(event_id) ON DELETE RESTRICT, origin_key TEXT)
 
 -- table: _calls
 CREATE TABLE _calls (
@@ -233,7 +233,7 @@ CREATE TABLE _customer_repeat_state (
     last_outcome             TEXT,
     competitor_captured_at   INTEGER,
     updated_at               INTEGER NOT NULL
-)
+, origin_key TEXT)
 
 -- table: _customers
 CREATE TABLE _customers (
@@ -285,7 +285,7 @@ CREATE TABLE _events (
                       ('pending','processing','applied','cancelled')),
     created_at_ms   INTEGER NOT NULL,
     applied_at_ms   INTEGER
-)
+, order_key TEXT NOT NULL DEFAULT '')
 
 -- table: _hiring_requests
 CREATE TABLE _hiring_requests (
@@ -535,7 +535,7 @@ CREATE TABLE _pending_calls (
     slot_index              INTEGER,
     event_id                INTEGER REFERENCES _events(event_id) ON DELETE RESTRICT,
     created_at              INTEGER NOT NULL
-)
+, origin_key TEXT)
 
 -- table: _prospect_state
 CREATE TABLE _prospect_state (
@@ -876,8 +876,14 @@ CREATE TABLE _zones (
 CREATE UNIQUE INDEX _appointment_assignments_active
     ON _appointment_assignments (appointment_id) WHERE status = 'active'
 
+-- index: _call_hidden_origin_key
+CREATE UNIQUE INDEX _call_hidden_origin_key ON _call_hidden (origin_key)
+
+-- index: _customer_repeat_state_origin_key
+CREATE UNIQUE INDEX _customer_repeat_state_origin_key ON _customer_repeat_state (origin_key)
+
 -- index: _events_order
-CREATE INDEX _events_order ON _events (scheduled_at_ms, priority, event_id)
+CREATE INDEX _events_order ON _events (scheduled_at_ms, priority, order_key, event_id)
 
 -- index: _events_status
 CREATE INDEX _events_status ON _events (status)
@@ -895,6 +901,9 @@ CREATE UNIQUE INDEX _on_call_rotations_live
 
 -- index: _pending_calls_order
 CREATE INDEX _pending_calls_order ON _pending_calls (service_date, arrival_at)
+
+-- index: _pending_calls_origin_key
+CREATE UNIQUE INDEX _pending_calls_origin_key ON _pending_calls (origin_key)
 
 -- index: _random_audit_key
 CREATE INDEX _random_audit_key ON _random_audit

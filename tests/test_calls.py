@@ -13,9 +13,10 @@ from _helpers import (
     GEO_FIXTURE_ZONE_WEIGHTS,
     audit_count,
     geo_artifact_sha256,
+    next_test_origin,
     register_conn,
 )
-from trades_bench import SPEC_VERSION, calls, clock, db, demand
+from trades_bench import SPEC_VERSION, calls, clock, db, demand, origin_keys
 from trades_bench.config import load_run_config
 from trades_bench.controller import Controller
 from trades_bench.db import connect
@@ -111,6 +112,7 @@ def _insert_pending(conn, now, arrival_at, **overrides):
         "prospect_id": None,
         "related_job_id": None,
         "slot_index": None,
+        "origin_key": next_test_origin(conn),
         "created_at": now,
     }
     fields.update(overrides)
@@ -461,8 +463,8 @@ def _insert_bare_call(
 def _insert_customer_repeat_state(conn, customer_id, propensity_micros, now, last_outcome=None):
     conn.execute(
         "INSERT INTO _customer_repeat_state (customer_id, propensity_micros, last_outcome, "
-        "competitor_captured_at, updated_at) VALUES (?, ?, ?, NULL, ?)",
-        (customer_id, propensity_micros, last_outcome, now),
+        "competitor_captured_at, updated_at, origin_key) VALUES (?, ?, ?, NULL, ?, ?)",
+        (customer_id, propensity_micros, last_outcome, now, f"t:customer:{customer_id}"),
     )
 
 
@@ -505,8 +507,8 @@ def _competitor_state(conn):
 def _competitor_leak_rows(conn, call_id):
     return conn.execute(
         "SELECT stream_name, entity_type, entity_id, scope, event_kind, draw_index "
-        "FROM _random_audit WHERE stream_name = 'competitor_leak' AND entity_id = ? "
-        "ORDER BY seq",
+        "FROM _random_audit WHERE stream_name = 'competitor_leak' "
+        "AND scope = (SELECT origin_key FROM _call_hidden WHERE call_id = ?) ORDER BY seq",
         (call_id,),
     ).fetchall()
 
@@ -661,9 +663,9 @@ def test_competitor_leakage_registered_customer_applies_both_multipliers(tmp_pat
     assert len(rows) == 2
     for row in rows:
         assert row["stream_name"] == "competitor_leak"
-        assert row["entity_type"] == "call"
-        assert row["entity_id"] == call_id
-        assert row["scope"] == ""
+        assert row["entity_type"] == "call_origin"
+        assert row["entity_id"] == 1
+        assert row["scope"] == origin_keys.of_call(conn, call_id)
     assert rows[0]["event_kind"] == "competitor_attempt"
     assert rows[0]["draw_index"] == 0
     assert rows[1]["event_kind"] == "competitor_served_well"
@@ -706,7 +708,8 @@ def test_reject_second_call_from_already_registered_prospect_updates_customer(tm
     db.begin(conn)
     customer_id = _insert_customer(conn, now)
     demand.transfer_prospect_to_customer(
-        conn, prospect_id=prospect_id, customer_id=customer_id, now_ms=now
+        conn, prospect_id=prospect_id, customer_id=customer_id,
+        origin_key=f"t:customer:{customer_id}", now_ms=now,
     )
     db.commit(conn)
 
@@ -772,9 +775,9 @@ def test_competitor_leakage_attempt_and_served_applies_both_multipliers(tmp_path
     assert len(rows) == 2
     for row in rows:
         assert row["stream_name"] == "competitor_leak"
-        assert row["entity_type"] == "call"
-        assert row["entity_id"] == call_id
-        assert row["scope"] == ""
+        assert row["entity_type"] == "call_origin"
+        assert row["entity_id"] == 1
+        assert row["scope"] == origin_keys.of_call(conn, call_id)
     assert rows[0]["event_kind"] == "competitor_attempt"
     assert rows[0]["draw_index"] == 0
     assert rows[1]["event_kind"] == "competitor_served_well"

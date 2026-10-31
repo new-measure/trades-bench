@@ -6,8 +6,9 @@ import sqlite3
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config, register_conn
-from trades_bench import db, views, warm_start
+from trades_bench import SPEC_VERSION, db, origin_keys, views, warm_start
 from trades_bench._dump import dump_hash
+from trades_bench.controller import Controller
 from trades_bench.db import read_config
 from trades_bench.errors import EngineError, ErrorCode
 from trades_bench.migrations import MIGRATIONS_PACKAGE_DIR, applied_versions, migrate
@@ -264,6 +265,21 @@ def test_warm_start_wraps_raw_fixture_failure_and_init_marks_failed(tmp_path, mo
     assert conn.execute("SELECT status FROM _run").fetchone()["status"] == "failed"
 
 
+def _seed_warm_start_origins(
+    conn, now, *, with_customer_origin=True, with_call_origin=True
+) -> None:
+    conn.execute(
+        "INSERT INTO _customer_repeat_state (customer_id, propensity_micros, last_outcome, "
+        "competitor_captured_at, updated_at, origin_key) VALUES (1, 1000000, NULL, NULL, ?, ?)",
+        (now, origin_keys.warm_start("_customers", 0) if with_customer_origin else None),
+    )
+    conn.execute(
+        "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, prospect_id, "
+        "arrival_event_id, origin_key, created_at) VALUES (1, 'residential', 2, NULL, NULL, ?, ?)",
+        (origin_keys.warm_start("_calls", 0) if with_call_origin else None, now),
+    )
+
+
 def _seed_paid_invoice(conn, *, with_payment: bool) -> None:
     now = 0
     conn.execute(
@@ -284,6 +300,7 @@ def _seed_paid_invoice(conn, *, with_payment: bool) -> None:
         "VALUES (1, ?, '2026-09-30', 'new_job', 'booked', 'A', '555', 'HVAC service', 0, ?)",
         (now, now),
     )
+    _seed_warm_start_origins(conn, now)
     conn.execute(
         "INSERT INTO _jobs (id, job_number, call_id, customer_id, location_id, job_type_id, "
         "business_unit_id, requested_service_name, status, outcome, priority, no_charge, "
@@ -391,3 +408,75 @@ def test_boundary_check_rejects_a_payment_against_a_no_charge_invoice(tmp_path):
         boundary_check(conn, cfg)
     assert ei.value.code is ErrorCode.INVARIANT_VIOLATED
     assert "no-charge" in ei.value.message
+
+
+def test_a_run_file_from_another_spec_version_is_refused_before_any_migration(tmp_path):
+    schema_0012 = tmp_path / "schema_0012"
+    schema_0012.mkdir()
+    for f in MIGRATIONS_PACKAGE_DIR.iterdir():
+        if f.is_file() and f.name != "__init__.py" and int(f.name[:4]) <= 12:
+            shutil.copy2(f, schema_0012 / f.name)
+    old = tmp_path / "spec_1_0_0.db"
+    conn = db.connect(old)
+    migrate(conn, migrations_path=schema_0012)
+    db.begin(conn)
+    db.insert_run(
+        conn,
+        run_id="legacy-run",
+        spec_version="1.0.0",
+        config_version="1.0.2",
+        config_hash="h",
+        master_seed=5,
+        start_at_ms=0,
+        first_service_date="2026-10-01",
+        last_service_date="2026-10-14",
+        timezone="America/Phoenix",
+    )
+    db.commit(conn)
+    conn.close()
+
+    with pytest.raises(EngineError) as excinfo:
+        open_run_db(old)
+    assert excinfo.value.code is ErrorCode.MIGRATION_FAILED
+    assert excinfo.value.details == {
+        "run_spec_version": "1.0.0", "engine_spec_version": SPEC_VERSION,
+    }
+
+    reopened = db.connect(old)
+    register_conn(reopened)
+    assert applied_versions(reopened)[-1] == (12, "address_pool_indexes")
+    with pytest.raises(EngineError) as controller_excinfo:
+        Controller(reopened, _cfg())
+    assert controller_excinfo.value.code is ErrorCode.MIGRATION_FAILED
+
+
+@pytest.mark.parametrize(
+    ("with_customer_origin", "with_call_origin", "missing"),
+    [(False, True, "customer"), (True, False, "call")],
+)
+def test_boundary_check_rejects_warm_start_rows_without_an_origin_key(
+    tmp_path, with_customer_origin, with_call_origin, missing
+):
+    cfg = _cfg()
+    path = tmp_path / "origin_boundary.db"
+    initialize_run(path, master_seed=1, config=cfg, artifact_dir=GEO_ARTIFACT_DIR)
+    conn = open_run_db(path, artifact_dir=GEO_ARTIFACT_DIR)
+    register_conn(conn)
+    db.begin(conn)
+    conn.execute(
+        "INSERT INTO _customers (id, name, segment, status, created_at, modified_at) "
+        "VALUES (1, 'Acme', 'residential', 'active', 0, 0)"
+    )
+    conn.execute(
+        "INSERT INTO _calls (id, arrived_at, service_date, call_kind, status, caller_name, "
+        "caller_phone, requested_service_name, urgent, created_at) "
+        "VALUES (1, 0, '2026-09-30', 'new_job', 'booked', 'A', '555', 'HVAC service', 0, 0)"
+    )
+    _seed_warm_start_origins(
+        conn, 0, with_customer_origin=with_customer_origin, with_call_origin=with_call_origin,
+    )
+    db.commit(conn)
+
+    with pytest.raises(EngineError) as excinfo:
+        boundary_check(conn, cfg)
+    assert f"every warm-start {missing} carries an origin key" in excinfo.value.message

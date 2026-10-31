@@ -57,12 +57,11 @@ DAY_ONE_TRACE = [
     ("first_block_lock", "2026-10-01T06:45:00-07:00", 905),
     ("first_trip_dispatch", "2026-10-01T06:45:00-07:00", 906),
     ("block_lock", "2026-10-01T09:00:00-07:00", 200),
+    ("call_invocation", "2026-10-01T10:54:00-07:00", 910),
     ("block_lock", "2026-10-01T11:00:00-07:00", 200),
-    ("call_invocation", "2026-10-01T11:17:00-07:00", 910),
     ("block_lock", "2026-10-01T13:00:00-07:00", 200),
-    ("call_invocation", "2026-10-01T14:52:00-07:00", 910),
+    ("call_invocation", "2026-10-01T14:46:00-07:00", 910),
     ("block_lock", "2026-10-01T15:00:00-07:00", 200),
-    ("call_invocation", "2026-10-01T15:26:00-07:00", 910),
     ("block_lock", "2026-10-01T17:00:00-07:00", 200),
     ("closing_invocation", "2026-10-01T19:00:00-07:00", 920),
     ("daily_settlement", "2026-10-01T19:00:00-07:00", 950),
@@ -251,7 +250,7 @@ def test_day_one_of_the_two_week_run_replays_the_pinned_trace(full_run):
     rows = conn.execute(
         "SELECT kind, scheduled_at_ms, priority FROM _events WHERE status = 'applied' "
         "AND scheduled_at_ms >= ? AND scheduled_at_ms < ? "
-        "ORDER BY scheduled_at_ms, priority, event_id",
+        "ORDER BY scheduled_at_ms, priority, order_key, event_id",
         (_ms(FULL_DATES[0], 0, 0), _ms(FULL_DATES[1], 0, 0)),
     ).fetchall()
     trace = [

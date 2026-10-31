@@ -25,12 +25,17 @@ from trades_bench import (
     clock,
     crm,
     execution,
+    overtime,
     run_init,
 )
 from trades_bench.adapter import AdapterPrompt, AdapterResponse
 from trades_bench.appointments import BLOCK_CODES, BookingPlan
 from trades_bench.config import RunConfig
-from trades_bench.constants import BLOCK_GRID_MINUTES
+from trades_bench.constants import (
+    BLOCK_GRID_MINUTES,
+    TIMING_VARIATION_HIGH,
+    TIMING_VARIATION_LOW,
+)
 from trades_bench.controller import Controller
 from trades_bench.enums import DayType, PromptKind
 from trades_bench.errors import EngineError
@@ -267,6 +272,35 @@ def off_hours_cost_cents(
     return BLOCK_HOURS * plan.scheduled_blocks * hourly_wage_cents + bonus_cents
 
 
+def _duration_variation_weights() -> list[tuple[int, int]]:
+    peak = TIMING_VARIATION_HIGH + 1
+    return [
+        (minutes, peak - abs(minutes))
+        for minutes in range(TIMING_VARIATION_LOW, TIMING_VARIATION_HIGH + 1)
+    ]
+
+
+def expected_overtime_cents(
+    plan: BookingPlan, *, hourly_wage_cents: int, paid_off_hours: bool
+) -> Decimal:
+    scheduled_start = plan.windows[0][0]
+    scheduled_end = plan.windows[-1][1]
+    planned_end = scheduled_start + BLOCK_HOURS * MINUTES_PER_HOUR * plan.scheduled_blocks * 60_000
+    paid = [(scheduled_start, scheduled_end)] if paid_off_hours else []
+    weights = _duration_variation_weights()
+    total = Decimal(0)
+    for variation, weight in weights:
+        minutes = overtime.visit_overtime_minutes(
+            service_date=plan.service_date,
+            scheduled_start=scheduled_start,
+            departed_at=scheduled_start,
+            ended_at=planned_end + variation * 60_000,
+            paid_off_hours=paid,
+        )
+        total += Decimal(weight * overtime.overtime_cents(minutes, hourly_wage_cents))
+    return total / Decimal(sum(weight for _, weight in weights))
+
+
 def settles_inside_run(service_date: str, end_service_date: str | None) -> bool:
     return end_service_date is None or service_date <= end_service_date
 
@@ -297,7 +331,10 @@ def score_cents(
     off_hours = off_hours_cost_cents(
         plan, hourly_wage_cents=hourly_wage_cents, bonus_cents=pricing.off_hours_bonus_cents
     )
-    return _cents(p_accept * p_keep * (margin - Decimal(off_hours)))
+    overtime_cost = expected_overtime_cents(
+        plan, hourly_wage_cents=hourly_wage_cents, paid_off_hours=off_hours > 0
+    )
+    return _cents(p_accept * p_keep * (margin - Decimal(off_hours) - overtime_cost))
 
 
 def walk_candidates(

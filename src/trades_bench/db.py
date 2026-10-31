@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
-from . import visibility
+from . import SPEC_VERSION, visibility
 from .enums import RunStatus
 from .errors import EngineError, ErrorCode
 
@@ -116,6 +116,26 @@ def insert_run(
     )
 
 
+def require_matching_spec_version(conn: sqlite3.Connection) -> None:
+    has_run_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_run'"
+    ).fetchone()
+    if has_run_table is None:
+        return
+    for row in conn.execute("SELECT spec_version FROM _run").fetchall():
+        if row["spec_version"] != SPEC_VERSION:
+            raise EngineError(
+                ErrorCode.MIGRATION_FAILED,
+                f"run database was created under spec_version {row['spec_version']!r} and "
+                f"cannot be opened by an engine at spec_version {SPEC_VERSION!r}: a run is a "
+                "sealed artifact and a new spec version means a new run",
+                details={
+                    "run_spec_version": row["spec_version"],
+                    "engine_spec_version": SPEC_VERSION,
+                },
+            )
+
+
 def get_run(conn: sqlite3.Connection, run_id: str) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM _run WHERE run_id = ?", (run_id,)).fetchone()
 
@@ -197,6 +217,7 @@ __all__ = [
     "new_run_id",
     "populate_visibility_registry",
     "read_config",
+    "require_matching_spec_version",
     "rollback",
     "set_run_status",
     "write_config",

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import clock, demand, surface
+from . import clock, demand, origin_keys, surface
 from .config import RunConfig
-from .enums import EntityType, InvocationType, KeyedStreamName
+from .enums import EntityType, InvocationType, KeyedStreamName, OriginEntity
 from .errors import EngineError, ErrorCode
 from .txn import Services, TxnContext, command
 
@@ -37,6 +37,10 @@ def _pending_call_arrival(conn: sqlite3.Connection, event_row: sqlite3.Row, *, n
             ErrorCode.ENTITY_NOT_FOUND,
             f"call event {event_row['event_id']} references missing pending call "
             f"{event_row['entity_id']}",
+        )
+    if pending["origin_key"] is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED, f"pending call {pending['id']} has no origin key"
         )
     service_name = _category_name(conn, int(pending["requested_category_id"]))
     street, unit, city, state, postal_code, address_catalog_id = _service_address(conn, pending)
@@ -71,13 +75,14 @@ def _pending_call_arrival(conn: sqlite3.Connection, event_row: sqlite3.Row, *, n
     call_id = int(cur.lastrowid)
     conn.execute(
         "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
-        "prospect_id, arrival_event_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "prospect_id, arrival_event_id, origin_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             call_id,
             pending["segment"],
             pending["requested_category_id"],
             pending["prospect_id"],
             int(event_row["event_id"]),
+            pending["origin_key"],
             now_ms,
         ),
     )
@@ -174,8 +179,11 @@ def _cancellation_arrival(conn: sqlite3.Connection, event_row: sqlite3.Row, *, n
     requested_category_id = _cancellation_call_hidden_category_id(conn, int(job["job_id"]))
     conn.execute(
         "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
-        "prospect_id, arrival_event_id, created_at) VALUES (?, ?, ?, NULL, ?, ?)",
-        (call_id, customer["segment"], requested_category_id, int(event_row["event_id"]), now_ms),
+        "prospect_id, arrival_event_id, origin_key, created_at) VALUES (?, ?, ?, NULL, ?, ?, ?)",
+        (
+            call_id, customer["segment"], requested_category_id, int(event_row["event_id"]),
+            origin_keys.cancellation_call(origin_keys.of_appointment(conn, appointment_id)), now_ms,
+        ),
     )
     return call_id
 
@@ -474,13 +482,16 @@ def ordinary_rejection(
             conn, config, now_ms=now, prospect=prospect
         )
 
+    call_origin = origin_keys.of_call(conn, call_id)
     attempt = ctx.rng.chance(
-        KeyedStreamName.COMPETITOR_LEAK.value, "call", call_id, "", "competitor_attempt",
+        KeyedStreamName.COMPETITOR_LEAK.value, OriginEntity.CALL.value, origin_keys.ENTITY_ID,
+        call_origin, "competitor_attempt",
         config.get_prob_threshold("competitors.attempt_probability"), draw_index=0,
     )
     if attempt:
         served = ctx.rng.chance(
-            KeyedStreamName.COMPETITOR_LEAK.value, "call", call_id, "", "competitor_served_well",
+            KeyedStreamName.COMPETITOR_LEAK.value, OriginEntity.CALL.value, origin_keys.ENTITY_ID,
+            call_origin, "competitor_served_well",
             config.get_prob_threshold("competitors.served_well_probability"), draw_index=1,
         )
         if served:

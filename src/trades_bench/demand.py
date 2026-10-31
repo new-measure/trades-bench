@@ -3,16 +3,17 @@ from __future__ import annotations
 import json
 import sqlite3
 import statistics
+from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, localcontext
 from typing import Any
 
-from . import clock, constants, db, pools
+from . import clock, constants, db, origin_keys, pools
 from .config import RunConfig, probability_threshold
-from .enums import EventKind, KeyedStreamName, SequentialStreamName
+from .enums import EventKind, KeyedStreamName, OriginEntity, SequentialStreamName
 from .errors import EngineError, ErrorCode
 from .events import EventHandler, Events
-from .rng import Rng, chance, uniform01
+from .rng import Rng, chance, derive, uniform01
 from .txn import TxnContext
 
 _STANDARD_NORMAL = statistics.NormalDist()
@@ -109,8 +110,8 @@ def _validate_address_pool_floors(conn: sqlite3.Connection, config: RunConfig) -
         if zone_weights[zone_id - 1] <= 0:
             continue
         for segment in sorted(_SEGMENTS):
-            in_zone = _address_pool_count(conn, zone_id=zone_id, segment=segment, outlying=False)
-            outlying = _address_pool_count(conn, zone_id=zone_id, segment=segment, outlying=True)
+            in_zone = _new_caller_pool(zone_id, segment, outlying=False).size(conn)
+            outlying = _new_caller_pool(zone_id, segment, outlying=True).size(conn)
             if in_zone == 0 and outlying == 0:
                 raise EngineError(
                     ErrorCode.INVARIANT_VIOLATED,
@@ -370,80 +371,76 @@ def _segment_literal(segment: str) -> str:
     return segment
 
 
-def _address_pool_sql(*, projection: str, zone_clause: str, segment: str, tail: str) -> str:
-    return (
-        f"SELECT {projection} FROM _address_catalog ac WHERE ac.status = 'usable' "
-        f"AND {zone_clause} "
-        f"AND (',' || ac.segment_eligibility || ',') LIKE '%,{_segment_literal(segment)},%' "
-        "AND NOT EXISTS ("
-        "SELECT 1 FROM _locations l WHERE l.address_catalog_id = ac.id AND l.active = 1"
-        f"){tail}"
-    )
+_ADDRESS_PROBE_LIMIT = 64
 
 
-def _address_pool_zone_clause(outlying: bool) -> str:
-    if outlying:
-        return "ac.zone_id IS NULL AND ac.effective_zone_id = ?"
-    return "ac.zone_id = ?"
+@dataclass(frozen=True)
+class _AddressPool:
 
+    zone_clause: str
+    zone_id: int
+    segment: str
 
-def _address_pool_count(
-    conn: sqlite3.Connection, *, zone_id: int, segment: str, outlying: bool
-) -> int:
-    sql = _address_pool_sql(
-        projection="COUNT(*) AS n",
-        zone_clause=_address_pool_zone_clause(outlying),
-        segment=segment,
-        tail="",
-    )
-    return int(conn.execute(sql, (zone_id,)).fetchone()["n"])
-
-
-def _address_pool_pick(
-    conn: sqlite3.Connection, *, zone_id: int, segment: str, outlying: bool, index: int
-) -> int:
-    sql = _address_pool_sql(
-        projection="ac.id",
-        zone_clause=_address_pool_zone_clause(outlying),
-        segment=segment,
-        tail=" ORDER BY ac.id LIMIT 1 OFFSET ?",
-    )
-    row = conn.execute(sql, (zone_id, index)).fetchone()
-    if row is None:
-        raise EngineError(
-            ErrorCode.INVARIANT_VIOLATED,
-            f"address pool for zone {zone_id} segment {segment!r} has no entry at index {index}",
+    def sql(self, projection: str, tail: str = "") -> str:
+        return (
+            f"SELECT {projection} FROM _address_catalog ac WHERE ac.status = 'usable' "
+            f"AND {self.zone_clause} "
+            f"AND (',' || ac.segment_eligibility || ',') LIKE '%,{_segment_literal(self.segment)},%'"
+            f"{tail}"
         )
-    return int(row["id"])
 
+    def size(self, conn: sqlite3.Connection) -> int:
+        return int(conn.execute(self.sql("COUNT(*) AS n"), (self.zone_id,)).fetchone()["n"])
 
-def _new_location_pool_count(conn: sqlite3.Connection, *, zone_id: int, segment: str) -> int:
-    sql = _address_pool_sql(
-        projection="COUNT(*) AS n",
-        zone_clause="ac.effective_zone_id = ?",
-        segment=segment,
-        tail="",
-    )
-    return int(conn.execute(sql, (zone_id,)).fetchone()["n"])
+    def member(self, conn: sqlite3.Connection, index: int) -> int:
+        row = conn.execute(
+            self.sql("ac.id", " ORDER BY ac.id LIMIT 1 OFFSET ?"), (self.zone_id, index)
+        ).fetchone()
+        if row is None:
+            raise EngineError(
+                ErrorCode.INVARIANT_VIOLATED,
+                f"address pool for zone {self.zone_id} segment {self.segment!r} has no entry "
+                f"at index {index}",
+            )
+        return int(row["id"])
 
-
-def _new_location_pool_pick(
-    conn: sqlite3.Connection, *, zone_id: int, segment: str, index: int
-) -> int:
-    sql = _address_pool_sql(
-        projection="ac.id",
-        zone_clause="ac.effective_zone_id = ?",
-        segment=segment,
-        tail=" ORDER BY ac.id LIMIT 1 OFFSET ?",
-    )
-    row = conn.execute(sql, (zone_id, index)).fetchone()
-    if row is None:
-        raise EngineError(
-            ErrorCode.INVARIANT_VIOLATED,
-            f"new location pool for zone {zone_id} segment {segment!r} has no entry "
-            f"at index {index}",
+    def available_members(self, conn: sqlite3.Connection) -> list[int]:
+        unoccupied = (
+            " AND NOT EXISTS (SELECT 1 FROM _locations l "
+            "WHERE l.address_catalog_id = ac.id AND l.active = 1) ORDER BY ac.id"
         )
-    return int(row["id"])
+        return [int(row["id"]) for row in conn.execute(self.sql("ac.id", unoccupied), (self.zone_id,))]
+
+
+def _new_caller_pool(zone_id: int, segment: str, *, outlying: bool) -> _AddressPool:
+    zone_clause = "ac.zone_id IS NULL AND ac.effective_zone_id = ?" if outlying else "ac.zone_id = ?"
+    return _AddressPool(zone_clause, zone_id, segment)
+
+
+def _new_location_pool(zone_id: int, segment: str) -> _AddressPool:
+    return _AddressPool("ac.effective_zone_id = ?", zone_id, segment)
+
+
+def _address_occupied(conn: sqlite3.Connection, address_catalog_id: int) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM _locations WHERE address_catalog_id = ? AND active = 1 LIMIT 1",
+        (address_catalog_id,),
+    ).fetchone()
+    return row is not None
+
+
+def _pick_available_address(conn: sqlite3.Connection, pool: _AddressPool, u: int) -> int | None:
+    size = pool.size(conn)
+    if size == 0:
+        return None
+    for probe in range(_ADDRESS_PROBE_LIMIT):
+        candidate = pool.member(conn, derive(u, f"address_probe:{probe}") % size)
+        if not _address_occupied(conn, candidate):
+            return candidate
+    available = pool.available_members(conn)
+    if not available:
+        return None
+    return max(available, key=lambda address_id: derive(u, f"address:{address_id}"))
 
 
 def _zone_of_customer(conn: sqlite3.Connection, customer_id: int) -> int:
@@ -510,48 +507,38 @@ def _generate_new_caller_slot(
     )
 
     want_outlying = chance(draw(2), config.get_prob_threshold("demand.outlying_address_share"))
-    pool_outlying = want_outlying
-    pool_count = _address_pool_count(conn, zone_id=zone_id, segment=segment, outlying=pool_outlying)
-    if pool_count == 0:
-        pool_outlying = not want_outlying
-        pool_count = _address_pool_count(
-            conn, zone_id=zone_id, segment=segment, outlying=pool_outlying
+    u3 = draw(3)
+    address_catalog_id = _pick_available_address(
+        conn, _new_caller_pool(zone_id, segment, outlying=want_outlying), u3
+    )
+    if address_catalog_id is None:
+        address_catalog_id = _pick_available_address(
+            conn, _new_caller_pool(zone_id, segment, outlying=not want_outlying), u3
         )
-    if pool_count == 0:
+    if address_catalog_id is None:
         raise EngineError(
             ErrorCode.INVARIANT_VIOLATED,
             f"no usable address pool for zone {zone_id} segment {segment!r}",
         )
-    u3 = draw(3)
-    address_catalog_id = _address_pool_pick(
-        conn,
-        zone_id=zone_id,
-        segment=segment,
-        outlying=pool_outlying,
-        index=u3 % pool_count,
-    )
 
     hour = _pick_arrival_hour(config, draw(8))
     minute = draw(9) % 60
     arrival_at = clock.phoenix_instant(*_ymd(service_date), hour, minute)
 
     returning_flag = chance(draw(6), config.get_prob_threshold("demand.returning_prospect_probability"))
-    prospect_ids: list[int] = []
+    prospects: list[sqlite3.Row] = []
     if returning_flag:
-        prospect_ids = [
-            row["id"]
-            for row in conn.execute(
-                "SELECT id FROM _prospect_state WHERE home_zone_id = ? AND segment = ? "
-                "AND registered_customer_id IS NULL ORDER BY id",
-                (zone_id, segment),
-            ).fetchall()
-        ]
-    if returning_flag and prospect_ids:
+        prospects = conn.execute(
+            "SELECT id, identity_key, caller_name, caller_phone FROM _prospect_state "
+            "WHERE home_zone_id = ? AND segment = ? AND registered_customer_id IS NULL",
+            (zone_id, segment),
+        ).fetchall()
+    if returning_flag and prospects:
         u7 = draw(7)
-        prospect_row = conn.execute(
-            "SELECT id, caller_name, caller_phone FROM _prospect_state WHERE id = ?",
-            (prospect_ids[u7 % len(prospect_ids)],),
-        ).fetchone()
+        prospect_row = max(
+            prospects,
+            key=lambda row: (derive(u7, f"prospect:{row['identity_key']}"), row["identity_key"]),
+        )
         caller_name = prospect_row["caller_name"]
         caller_phone = prospect_row["caller_phone"]
         prospect_id: int | None = prospect_row["id"]
@@ -578,6 +565,7 @@ def _generate_new_caller_slot(
         "caller_phone": caller_phone,
         "prospect_id": prospect_id,
         "slot_index": slot_index,
+        "origin_key": origin_keys.new_caller(service_date, zone_id, slot_index),
     }
 
 
@@ -603,6 +591,8 @@ def _generate_repeat_slot(
             ErrorCode.INVARIANT_VIOLATED,
             f"missing _customer_repeat_state row for customer {customer_id}",
         )
+    customer_origin = origin_keys.of_customer(conn, customer_id)
+    scope = origin_keys.scoped(customer_origin, service_date)
 
     dow_mult = config.resolved["demand.day_of_week_multipliers"][weekday]
     base_prob = config.get_decimal("demand.repeat_call_daily_base_probability")
@@ -611,7 +601,8 @@ def _generate_repeat_slot(
     p_call = min(max(propensity * base_prob * m_weather_vol * dow_mult, Decimal(0)), Decimal(1))
 
     u_hit = rng.draw(
-        KeyedStreamName.DEMAND.value, "customer", customer_id, service_date, "repeat_call", 0
+        KeyedStreamName.DEMAND.value, OriginEntity.CUSTOMER.value, origin_keys.ENTITY_ID, scope,
+        "repeat_call", 0,
     )
     if not chance(u_hit, probability_threshold(p_call)):
         return None
@@ -620,7 +611,8 @@ def _generate_repeat_slot(
 
     def draw(ordinal: int) -> int:
         return rng.draw(
-            KeyedStreamName.DEMAND.value, "customer", customer_id, service_date, event_kind, ordinal
+            KeyedStreamName.DEMAND.value, OriginEntity.CUSTOMER.value, origin_keys.ENTITY_ID, scope,
+            event_kind, ordinal,
         )
 
     m_by_name = m_weather_by_name_per_zone[zone_of]
@@ -632,9 +624,6 @@ def _generate_repeat_slot(
     want_new_location = chance(
         draw(1), config.get_prob_threshold("demand.existing_customer_new_location_probability")
     )
-    new_pool_count = (
-        _new_location_pool_count(conn, zone_id=zone_of, segment=segment) if want_new_location else 0
-    )
     existing_location_ids = [
         row["id"]
         for row in conn.execute(
@@ -644,19 +633,19 @@ def _generate_repeat_slot(
     ]
 
     u2 = draw(2)
-    if want_new_location and new_pool_count > 0:
-        address_catalog_id: int | None = _new_location_pool_pick(
-            conn, zone_id=zone_of, segment=segment, index=u2 % new_pool_count
-        )
-        location_id: int | None = None
-    else:
+    address_catalog_id = (
+        _pick_available_address(conn, _new_location_pool(zone_of, segment), u2)
+        if want_new_location
+        else None
+    )
+    location_id: int | None = None
+    if address_catalog_id is None:
         if not existing_location_ids:
             raise EngineError(
                 ErrorCode.INVARIANT_VIOLATED,
                 f"customer {customer_id} has no active location to fall back to",
             )
         location_id = existing_location_ids[u2 % len(existing_location_ids)]
-        address_catalog_id = None
 
     hour = _pick_arrival_hour(config, draw(4))
     minute = draw(5) % 60
@@ -681,6 +670,7 @@ def _generate_repeat_slot(
         "caller_phone": _customer_caller_phone(conn, customer_id),
         "prospect_id": None,
         "slot_index": None,
+        "origin_key": origin_keys.repeat_call(service_date, customer_origin),
     }
 
 
@@ -812,14 +802,7 @@ def generate_for_date(
             call_specs.append(spec)
             repeat_hits += 1
 
-    call_specs.sort(
-        key=lambda s: (
-            s["arrival_at"],
-            0 if s["channel"] == "new_caller" else 1,
-            s["zone_id"] if s["zone_id"] is not None else 0,
-            s["slot_index"] if s["slot_index"] is not None else s["customer_id"],
-        )
-    )
+    call_specs.sort(key=lambda s: (s["arrival_at"], s["origin_key"]))
 
     events = Events(conn, rng)
     for spec in call_specs:
@@ -827,8 +810,8 @@ def generate_for_date(
             "INSERT INTO _pending_calls "
             "(service_date, zone_id, arrival_at, call_kind, channel, segment, "
             "requested_category_id, urgent, customer_id, location_id, address_catalog_id, "
-            "caller_name, caller_phone, prospect_id, slot_index, created_at) "
-            "VALUES (?, ?, ?, 'new_job', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "caller_name, caller_phone, prospect_id, slot_index, origin_key, created_at) "
+            "VALUES (?, ?, ?, 'new_job', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 spec["service_date"],
                 spec["zone_id"],
@@ -844,6 +827,7 @@ def generate_for_date(
                 spec["caller_phone"],
                 spec["prospect_id"],
                 spec["slot_index"],
+                spec["origin_key"],
                 now_ms,
             ),
         )
@@ -853,6 +837,7 @@ def generate_for_date(
             spec["arrival_at"],
             entity_type="pending_call",
             entity_id=pending_id,
+            order_key=spec["origin_key"],
         )
         conn.execute("UPDATE _pending_calls SET event_id = ? WHERE id = ?", (event_id, pending_id))
 
@@ -904,15 +889,21 @@ def _clamp_micros(value_micros: int, lo: Decimal, hi: Decimal) -> int:
 
 
 def register_customer_repeat_state(
-    conn: sqlite3.Connection, config: RunConfig, *, customer_id: int, segment: str, now_ms: int
+    conn: sqlite3.Connection,
+    config: RunConfig,
+    *,
+    customer_id: int,
+    segment: str,
+    origin_key: str,
+    now_ms: int,
 ) -> None:
     _validate_segment(segment)
     initial = config.resolved["demand.repeat_propensity_initial_by_segment"][segment]
     conn.execute(
         "INSERT INTO _customer_repeat_state "
-        "(customer_id, propensity_micros, last_outcome, competitor_captured_at, updated_at) "
-        "VALUES (?, ?, NULL, NULL, ?)",
-        (customer_id, _to_micros(initial), now_ms),
+        "(customer_id, propensity_micros, last_outcome, competitor_captured_at, updated_at, "
+        "origin_key) VALUES (?, ?, NULL, NULL, ?, ?)",
+        (customer_id, _to_micros(initial), now_ms, origin_key),
     )
 
 
@@ -1080,7 +1071,7 @@ def update_word_of_mouth(
 
 
 def transfer_prospect_to_customer(
-    conn: sqlite3.Connection, *, prospect_id: int, customer_id: int, now_ms: int
+    conn: sqlite3.Connection, *, prospect_id: int, customer_id: int, origin_key: str, now_ms: int
 ) -> None:
     row = conn.execute(
         "SELECT propensity_micros, last_outcome, competitor_captured_at, registered_customer_id "
@@ -1097,9 +1088,12 @@ def transfer_prospect_to_customer(
         )
     conn.execute(
         "INSERT INTO _customer_repeat_state "
-        "(customer_id, propensity_micros, last_outcome, competitor_captured_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (customer_id, row["propensity_micros"], row["last_outcome"], row["competitor_captured_at"], now_ms),
+        "(customer_id, propensity_micros, last_outcome, competitor_captured_at, updated_at, "
+        "origin_key) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            customer_id, row["propensity_micros"], row["last_outcome"],
+            row["competitor_captured_at"], now_ms, origin_key,
+        ),
     )
     conn.execute(
         "UPDATE _prospect_state SET registered_customer_id = ? WHERE id = ?",

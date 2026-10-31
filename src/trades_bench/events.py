@@ -37,12 +37,15 @@ class Events:
         entity_id: int | None = None,
         payload: dict | None = None,
         payload_version: int = 1,
+        order_key: str = "",
     ) -> int:
         self._require_txn("Events.schedule")
         if not isinstance(kind, EventKind):
             raise EngineError(ErrorCode.STATE_ILLEGAL, f"unknown event kind {kind!r}")
         if not isinstance(scheduled_at, int) or scheduled_at < 0:
             raise EngineError(ErrorCode.STATE_ILLEGAL, "scheduled_at_ms must be a non-negative int")
+        if not isinstance(order_key, str):
+            raise EngineError(ErrorCode.STATE_ILLEGAL, "order_key must be a string")
         priority = EVENT_PRIORITY[kind]
         payload_json = (
             json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -52,13 +55,14 @@ class Events:
         now = clock.now(self.conn)
         cur = self.conn.execute(
             """INSERT INTO _events
-               (kind, scheduled_at_ms, priority, entity_type, entity_id,
+               (kind, scheduled_at_ms, priority, order_key, entity_type, entity_id,
                 payload_version, payload, status, created_at_ms)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
             (
                 kind.value,
                 scheduled_at,
                 priority,
+                order_key,
                 entity_type,
                 entity_id,
                 payload_version,
@@ -106,13 +110,13 @@ class Events:
     def next_pending(self) -> sqlite3.Row | None:
         return self.conn.execute(
             "SELECT * FROM _events WHERE status='pending' "
-            "ORDER BY scheduled_at_ms, priority, event_id LIMIT 1",
+            "ORDER BY scheduled_at_ms, priority, order_key, event_id LIMIT 1",
         ).fetchone()
 
     def pending_in_order(self, limit: int | None = None) -> list[sqlite3.Row]:
         sql = (
             "SELECT * FROM _events WHERE status='pending' "
-            "ORDER BY scheduled_at_ms, priority, event_id"
+            "ORDER BY scheduled_at_ms, priority, order_key, event_id"
         )
         if limit is not None:
             sql += f" LIMIT {int(limit)}"

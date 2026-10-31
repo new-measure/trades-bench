@@ -106,7 +106,7 @@ def test_day_one_applies_events_in_the_normative_order(completed_run):
     rows = conn.execute(
         "SELECT kind, scheduled_at_ms, priority, event_id, applied_at_ms FROM _events "
         "WHERE status = 'applied' AND scheduled_at_ms >= ? AND scheduled_at_ms < ? "
-        "ORDER BY scheduled_at_ms, priority, event_id",
+        "ORDER BY scheduled_at_ms, priority, order_key, event_id",
         (_ms(DATES[0], 0, 0), _ms(DATES[1], 0, 0)),
     ).fetchall()
     kinds = [row["kind"] for row in rows]

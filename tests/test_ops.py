@@ -17,7 +17,7 @@ from _helpers import (
     geo_artifact_sha256,
     geo_run_config,
 )
-from trades_bench import clock, db, geo_reader
+from trades_bench import SPEC_VERSION, clock, db, geo_reader
 from trades_bench._dump import dump_hash
 from trades_bench.config import load_run_config
 from trades_bench.db import insert_run
@@ -238,7 +238,7 @@ def _build_empty_engine(
     insert_run(
         conn,
         run_id=str(uuid.uuid4()),
-        spec_version="1.0.0",
+        spec_version=SPEC_VERSION,
         config_version="1.0.0",
         config_hash="h",
         master_seed=1,
@@ -257,7 +257,7 @@ def _build_empty_engine(
                 (i + 1, f"Paginated Customer {i:03d}"),
             )
     conn.execute("COMMIT")
-    rng = Rng(1, "1.0.0", audit_recorder=sqlite_audit_recorder(conn), conn=conn)
+    rng = Rng(1, SPEC_VERSION, audit_recorder=sqlite_audit_recorder(conn), conn=conn)
     ledger = Ledger(conn)
     events = Events(conn, rng)
     invocations = Invocations(conn)
@@ -388,7 +388,7 @@ def _build_warm_engine(dir_path: Path) -> tuple[Engine, object]:
     config = geo_run_config()
     initialize_run(path, master_seed=1, config=config, artifact_dir=GEO_ARTIFACT_DIR)
     conn = open_engine_connection(path)
-    rng = Rng(1, "1.0.0", audit_recorder=sqlite_audit_recorder(conn), conn=conn)
+    rng = Rng(1, SPEC_VERSION, audit_recorder=sqlite_audit_recorder(conn), conn=conn)
     ledger = Ledger(conn)
     events = Events(conn, rng)
     invocations = Invocations(conn)
@@ -423,7 +423,7 @@ def _build_happy_path_engine(dir_path: Path) -> tuple[Engine, object]:
     config = _happy_path_config()
     initialize_run(path, master_seed=1, config=config, artifact_dir=GEO_ARTIFACT_DIR)
     conn = open_engine_connection(path)
-    rng = Rng(1, "1.0.0", audit_recorder=sqlite_audit_recorder(conn), conn=conn)
+    rng = Rng(1, SPEC_VERSION, audit_recorder=sqlite_audit_recorder(conn), conn=conn)
     ledger = Ledger(conn)
     events = Events(conn, rng)
     invocations = Invocations(conn)
@@ -466,8 +466,9 @@ def _manufacture_cancellation_call(
         call_id = int(call_cur.lastrowid)
         conn.execute(
             "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
-            "prospect_id, arrival_event_id, created_at) VALUES (?, 'residential', 2, NULL, ?, ?)",
-            (call_id, fake_event_id, now),
+            "prospect_id, arrival_event_id, origin_key, created_at) "
+            "VALUES (?, 'residential', 2, NULL, ?, ?, ?)",
+            (call_id, fake_event_id, f"t:hidden:{call_id}", now),
         )
         conn.execute(
             "UPDATE _invocations SET origin_event_id = ? WHERE status = 'active'",
@@ -500,8 +501,8 @@ def _insert_customer(conn, now, *, segment="residential", name="Fixture Customer
     )
     conn.execute(
         "INSERT INTO _customer_repeat_state (customer_id, propensity_micros, last_outcome, "
-        "competitor_captured_at, updated_at) VALUES (?, 0, NULL, NULL, ?)",
-        (customer_id, now),
+        "competitor_captured_at, updated_at, origin_key) VALUES (?, 0, NULL, NULL, ?, ?)",
+        (customer_id, now, f"t:customer:{customer_id}"),
     )
     return customer_id
 
@@ -534,10 +535,10 @@ def _insert_pending_call(conn, now, arrival_at, *, catalog):
     cur = conn.execute(
         "INSERT INTO _pending_calls (service_date, zone_id, arrival_at, call_kind, channel, "
         "segment, requested_category_id, urgent, customer_id, location_id, address_catalog_id, "
-        "caller_name, caller_phone, prospect_id, related_job_id, slot_index, created_at) "
-        "VALUES ('2026-10-01', NULL, ?, 'new_job', 'new_caller', 'residential', 2, 0, "
-        "NULL, NULL, ?, 'Fixture Caller', '4805551234', NULL, NULL, NULL, ?)",
-        (arrival_at, catalog["id"], now),
+        "caller_name, caller_phone, prospect_id, related_job_id, slot_index, origin_key, "
+        "created_at) VALUES ('2026-10-01', NULL, ?, 'new_job', 'new_caller', 'residential', 2, "
+        "0, NULL, NULL, ?, 'Fixture Caller', '4805551234', NULL, NULL, NULL, ?, ?)",
+        (arrival_at, catalog["id"], f"t:{arrival_at}", now),
     )
     return int(cur.lastrowid)
 
@@ -1290,7 +1291,7 @@ def test_list_events_returns_all_rows_without_next_cursor(tmp_path):
         (appointment_id,),
     ).fetchone()[0]
     assert seeded_count == 62
-    rng = Rng(1, "1.0.0", audit_recorder=sqlite_audit_recorder(conn), conn=conn)
+    rng = Rng(1, SPEC_VERSION, audit_recorder=sqlite_audit_recorder(conn), conn=conn)
     services = Services(
         conn=conn,
         rng=rng,

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config
-from trades_bench import clock, db, geo_reader
+from trades_bench import SPEC_VERSION, clock, db, geo_reader
 from trades_bench.enums import EventKind
 from trades_bench.events import Events
 from trades_bench.http_engine import Engine, open_engine_connection
@@ -18,7 +18,6 @@ from trades_bench.run_init import initialize_run
 from trades_bench.txn import Services
 
 MASTER_SEED = 1
-SPEC_VERSION = "1.0.0"
 
 
 @dataclass(frozen=True)
@@ -118,13 +117,14 @@ def _script_pending_call(conn, rng) -> None:
             "INSERT INTO _pending_calls (service_date, zone_id, arrival_at, call_kind, "
             "channel, segment, requested_category_id, urgent, customer_id, location_id, "
             "address_catalog_id, caller_name, caller_phone, prospect_id, related_job_id, "
-            "slot_index, created_at) VALUES (?, NULL, ?, 'new_job', 'new_caller', "
+            "slot_index, origin_key, created_at) VALUES (?, NULL, ?, 'new_job', 'new_caller', "
             "'residential', 2, 0, NULL, NULL, ?, 'Example Caller', '6025550142', NULL, "
-            "NULL, NULL, ?)",
+            "NULL, NULL, ?, ?)",
             (
                 clock.service_date_for_ms(arrival_at),
                 arrival_at,
                 catalog["id"],
+                f"n:{clock.service_date_for_ms(arrival_at)}:4:0",
                 now,
             ),
         )

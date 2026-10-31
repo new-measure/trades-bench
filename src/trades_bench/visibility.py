@@ -50,6 +50,7 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_events", "kind"): V.PRIVATE_ENGINE,
     Field("_events", "scheduled_at_ms"): V.PRIVATE_ENGINE,
     Field("_events", "priority"): V.PRIVATE_ENGINE,
+    Field("_events", "order_key"): V.PRIVATE_ENGINE,
     Field("_events", "entity_type"): V.PRIVATE_ENGINE,
     Field("_events", "entity_id"): V.PRIVATE_ENGINE,
     Field("_events", "payload_version"): V.PRIVATE_ENGINE,
@@ -235,6 +236,7 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_pending_calls", "slot_index"): V.PRIVATE_ENGINE,
     Field("_pending_calls", "event_id"): V.PRIVATE_ENGINE,
     Field("_pending_calls", "created_at"): V.PRIVATE_ENGINE,
+    Field("_pending_calls", "origin_key"): V.PRIVATE_ENGINE,
 
     Field("_call_hidden", "call_id"): V.PRIVATE_ENGINE,
     Field("_call_hidden", "true_segment"): V.PRIVATE_ENGINE,
@@ -243,12 +245,14 @@ _REGISTRY: dict[Field, VisibilityClass] = {
     Field("_call_hidden", "acceptance_result"): V.PRIVATE_ENGINE,
     Field("_call_hidden", "created_at"): V.PRIVATE_ENGINE,
     Field("_call_hidden", "arrival_event_id"): V.PRIVATE_ENGINE,
+    Field("_call_hidden", "origin_key"): V.PRIVATE_ENGINE,
 
     Field("_customer_repeat_state", "customer_id"): V.PRIVATE_ENGINE,
     Field("_customer_repeat_state", "propensity_micros"): V.PRIVATE_ENGINE,
     Field("_customer_repeat_state", "last_outcome"): V.PRIVATE_ENGINE,
     Field("_customer_repeat_state", "competitor_captured_at"): V.PRIVATE_ENGINE,
     Field("_customer_repeat_state", "updated_at"): V.PRIVATE_ENGINE,
+    Field("_customer_repeat_state", "origin_key"): V.PRIVATE_ENGINE,
 
     Field("_prospect_state", "id"): V.PRIVATE_ENGINE,
     Field("_prospect_state", "identity_key"): V.PRIVATE_ENGINE,

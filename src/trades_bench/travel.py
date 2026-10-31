@@ -5,8 +5,9 @@ import statistics
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
+from . import origin_keys
 from .config import RunConfig
-from .enums import ConditionCode, KeyedStreamName
+from .enums import ConditionCode, KeyedStreamName, OriginEntity
 from .errors import EngineError, ErrorCode
 from .rng import Rng
 
@@ -30,9 +31,15 @@ class TravelNoiseKey:
 
 
 def inbound_trip_noise_key(
-    appointment_id: int, service_date: str, trip_index: int
+    appointment_origin: str, service_date: str, trip_index: int
 ) -> TravelNoiseKey:
-    return TravelNoiseKey("appointment", appointment_id, service_date, "travel_noise", trip_index)
+    return TravelNoiseKey(
+        OriginEntity.APPOINTMENT.value,
+        origin_keys.ENTITY_ID,
+        origin_keys.scoped(appointment_origin, service_date),
+        "travel_noise",
+        trip_index,
+    )
 
 
 def return_home_trip_noise_key(

@@ -4,6 +4,7 @@ import functools
 import json
 from pathlib import Path
 
+from trades_bench import SPEC_VERSION
 from trades_bench.config import RunConfig, load_run_config
 from trades_bench.db import in_memory, insert_run, new_run_id
 from trades_bench.enums import RunStatus
@@ -63,7 +64,7 @@ def make_services(
     insert_run(
         conn,
         run_id=rid,
-        spec_version="1.0.0",
+        spec_version=SPEC_VERSION,
         config_version="1.0.0",
         config_hash="h",
         master_seed=master_seed,
@@ -74,7 +75,7 @@ def make_services(
         status=status,
     )
     conn.execute("COMMIT")
-    rng = Rng(master_seed, "1.0.0", audit_recorder=sqlite_audit_recorder(conn), conn=conn)
+    rng = Rng(master_seed, SPEC_VERSION, audit_recorder=sqlite_audit_recorder(conn), conn=conn)
     ledger = Ledger(conn)
     events = Events(conn, rng)
     inv = Invocations(conn)
@@ -89,3 +90,18 @@ def make_services(
 
 def audit_count(conn) -> int:
     return conn.execute("SELECT COUNT(*) c FROM _random_audit").fetchone()["c"]
+
+
+def next_test_origin(conn) -> str:
+    n = conn.execute(
+        "SELECT (SELECT COUNT(*) FROM _call_hidden) + (SELECT COUNT(*) FROM _pending_calls) + 1 "
+        "AS n"
+    ).fetchone()["n"]
+    while conn.execute(
+        "SELECT 1 FROM _call_hidden WHERE origin_key = :key "
+        "UNION ALL SELECT 1 FROM _pending_calls WHERE origin_key = :key "
+        "UNION ALL SELECT 1 FROM _customer_repeat_state WHERE origin_key = :key",
+        {"key": f"t:{n}"},
+    ).fetchone() is not None:
+        n += 1
+    return f"t:{n}"

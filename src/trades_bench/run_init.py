@@ -57,6 +57,7 @@ def open_run_db(
 ) -> sqlite3.Connection:
     conn = db.connect(path)
     try:
+        db.require_matching_spec_version(conn)
         migrations.migrate(conn)
         views.create_views(conn)
         views.verify_views(conn)
@@ -154,6 +155,20 @@ def boundary_check(conn: sqlite3.Connection, config: RunConfig) -> None:
             conn.execute(
                 "SELECT 1 FROM _payments p JOIN _invoices i ON i.id = p.invoice_id "
                 "WHERE i.no_charge = 1 LIMIT 1"
+            ).fetchone() is None,
+        ),
+        (
+            "every warm-start customer carries an origin key",
+            conn.execute(
+                "SELECT 1 FROM _customers c LEFT JOIN _customer_repeat_state r "
+                "ON r.customer_id = c.id WHERE r.origin_key IS NULL LIMIT 1"
+            ).fetchone() is None,
+        ),
+        (
+            "every warm-start call carries an origin key",
+            conn.execute(
+                "SELECT 1 FROM _calls c LEFT JOIN _call_hidden h ON h.call_id = c.id "
+                "WHERE h.origin_key IS NULL LIMIT 1"
             ).fetchone() is None,
         ),
         (

@@ -11,6 +11,7 @@ from _helpers import (
     GEO_ARTIFACT_ID,
     GEO_FIXTURE_ZONE_WEIGHTS,
     geo_artifact_sha256,
+    next_test_origin,
     register_conn,
 )
 from trades_bench import appointments, booking, calls, clock, closing, geo_reader
@@ -66,6 +67,7 @@ def _ms(service_date, hour, minute=0):
 
 def _customer_location_call(conn, now_ms, service_date):
     row_id = next(_id_seq)
+    origin_key = next_test_origin(conn)
     conn.execute(
         "INSERT INTO _customers (id, name, segment, status, created_at, modified_at) "
         "VALUES (?, 'Acme', 'commercial', 'active', ?, ?)",
@@ -86,6 +88,12 @@ def _customer_location_call(conn, now_ms, service_date):
         "caller_name, caller_phone, requested_service_name, urgent, created_at) "
         "VALUES (?, ?, ?, 'new_job', 'booked', 'A', '555', 'HVAC service', 0, ?)",
         (row_id, now_ms, service_date, now_ms),
+    )
+    conn.execute(
+        "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
+        "prospect_id, arrival_event_id, origin_key, created_at) "
+        "VALUES (?, 'commercial', 2, NULL, NULL, ?, ?)",
+        (row_id, origin_key, now_ms),
     )
     return row_id
 

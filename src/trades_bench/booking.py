@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_FLOOR, Decimal, localcontext
 
-from . import appointments, calls, clock, constants, surface
+from . import appointments, calls, clock, constants, origin_keys, surface
 from .config import RunConfig, probability_threshold
-from .enums import EntityType, EventKind, KeyedStreamName
+from .enums import EventKind, KeyedStreamName, OriginEntity
 from .errors import EngineError, ErrorCode
 from .events import Events
 from .geo_reader import GeoArtifact
@@ -237,9 +237,10 @@ def book(
     p_accept = _acceptance_probability(base, decay, lead_days, floor_p)
 
     accept_threshold = probability_threshold(p_accept)
+    call_origin = origin_keys.of_call(conn, call_id)
     accepted = ctx.rng.chance(
-        KeyedStreamName.ACCEPTANCE.value, "call", call_id, "", "offer_acceptance",
-        accept_threshold, draw_index=0,
+        KeyedStreamName.ACCEPTANCE.value, OriginEntity.CALL.value, origin_keys.ENTITY_ID, call_origin,
+        "offer_acceptance", accept_threshold, draw_index=0,
     )
     conn.execute(
         "UPDATE _call_hidden SET acceptance_result = ? WHERE call_id = ?",
@@ -280,8 +281,8 @@ def book(
 
     creation_date = clock.service_date_for_ms(now)
     u01 = ctx.rng.uniform01(
-        KeyedStreamName.JOB_QUALITY.value, EntityType.JOB.value, job_id, creation_date,
-        "complexity", 0,
+        KeyedStreamName.JOB_QUALITY.value, OriginEntity.JOB.value, origin_keys.ENTITY_ID,
+        origin_keys.scoped(call_origin, creation_date), "complexity", 0,
     )
     dist = config.resolved["quality.complexity_distribution"][plan.job_type_code]
     complexity = dist["min"] + (dist["max"] - dist["min"]) * u01
@@ -320,8 +321,8 @@ def book(
     p_cancel = max(Decimal(0), min(Decimal(1), p_cancel))
     cancel_threshold = probability_threshold(p_cancel)
     cancel_exists = ctx.rng.chance(
-        KeyedStreamName.CANCELLATION.value, "appointment", appointment_id, "",
-        "cancellation_exists", cancel_threshold, draw_index=0,
+        KeyedStreamName.CANCELLATION.value, OriginEntity.APPOINTMENT.value, origin_keys.ENTITY_ID,
+        call_origin, "cancellation_exists", cancel_threshold, draw_index=0,
     )
 
     if not cancel_exists:
@@ -344,14 +345,15 @@ def book(
             )
         else:
             u = ctx.rng.draw(
-                KeyedStreamName.CANCELLATION.value, "appointment", appointment_id, "",
-                "cancellation_arrival", 1,
+                KeyedStreamName.CANCELLATION.value, OriginEntity.APPOINTMENT.value,
+                origin_keys.ENTITY_ID, call_origin, "cancellation_arrival", 1,
             )
             arrival_at = _nth_cancellation_arrival(window, u % window.total)
             event_id = Events(conn, ctx.rng).schedule(
                 EventKind.CALL_INVOCATION, arrival_at,
                 entity_type="appointment", entity_id=appointment_id,
                 payload={"appointment_id": appointment_id},
+                order_key=origin_keys.cancellation_call(call_origin),
             )
             conn.execute(
                 "INSERT INTO _cancellation_schedule "

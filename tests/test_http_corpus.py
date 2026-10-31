@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from _helpers import GEO_ARTIFACT_DIR, geo_run_config
-from trades_bench import clock
+from trades_bench import SPEC_VERSION, clock
 from trades_bench.enums import EVENT_PRIORITY, EventKind
 from trades_bench.events import Events
 from trades_bench.http_engine import Engine, open_engine_connection
@@ -86,7 +86,7 @@ def _build_warm_engine(dir_path: Path) -> tuple[Engine, object]:
     path = dir_path / "run.db"
     initialize_run(path, master_seed=12_345, config=geo_run_config(), artifact_dir=GEO_ARTIFACT_DIR)
     conn = open_engine_connection(path)
-    rng = Rng(12_345, "1.0.0", audit_recorder=sqlite_audit_recorder(conn), conn=conn)
+    rng = Rng(12_345, SPEC_VERSION, audit_recorder=sqlite_audit_recorder(conn), conn=conn)
     ledger = Ledger(conn)
     events = Events(conn, rng)
     invocations = Invocations(conn)

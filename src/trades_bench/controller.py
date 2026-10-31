@@ -6,7 +6,18 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import SPEC_VERSION, calls, clock, constants, control, db, demand, execution, geo_reader
+from . import (
+    SPEC_VERSION,
+    calls,
+    clock,
+    constants,
+    control,
+    db,
+    demand,
+    execution,
+    geo_reader,
+    overtime,
+)
 from .adapter import AdapterPrompt, AdapterResponse, ControllerAdapter
 from .config import RunConfig
 from .enums import (
@@ -255,7 +266,7 @@ def _off_hours_entries(
     marks = ctx.conn.execute(
         "SELECT * FROM _events WHERE kind = ? AND status = 'applied' "
         "AND scheduled_at_ms >= ? AND scheduled_at_ms < ? "
-        "ORDER BY entity_id, event_id",
+        "ORDER BY order_key, event_id",
         (EventKind.OFF_HOURS_ACCRUAL_MARK.value, day_start, day_end),
     ).fetchall()
     entries: list[LedgerEntry] = []
@@ -332,6 +343,22 @@ def _daily_settlement_handler(config: RunConfig) -> EventHandler:
                 f"day {service_date} is not awaiting settlement",
             )
         entries = _off_hours_entries(ctx, config, service_date, now)
+        next_day = (date.fromisoformat(service_date) + timedelta(days=1)).isoformat()
+        entries.extend(
+            LedgerEntry(
+                entry_type=LedgerCategory.PAYROLL_OFF_HOURS,
+                amount_cents=-pay.amount_cents,
+                occurred_at_ms=now,
+                service_date=service_date,
+                description=f"overtime wages ({pay.minutes} min past shift end)",
+                technician_id=pay.technician_id,
+                job_id=pay.job_id,
+            )
+            for pay in overtime.overtime_pay(
+                ctx.conn, service_date,
+                day_start=_instant(service_date, 0), day_end=_instant(next_day, 0),
+            )
+        )
         if day["day_type"] == DayType.WEEKDAY.value:
             entries.extend(_weekday_payroll_entries(ctx, service_date, now))
         entries.append(
@@ -448,6 +475,7 @@ class Controller:
         run_row = conn.execute("SELECT master_seed FROM _run").fetchone()
         if run_row is None:
             raise EngineError(ErrorCode.ENTITY_NOT_FOUND, "run record not found")
+        db.require_matching_spec_version(conn)
         artifact: GeoArtifact | None = None
         if artifact_dir is not None:
             geo_reader.verify_artifact_sha256(

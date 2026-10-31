@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 import trades_bench.http_engine as http_engine
-from trades_bench import clock
+from trades_bench import SPEC_VERSION, clock
 from trades_bench.config import load_run_config
 from trades_bench.db import insert_run
 from trades_bench.enums import EVENT_PRIORITY, EventKind, InvocationType, RunStatus
@@ -46,7 +46,7 @@ def _build_engine(
     insert_run(
         conn,
         run_id=str(uuid.uuid4()),
-        spec_version="1.0.0",
+        spec_version=SPEC_VERSION,
         config_version="1.0.0",
         config_hash="h",
         master_seed=1,
@@ -65,7 +65,7 @@ def _build_engine(
                 (i + 1, f"Customer {i}"),
             )
     conn.execute("COMMIT")
-    rng = Rng(1, "1.0.0", audit_recorder=sqlite_audit_recorder(conn), conn=conn)
+    rng = Rng(1, SPEC_VERSION, audit_recorder=sqlite_audit_recorder(conn), conn=conn)
     ledger = Ledger(conn)
     events = Events(conn, rng)
     invocations = Invocations(conn)

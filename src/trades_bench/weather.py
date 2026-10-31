@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import calendar
-import hashlib
 import math
 import sqlite3
 import statistics
@@ -12,7 +11,7 @@ from . import clock, db
 from .config import RunConfig, probability_threshold
 from .enums import KeyedStreamName, SequentialStreamName
 from .errors import EngineError, ErrorCode
-from .rng import Rng, randint, uniform01
+from .rng import Rng, derive, randint, uniform01
 
 _STANDARD_NORMAL = statistics.NormalDist()
 
@@ -25,11 +24,6 @@ _ZONE_IDS: tuple[int, ...] = tuple(range(1, 11))
 
 def _clamped_float(p: Decimal) -> float:
     return min(max(float(p), _UNIFORM_FLOAT_LOWER_BOUND), _UNIFORM_FLOAT_UPPER_BOUND)
-
-
-def _sub(u: int, label: str) -> int:
-    h = hashlib.sha256(u.to_bytes(8, "big") + label.encode("utf-8")).digest()
-    return int.from_bytes(h[:8], "big")
 
 
 def _to_tenths(value: Decimal) -> int:
@@ -167,7 +161,7 @@ def precompute(conn: sqlite3.Connection, config: RunConfig, rng: Rng, *, created
                 Decimal(seasonal_high_f * 10).to_integral_value(rounding=ROUND_HALF_UP)
             )
 
-            epsilon_u01 = uniform01(_sub(u, "epsilon"))
+            epsilon_u01 = uniform01(derive(u, "epsilon"))
             noise_z = _STANDARD_NORMAL.inv_cdf(_clamped_float(epsilon_u01))
             epsilon_f = noise_z * daily_noise_sd_f
             epsilon_milli = int(Decimal(epsilon_f * 1000).to_integral_value(rounding=ROUND_HALF_UP))
@@ -185,19 +179,19 @@ def precompute(conn: sqlite3.Connection, config: RunConfig, rng: Rng, *, created
             in_window = monsoon_start <= month_day <= monsoon_end
             onset_p = probability_in_window if in_window else probability_out_of_window
             threshold_onset = probability_threshold(onset_p)
-            metro_driver = _sub(u, "metro_storm") < threshold_onset
+            metro_driver = derive(u, "metro_storm") < threshold_onset
 
             rows: list[tuple] = []
             new_storm_flag: dict[int, int] = {}
             for zone_id in _ZONE_IDS:
-                if _sub(u, f"zone_storm:{zone_id}") < threshold_w:
+                if derive(u, f"zone_storm:{zone_id}") < threshold_w:
                     is_storm = metro_driver
                 else:
                     zone_p = (
                         max(onset_p, persistence_p) if prev_storm_flag[zone_id] else onset_p
                     )
                     threshold_zone_p = probability_threshold(zone_p)
-                    is_storm = _sub(u, f"zone_storm_ind:{zone_id}") < threshold_zone_p
+                    is_storm = derive(u, f"zone_storm_ind:{zone_id}") < threshold_zone_p
                 storm_flag = 1 if is_storm else 0
                 new_storm_flag[zone_id] = storm_flag
 
@@ -206,7 +200,7 @@ def precompute(conn: sqlite3.Connection, config: RunConfig, rng: Rng, *, created
                 low_tenths = high_tenths - diurnal_tenths
 
                 if storm_flag:
-                    severity_unit = uniform01(_sub(u, f"severity:{zone_id}"))
+                    severity_unit = uniform01(derive(u, f"severity:{zone_id}"))
                     severity_dec = severity_lo + severity_unit * (severity_hi - severity_lo)
                     severity_milli: int | None = _to_milli(severity_dec)
                     severity_band = _band_name(bands_milli, severity_milli)
@@ -215,7 +209,7 @@ def precompute(conn: sqlite3.Connection, config: RunConfig, rng: Rng, *, created
                     severity_band = "none"
 
                 wind_base_tenths = _to_tenths(wind_by_severity[severity_band])
-                wind_variation_tenths = _sub(u, f"wind:{zone_id}") % 201
+                wind_variation_tenths = derive(u, f"wind:{zone_id}") % 201
                 wind_tenths = wind_base_tenths + wind_variation_tenths
 
                 precip_tenths = _to_tenths(precipitation_by_severity[severity_band])
@@ -393,7 +387,7 @@ def _forecast(
     if storm_hat:
         if severity_milli is None:
             severity_lo, severity_hi = config.resolved["weather.storm_severity_range"]
-            phantom_unit = uniform01(_sub(flip_u, "phantom_severity"))
+            phantom_unit = uniform01(derive(flip_u, "phantom_severity"))
             severity_dec = severity_lo + phantom_unit * (severity_hi - severity_lo)
             severity_for_band = _to_milli(severity_dec)
         else:

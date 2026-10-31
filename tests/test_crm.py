@@ -12,6 +12,7 @@ from _helpers import (
     GEO_FIXTURE_ZONE_WEIGHTS,
     audit_count,
     geo_artifact_sha256,
+    next_test_origin,
     register_conn,
 )
 from trades_bench import address as address_mod
@@ -95,6 +96,7 @@ def _insert_pending(conn, now, arrival_at, **overrides):
         "prospect_id": None,
         "related_job_id": None,
         "slot_index": None,
+        "origin_key": next_test_origin(conn),
         "created_at": now,
     }
     fields.update(overrides)

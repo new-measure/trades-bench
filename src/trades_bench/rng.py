@@ -121,6 +121,11 @@ def keyed_draw(
     return int.from_bytes(h[:8], "big")
 
 
+def derive(u: int, label: str) -> int:
+    h = hashlib.sha256(u.to_bytes(8, "big") + label.encode("utf-8")).digest()
+    return int.from_bytes(h[:8], "big")
+
+
 def chance(u: int, threshold: int) -> bool:
     return u < threshold
 
@@ -574,6 +579,7 @@ __all__ = [
     "U64_MOD",
     "chance",
     "choice",
+    "derive",
     "bounded_int",
     "inverse_cdf_variation",
     "keyed_draw",

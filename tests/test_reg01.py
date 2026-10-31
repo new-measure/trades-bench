@@ -100,7 +100,7 @@ def _trace(conn, service_date):
         "SELECT event_id, kind, scheduled_at_ms, priority, entity_type, entity_id, "
         "payload_version, payload, status FROM _events "
         "WHERE scheduled_at_ms >= ? AND scheduled_at_ms < ? "
-        "ORDER BY scheduled_at_ms, priority, event_id",
+        "ORDER BY scheduled_at_ms, priority, order_key, event_id",
         (_ms(service_date, 0, 0), _ms(service_date, 0, 0) + 86_400_000),
     ).fetchall()
     return [

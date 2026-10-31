@@ -15,3 +15,5 @@ data/snapshots/*
 !data/snapshots/*.source.json
 data/geography-arizona-v1/addresses/catalog.csv
 data/geography-arizona-v1/routing/anchor_distance.bin
+
+analysis/

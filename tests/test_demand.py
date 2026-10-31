@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import re
@@ -40,6 +41,59 @@ def _legacy_address_pool_ids(conn, *, zone_id, segment, outlying):
         ") ORDER BY ac.id"
     )
     return [row["id"] for row in conn.execute(sql, (zone_id, segment)).fetchall()]
+
+
+def _static_address_pool_ids(conn, *, zone_clause, zone_id, segment):
+    sql = (
+        "SELECT ac.id FROM _address_catalog ac WHERE ac.status = 'usable' "
+        f"AND {zone_clause} "
+        "AND (',' || ac.segment_eligibility || ',') LIKE ('%,' || ? || ',%') ORDER BY ac.id"
+    )
+    return [row["id"] for row in conn.execute(sql, (zone_id, segment)).fetchall()]
+
+
+def _sub_hash(u, label):
+    digest = hashlib.sha256(u.to_bytes(8, "big") + label.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big")
+
+
+def _occupied_address_ids(conn):
+    return {
+        row["address_catalog_id"]
+        for row in conn.execute("SELECT address_catalog_id FROM _locations WHERE active = 1")
+    }
+
+
+def _expected_available_address(conn, *, zone_clause, zone_id, segment, u):
+    static_ids = _static_address_pool_ids(
+        conn, zone_clause=zone_clause, zone_id=zone_id, segment=segment
+    )
+    if not static_ids:
+        return None
+    occupied = _occupied_address_ids(conn)
+    for probe in range(64):
+        candidate = static_ids[_sub_hash(u, f"address_probe:{probe}") % len(static_ids)]
+        if candidate not in occupied:
+            return candidate
+    available = [address_id for address_id in static_ids if address_id not in occupied]
+    if not available:
+        return None
+    return max(available, key=lambda address_id: _sub_hash(u, f"address:{address_id}"))
+
+
+def _new_caller_zone_clause(outlying):
+    return "ac.zone_id IS NULL AND ac.effective_zone_id = ?" if outlying else "ac.zone_id = ?"
+
+
+def _expected_new_caller_address(conn, *, zone_id, segment, want_outlying, u):
+    for outlying in (want_outlying, not want_outlying):
+        address_id = _expected_available_address(
+            conn, zone_clause=_new_caller_zone_clause(outlying), zone_id=zone_id,
+            segment=segment, u=u,
+        )
+        if address_id is not None:
+            return address_id
+    raise AssertionError(f"no address for zone {zone_id} segment {segment}")
 
 
 def _scenario(overrides: dict | None = None):
@@ -91,7 +145,9 @@ def _generate(conn, config, seed, service_date, now_ms=None):
     return summary
 
 
-def _create_customer(conn, *, customer_id, segment, zone_id, now_ms, propensity_micros=None):
+def _create_customer(
+    conn, *, customer_id, segment, zone_id, now_ms, propensity_micros=None, origin_key=None
+):
     conn.execute(
         "INSERT INTO _customers (id, name, segment, status, created_at, created_from_call_id, "
         "modified_at, origin) VALUES (?, ?, ?, 'active', ?, NULL, ?, 'run')",
@@ -107,9 +163,12 @@ def _create_customer(conn, *, customer_id, segment, zone_id, now_ms, propensity_
     if propensity_micros is not None:
         conn.execute(
             "INSERT INTO _customer_repeat_state "
-            "(customer_id, propensity_micros, last_outcome, competitor_captured_at, updated_at) "
-            "VALUES (?, ?, NULL, NULL, ?)",
-            (customer_id, propensity_micros, now_ms),
+            "(customer_id, propensity_micros, last_outcome, competitor_captured_at, updated_at, "
+            "origin_key) VALUES (?, ?, NULL, NULL, ?, ?)",
+            (
+                customer_id, propensity_micros, now_ms,
+                origin_key if origin_key is not None else f"t:customer:{customer_id}",
+            ),
         )
 
 
@@ -354,13 +413,9 @@ def test_ordinal_discipline_matches_hand_recomputation(tmp_path):
         [((cid, name), demand._to_micros(mass)) for cid, name, mass in dist], draw(1)
     )
     want_outlying = chance(draw(2), config.get_prob_threshold("demand.outlying_address_share"))
-    pool_ids = _legacy_address_pool_ids(conn, zone_id=zone_id, segment=segment, outlying=want_outlying)
-    if not pool_ids:
-        pool_ids = _legacy_address_pool_ids(
-            conn, zone_id=zone_id, segment=segment, outlying=not want_outlying
-        )
-    u3 = draw(3)
-    address_catalog_id = pool_ids[u3 % len(pool_ids)]
+    address_catalog_id = _expected_new_caller_address(
+        conn, zone_id=zone_id, segment=segment, want_outlying=want_outlying, u=draw(3)
+    )
     hour = demand._pick_arrival_hour(config, draw(8))
     minute = draw(9) % 60
     caller_name, caller_phone = pools.compose_identity(
@@ -428,15 +483,9 @@ def test_ordinal_discipline_matches_hand_recomputation_for_every_slot(tmp_path):
             [((cid, name), demand._to_micros(mass)) for cid, name, mass in dist], draw(1)
         )
         want_outlying = chance(draw(2), config.get_prob_threshold("demand.outlying_address_share"))
-        pool_ids = _legacy_address_pool_ids(
-            conn, zone_id=zone_id, segment=segment, outlying=want_outlying
+        address_catalog_id = _expected_new_caller_address(
+            conn, zone_id=zone_id, segment=segment, want_outlying=want_outlying, u=draw(3)
         )
-        if not pool_ids:
-            pool_ids = _legacy_address_pool_ids(
-                conn, zone_id=zone_id, segment=segment, outlying=not want_outlying
-            )
-        u3 = draw(3)
-        address_catalog_id = pool_ids[u3 % len(pool_ids)]
 
         hour = demand._pick_arrival_hour(config, draw(8))
         minute = draw(9) % 60
@@ -445,22 +494,19 @@ def test_ordinal_discipline_matches_hand_recomputation_for_every_slot(tmp_path):
         returning_flag = chance(
             draw(6), config.get_prob_threshold("demand.returning_prospect_probability")
         )
-        prospect_ids = []
+        prospects = []
         if returning_flag:
-            prospect_ids = [
-                r["id"]
-                for r in conn.execute(
-                    "SELECT id FROM _prospect_state WHERE home_zone_id = ? AND segment = ? "
-                    "AND registered_customer_id IS NULL ORDER BY id",
-                    (zone_id, segment),
-                ).fetchall()
-            ]
-        if returning_flag and prospect_ids:
+            prospects = conn.execute(
+                "SELECT id, identity_key, caller_name, caller_phone FROM _prospect_state "
+                "WHERE home_zone_id = ? AND segment = ? AND registered_customer_id IS NULL",
+                (zone_id, segment),
+            ).fetchall()
+        if returning_flag and prospects:
             u7 = draw(7)
-            prospect_row = conn.execute(
-                "SELECT id, caller_name, caller_phone FROM _prospect_state WHERE id = ?",
-                (prospect_ids[u7 % len(prospect_ids)],),
-            ).fetchone()
+            prospect_row = max(
+                prospects,
+                key=lambda r, u7=u7: (_sub_hash(u7, f"prospect:{r['identity_key']}"), r["identity_key"]),
+            )
             caller_name = prospect_row["caller_name"]
             caller_phone = prospect_row["caller_phone"]
             expected_prospect_id = prospect_row["id"]
@@ -485,10 +531,10 @@ def test_ordinal_discipline_matches_hand_recomputation_for_every_slot(tmp_path):
 
 def test_zone_independent_storms(tmp_path):
     config = _zone4_scenario()
-    conn, _run_id = _init(tmp_path, 1, config)
+    conn, _run_id = _init(tmp_path, 2, config)
 
-    storm_date = "2026-09-26"
-    calm_date = "2026-05-02"
+    storm_date = "2026-09-07"
+    calm_date = "2026-05-11"
     assert date.fromisoformat(storm_date).weekday() == date.fromisoformat(calm_date).weekday()
 
     zone4_storm = dict(
@@ -636,11 +682,11 @@ def test_address_pool_eligibility_and_empty_pool_invariant(many_seed_dataset, tm
 
 
 def test_address_pool_queries_pin_an_explicit_deterministic_order():
-    assert "ORDER BY ac.id" in inspect.getsource(demand._address_pool_pick)
-    assert "ORDER BY ac.id" in inspect.getsource(demand._new_location_pool_pick)
+    assert "ORDER BY ac.id" in inspect.getsource(demand._AddressPool.member)
+    assert "ORDER BY ac.id" in inspect.getsource(demand._AddressPool.available_members)
 
 
-def test_the_pool_count_and_pick_reproduce_the_old_list_query_for_every_combination(tmp_path):
+def test_the_pool_size_member_and_available_list_reproduce_the_list_queries(tmp_path):
     config = _zone4_scenario()
     conn, _run_id = _init(tmp_path, 1, config)
     zone_ids = [row["id"] for row in conn.execute("SELECT id FROM _zones ORDER BY id").fetchall()]
@@ -649,20 +695,17 @@ def test_the_pool_count_and_pick_reproduce_the_old_list_query_for_every_combinat
     for zone_id in zone_ids:
         for segment in sorted(demand._SEGMENTS):
             for outlying in (False, True):
-                expected = _legacy_address_pool_ids(
+                pool = demand._new_caller_pool(zone_id, segment, outlying=outlying)
+                static_ids = _static_address_pool_ids(
+                    conn, zone_clause=_new_caller_zone_clause(outlying), zone_id=zone_id,
+                    segment=segment,
+                )
+                size = pool.size(conn)
+                assert size == len(static_ids)
+                assert [pool.member(conn, index) for index in range(size)] == static_ids
+                assert pool.available_members(conn) == _legacy_address_pool_ids(
                     conn, zone_id=zone_id, segment=segment, outlying=outlying
                 )
-                count = demand._address_pool_count(
-                    conn, zone_id=zone_id, segment=segment, outlying=outlying
-                )
-                picked = [
-                    demand._address_pool_pick(
-                        conn, zone_id=zone_id, segment=segment, outlying=outlying, index=index
-                    )
-                    for index in range(count)
-                ]
-                assert count == len(expected)
-                assert picked == expected
                 combinations += 1
 
     assert combinations == len(zone_ids) * len(demand._SEGMENTS) * 2
@@ -673,8 +716,8 @@ def test_a_new_caller_slot_falls_back_to_the_other_outlying_flag_when_its_pool_i
     conn, _run_id = _init(tmp_path, 1, config)
     conn.execute("UPDATE _address_catalog SET zone_id = NULL WHERE effective_zone_id = 4")
     for segment in sorted(demand._SEGMENTS):
-        assert demand._address_pool_count(conn, zone_id=4, segment=segment, outlying=False) == 0
-        assert demand._address_pool_count(conn, zone_id=4, segment=segment, outlying=True) > 0
+        assert demand._new_caller_pool(4, segment, outlying=False).size(conn) == 0
+        assert demand._new_caller_pool(4, segment, outlying=True).size(conn) > 0
 
     _generate(conn, config, 1, SERVICE_DATE)
 
@@ -699,8 +742,8 @@ def test_an_empty_pool_on_both_outlying_flags_fails_the_address_floor_check(tmp_
     conn, _run_id = _init(tmp_path, 1, config)
     conn.execute("UPDATE _address_catalog SET status = 'unusable' WHERE effective_zone_id = 4")
     for segment in sorted(demand._SEGMENTS):
-        assert demand._address_pool_count(conn, zone_id=4, segment=segment, outlying=False) == 0
-        assert demand._address_pool_count(conn, zone_id=4, segment=segment, outlying=True) == 0
+        assert demand._new_caller_pool(4, segment, outlying=False).size(conn) == 0
+        assert demand._new_caller_pool(4, segment, outlying=True).size(conn) == 0
 
     with pytest.raises(EngineError) as excinfo:
         demand._validate_address_pool_floors(conn, config)
@@ -723,21 +766,17 @@ def _plan_details(conn, sql, params):
     return [row["detail"] for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params)]
 
 
-def _pool_statements(conn):
+def _static_pool_statements(conn):
     recorder = _RecordingConnection(conn)
     for outlying in (False, True):
-        demand._address_pool_count(
-            recorder, zone_id=4, segment="residential", outlying=outlying
-        )
-    demand._address_pool_pick(
-        recorder, zone_id=4, segment="residential", outlying=False, index=0
-    )
-    demand._new_location_pool_count(recorder, zone_id=4, segment="commercial")
-    demand._new_location_pool_pick(recorder, zone_id=4, segment="commercial", index=0)
+        demand._new_caller_pool(4, "residential", outlying=outlying).size(recorder)
+    demand._new_caller_pool(4, "residential", outlying=False).member(recorder, 0)
+    demand._new_location_pool(4, "commercial").size(recorder)
+    demand._new_location_pool(4, "commercial").member(recorder, 0)
     return recorder.statements
 
 
-POOL_SCAN_INDEXES = (
+STATIC_POOL_SCAN_INDEXES = (
     "idx_address_pool_zone_residential",
     "idx_address_pool_eff_residential",
     "idx_address_pool_zone_residential",
@@ -747,28 +786,44 @@ POOL_SCAN_INDEXES = (
 LOCATION_PROBE_INDEX = "idx_locations_address_catalog"
 
 
-def test_every_pool_statement_plans_the_scan_and_the_probe_on_its_index(tmp_path):
+def test_every_static_pool_statement_plans_its_scan_on_the_partial_index(tmp_path):
     config = _zone4_scenario()
     conn, _run_id = _init(tmp_path, 1, config)
-    statements = _pool_statements(conn)
+    statements = _static_pool_statements(conn)
 
-    assert len(statements) == len(POOL_SCAN_INDEXES)
-    for (sql, params), scan_index in zip(statements, POOL_SCAN_INDEXES, strict=True):
+    assert len(statements) == len(STATIC_POOL_SCAN_INDEXES)
+    for (sql, params), scan_index in zip(statements, STATIC_POOL_SCAN_INDEXES, strict=True):
         details = _plan_details(conn, sql, params)
         assert any(
             f"USING INDEX {scan_index}" in detail for detail in details
         ), (scan_index, details)
-        assert any(
-            f"USING INDEX {LOCATION_PROBE_INDEX}" in detail for detail in details
-        ), details
         assert not any("SCAN _address_catalog" in detail for detail in details), details
-        assert not any("SCAN l" in detail for detail in details), details
+
+
+def test_the_occupancy_probe_and_the_available_list_use_the_location_index(tmp_path):
+    config = _zone4_scenario()
+    conn, _run_id = _init(tmp_path, 1, config)
+    recorder = _RecordingConnection(conn)
+    demand._address_occupied(recorder, 1)
+    demand._new_caller_pool(4, "residential", outlying=False).available_members(recorder)
+    (probe_sql, probe_params), (available_sql, available_params) = recorder.statements
+
+    probe_details = _plan_details(conn, probe_sql, probe_params)
+    assert any(f"USING INDEX {LOCATION_PROBE_INDEX}" in d for d in probe_details), probe_details
+    available_details = _plan_details(conn, available_sql, available_params)
+    assert any(
+        "USING INDEX idx_address_pool_zone_residential" in d for d in available_details
+    ), available_details
+    assert any(
+        f"USING INDEX {LOCATION_PROBE_INDEX}" in d for d in available_details
+    ), available_details
+    assert not any("SCAN l" in d for d in available_details), available_details
 
 
 def test_a_bound_segment_parameter_would_lose_the_partial_index_plan(tmp_path):
     config = _zone4_scenario()
     conn, _run_id = _init(tmp_path, 1, config)
-    literal_sql, literal_params = _pool_statements(conn)[0]
+    literal_sql, literal_params = _static_pool_statements(conn)[0]
     bound_sql = literal_sql.replace("'%,residential,%'", "('%,' || ? || ',%')")
     bound_params = (*literal_params, "residential")
 
@@ -788,7 +843,7 @@ def test_the_pool_queries_reject_a_segment_outside_the_frozen_set(tmp_path):
     conn, _run_id = _init(tmp_path, 1, config)
 
     with pytest.raises(EngineError) as excinfo:
-        demand._address_pool_count(conn, zone_id=4, segment="industrial", outlying=False)
+        demand._new_caller_pool(4, "industrial", outlying=False).size(conn)
 
     assert excinfo.value.code is ErrorCode.INVARIANT_VIOLATED
 
@@ -958,7 +1013,9 @@ def test_prospect_continuity_and_returning_pickup_and_transfer(tmp_path):
         "modified_at, origin) VALUES (5000, 'Jane Doe', 'residential', 'active', ?, NULL, ?, 'run')",
         (now_ms, now_ms),
     )
-    demand.transfer_prospect_to_customer(conn, prospect_id=prospect_id, customer_id=5000, now_ms=now_ms)
+    demand.transfer_prospect_to_customer(
+        conn, prospect_id=prospect_id, customer_id=5000, origin_key="t:customer:5000", now_ms=now_ms
+    )
     db.commit(conn)
     transferred = conn.execute(
         "SELECT propensity_micros, last_outcome FROM _customer_repeat_state WHERE customer_id = 5000"
@@ -1023,7 +1080,8 @@ def test_transfer_prospect_to_customer_excludes_from_returning_pool(tmp_path):
         (now_ms, now_ms),
     )
     demand.transfer_prospect_to_customer(
-        conn, prospect_id=registered_prospect_id, customer_id=9001, now_ms=now_ms
+        conn, prospect_id=registered_prospect_id, customer_id=9001,
+        origin_key="t:customer:9001", now_ms=now_ms,
     )
     db.commit(conn)
 
@@ -1077,7 +1135,8 @@ def test_prospect_registration_path_is_deterministic_across_identical_runs(tmp_p
             (now_ms, now_ms),
         )
         demand.transfer_prospect_to_customer(
-            conn, prospect_id=prospect_id, customer_id=9001, now_ms=now_ms
+            conn, prospect_id=prospect_id, customer_id=9001,
+            origin_key="t:customer:9001", now_ms=now_ms,
         )
         db.commit(conn)
 
@@ -1473,3 +1532,205 @@ def many_seed_dataset(tmp_path_factory):
             conn.close()
         except Exception:
             pass
+
+
+def _new_caller_rows_by_origin(conn, service_date):
+    return {
+        row["origin_key"]: row
+        for row in _pending_rows(conn, service_date)
+        if row["channel"] == "new_caller"
+    }
+
+
+SLOT_ATTRIBUTES = (
+    "zone_id", "arrival_at", "segment", "requested_category_id", "urgent",
+    "caller_name", "caller_phone", "prospect_id", "slot_index",
+)
+
+
+def test_registering_a_location_moves_only_the_slots_whose_first_available_address_it_took(
+    tmp_path,
+):
+    config = _zone4_scenario(**{"demand.base_new_caller_rate_per_day": 40})
+    clean, _run_id = _init(tmp_path, 1, config, name="clean.db")
+    _generate(clean, config, 1, SERVICE_DATE)
+    clean_rows = _new_caller_rows_by_origin(clean, SERVICE_DATE)
+    assert len(clean_rows) >= 10
+    taken_address = clean_rows[min(clean_rows)]["address_catalog_id"]
+
+    occupied, _run_id = _init(tmp_path, 1, config, name="occupied.db")
+    now_ms = _now_ms(occupied)
+    db.begin(occupied)
+    _create_customer(
+        occupied, customer_id=7001, segment="residential", zone_id=4, now_ms=now_ms,
+        propensity_micros=0,
+    )
+    occupied.execute(
+        "UPDATE _locations SET address_catalog_id = ? WHERE id = 7001", (taken_address,)
+    )
+    db.commit(occupied)
+    _generate(occupied, config, 1, SERVICE_DATE)
+    occupied_rows = _new_caller_rows_by_origin(occupied, SERVICE_DATE)
+
+    assert occupied_rows.keys() == clean_rows.keys()
+    moved = {
+        origin_key
+        for origin_key, row in clean_rows.items()
+        if row["address_catalog_id"] != occupied_rows[origin_key]["address_catalog_id"]
+    }
+    assert moved == {
+        origin_key
+        for origin_key, row in clean_rows.items()
+        if row["address_catalog_id"] == taken_address
+    }
+    assert taken_address not in {row["address_catalog_id"] for row in occupied_rows.values()}
+    for origin_key, row in clean_rows.items():
+        assert {a: row[a] for a in SLOT_ATTRIBUTES} == {
+            a: occupied_rows[origin_key][a] for a in SLOT_ATTRIBUTES
+        }
+
+
+REPEAT_ORIGINS = tuple(f"n:2026-09-30:4:{k}" for k in range(8))
+REPEAT_ATTRIBUTES = ("zone_id", "arrival_at", "segment", "requested_category_id", "urgent")
+
+
+def _repeat_rows_for_registration_order(tmp_path, name, origins, config):
+    conn, _run_id = _init(tmp_path, 1, config, name=name)
+    now_ms = _now_ms(conn)
+    db.begin(conn)
+    for customer_id, origin_key in enumerate(origins, start=1):
+        _create_customer(
+            conn, customer_id=customer_id, segment="residential", zone_id=4, now_ms=now_ms,
+            propensity_micros=1_000_000, origin_key=origin_key,
+        )
+    db.commit(conn)
+    _generate(conn, config, 1, SERVICE_DATE)
+    customer_origin = {
+        row["customer_id"]: row["origin_key"]
+        for row in conn.execute("SELECT customer_id, origin_key FROM _customer_repeat_state")
+    }
+    return {
+        row["origin_key"]: (customer_origin[row["customer_id"]], row)
+        for row in _pending_rows(conn, SERVICE_DATE)
+        if row["channel"] == "existing_customer"
+    }
+
+
+def test_a_customers_repeat_call_is_independent_of_other_customers_registration_order(tmp_path):
+    config = _zone4_scenario(**{"demand.repeat_call_daily_base_probability": 0.5})
+    forward = _repeat_rows_for_registration_order(
+        tmp_path, "forward.db", REPEAT_ORIGINS, config
+    )
+    backward = _repeat_rows_for_registration_order(
+        tmp_path, "backward.db", tuple(reversed(REPEAT_ORIGINS)), config
+    )
+
+    assert 0 < len(forward) < len(REPEAT_ORIGINS)
+    assert forward.keys() == backward.keys()
+    for origin_key, (customer_origin, row) in forward.items():
+        backward_customer_origin, backward_row = backward[origin_key]
+        assert origin_key == f"r:{SERVICE_DATE}:{customer_origin}"
+        assert backward_customer_origin == customer_origin
+        assert row["customer_id"] != backward_row["customer_id"]
+        assert {a: row[a] for a in REPEAT_ATTRIBUTES} == {
+            a: backward_row[a] for a in REPEAT_ATTRIBUTES
+        }
+
+
+def test_exhausted_probes_fall_back_to_rendezvous_over_the_available_addresses(
+    tmp_path, monkeypatch
+):
+    config = _zone4_scenario()
+    conn, _run_id = _init(tmp_path, 1, config)
+    pool = demand._new_caller_pool(4, "residential", outlying=False)
+    u = 0x0123456789ABCDEF
+    monkeypatch.setattr(demand, "_ADDRESS_PROBE_LIMIT", 0)
+    available = pool.available_members(conn)
+
+    expected = max(available, key=lambda address_id: _sub_hash(u, f"address:{address_id}"))
+    assert demand._pick_available_address(conn, pool, u) == expected
+
+    now_ms = _now_ms(conn)
+    db.begin(conn)
+    _create_customer(
+        conn, customer_id=7002, segment="residential", zone_id=4, now_ms=now_ms,
+        propensity_micros=0,
+    )
+    conn.execute("UPDATE _locations SET address_catalog_id = ? WHERE id = 7002", (expected,))
+    db.commit(conn)
+    runner_up = max(
+        (address_id for address_id in available if address_id != expected),
+        key=lambda address_id: _sub_hash(u, f"address:{address_id}"),
+    )
+    assert demand._pick_available_address(conn, pool, u) == runner_up
+
+
+PROSPECT_SEGMENTS = ("apartment", "commercial", "residential")
+
+
+def _seed_prospects(conn, config, now_ms):
+    db.begin(conn)
+    for segment in PROSPECT_SEGMENTS:
+        for index in range(4):
+            demand.apply_rejection_consequence(
+                conn, config, now_ms=now_ms,
+                prospect={
+                    "caller_name": f"Prospect {segment} {index}",
+                    "caller_phone": f"480555{index:04d}",
+                    "segment": segment,
+                    "home_zone_id": 4,
+                },
+            )
+    db.commit(conn)
+
+
+def _returning_callers_by_origin(conn):
+    return {
+        row["origin_key"]: f"{row['caller_phone']}|{row['caller_name']}"
+        for row in _pending_rows(conn, SERVICE_DATE)
+        if row["channel"] == "new_caller" and row["prospect_id"] is not None
+    }
+
+
+def test_removing_a_prospect_changes_only_the_slots_it_won(tmp_path):
+    config = _zone4_scenario(**{
+        "demand.base_new_caller_rate_per_day": 40,
+        "demand.returning_prospect_probability": 1,
+    })
+    full, _run_id = _init(tmp_path, 1, config, name="prospects_full.db")
+    _seed_prospects(full, config, _now_ms(full))
+    _generate(full, config, 1, SERVICE_DATE)
+    full_callers = _returning_callers_by_origin(full)
+    assert len(set(full_callers.values())) >= 3
+    victim = full_callers[min(full_callers)]
+
+    reduced, _run_id = _init(tmp_path, 1, config, name="prospects_reduced.db")
+    now_ms = _now_ms(reduced)
+    _seed_prospects(reduced, config, now_ms)
+    db.begin(reduced)
+    reduced.execute(
+        "INSERT INTO _customers (id, name, segment, status, created_at, created_from_call_id, "
+        "modified_at, origin) VALUES (9100, 'Registered', 'residential', 'active', ?, NULL, ?, "
+        "'run')",
+        (now_ms, now_ms),
+    )
+    reduced.execute(
+        "UPDATE _prospect_state SET registered_customer_id = 9100 WHERE identity_key = ?",
+        (victim,),
+    )
+    db.commit(reduced)
+    _generate(reduced, config, 1, SERVICE_DATE)
+    reduced_rows = _new_caller_rows_by_origin(reduced, SERVICE_DATE)
+
+    changed = {
+        origin_key
+        for origin_key, identity in full_callers.items()
+        if f"{reduced_rows[origin_key]['caller_phone']}|{reduced_rows[origin_key]['caller_name']}"
+        != identity
+    }
+    won_by_victim = {
+        origin_key for origin_key, identity in full_callers.items() if identity == victim
+    }
+    assert won_by_victim
+    assert changed == won_by_victim
+    assert len(full_callers) > len(won_by_victim)

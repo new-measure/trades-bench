@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from . import calls, demand, geography, surface
+from . import calls, demand, geography, origin_keys, surface
 from .config import RunConfig
 from .errors import EngineError, ErrorCode
 from .geo_reader import GeoArtifact
@@ -188,13 +188,16 @@ def create_customer(
 
     conn.execute("UPDATE _calls SET customer_id = ? WHERE id = ?", (customer_id, call_id))
 
+    customer_origin = origin_keys.of_call(conn, call_id)
     if prospect_id is not None:
         demand.transfer_prospect_to_customer(
-            conn, prospect_id=prospect_id, customer_id=customer_id, now_ms=now
+            conn, prospect_id=prospect_id, customer_id=customer_id, origin_key=customer_origin,
+            now_ms=now,
         )
     else:
         demand.register_customer_repeat_state(
-            conn, config, customer_id=customer_id, segment=segment, now_ms=now
+            conn, config, customer_id=customer_id, segment=segment, origin_key=customer_origin,
+            now_ms=now,
         )
 
     return {"customer_id": customer_id}

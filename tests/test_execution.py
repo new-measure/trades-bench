@@ -17,6 +17,7 @@ from _helpers import (
     GEO_ARTIFACT_ID,
     audit_count,
     geo_artifact_sha256,
+    next_test_origin,
     register_conn,
 )
 from trades_bench import (
@@ -28,6 +29,7 @@ from trades_bench import (
     execution,
     geo_reader,
     geography,
+    origin_keys,
     travel,
 )
 from trades_bench._dump import dump_hash
@@ -63,6 +65,8 @@ _TECHNICIAN_QUALIFIED_CATEGORY_ID = {
     3: PLUMBING_CATEGORY_ID,
     4: 4,
 }
+
+EARLY_FINISH_ORIGIN = "t:chain:169"
 
 _id_seq = count(9500)
 _request_seq = count(1)
@@ -101,9 +105,10 @@ def _build_run(tmp_path, *, end_date=WEEKDAY, **config_overrides):
 
 def _customer_location_call(
     conn, now_ms: int, service_date: str, *, address_catalog_id: int, config=None,
-    requested_category_id: int = HVAC_SERVICE_CATEGORY_ID,
+    requested_category_id: int = HVAC_SERVICE_CATEGORY_ID, origin_key: str | None = None,
 ) -> int:
     row_id = next(_id_seq)
+    origin_key = origin_key if origin_key is not None else next_test_origin(conn)
     conn.execute(
         "INSERT INTO _customers (id, name, segment, status, created_at, modified_at) "
         "VALUES (?, 'Acme', 'commercial', 'active', ?, ?)",
@@ -111,7 +116,8 @@ def _customer_location_call(
     )
     if config is not None:
         demand.register_customer_repeat_state(
-            conn, config, customer_id=row_id, segment="commercial", now_ms=now_ms
+            conn, config, customer_id=row_id, segment="commercial",
+            origin_key=origin_key, now_ms=now_ms,
         )
     conn.execute(
         "INSERT INTO _locations (id, customer_id, name, street, unit, city, state, "
@@ -128,8 +134,9 @@ def _customer_location_call(
     )
     conn.execute(
         "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
-        "prospect_id, arrival_event_id, created_at) VALUES (?, 'commercial', ?, NULL, NULL, ?)",
-        (row_id, requested_category_id, now_ms),
+        "prospect_id, arrival_event_id, origin_key, created_at) "
+        "VALUES (?, 'commercial', ?, NULL, NULL, ?, ?)",
+        (row_id, requested_category_id, origin_key, now_ms),
     )
     return row_id
 
@@ -306,7 +313,7 @@ def _step_until(controller, predicate, max_steps=20000):
 
 def _book_execution(controller, cfg, *, technician_id, service_date, first_block_code,
                      job_type_id=1, address_catalog_id=DESTINATION_ADDRESS.address_id,
-                     requested_category_id=None, priority="normal"):
+                     requested_category_id=None, priority="normal", origin_key=None):
     now = clock.now(controller.conn)
     category_id = (
         requested_category_id
@@ -315,7 +322,7 @@ def _book_execution(controller, cfg, *, technician_id, service_date, first_block
     )
     location_id = _customer_location_call(
         controller.conn, now, service_date, address_catalog_id=address_catalog_id, config=cfg,
-        requested_category_id=category_id,
+        requested_category_id=category_id, origin_key=origin_key,
     )
     return _book(
         controller.services, cfg,
@@ -464,17 +471,17 @@ def test_happy_path_office_day_full_chain_and_settlement(tmp_path):
         (destination.effective_zone_id, WEEKDAY),
     ).fetchone()
     condition_code = ConditionCode(weather_row["condition_code"])
-    noise_key = travel.inbound_trip_noise_key(appointment_id, WEEKDAY, 0)
+    noise_key = travel.inbound_trip_noise_key(origin_keys.of_appointment(conn, appointment_id), WEEKDAY, 0)
     actual_travel = travel.actual_travel_minutes(
         shadow, cfg, distance_km=distance_km, day_type="weekday",
         minute_of_day=departure_minute, condition_code=condition_code, noise_key=noise_key,
     )
     expected_arrival = expected_departure + actual_travel * 60000
 
-    start_variation = execution.start_variation_minutes(shadow, appointment_id, WEEKDAY)
+    start_variation = execution.start_variation_minutes(shadow, origin_keys.of_appointment(conn, appointment_id), WEEKDAY)
     expected_work_started = max(expected_arrival, block_start + start_variation * 60000)
 
-    duration_variation = execution.duration_variation_minutes(shadow, appointment_id, WEEKDAY)
+    duration_variation = execution.duration_variation_minutes(shadow, origin_keys.of_appointment(conn, appointment_id), WEEKDAY)
     multiplier = execution.execution_duration_multiplier(cfg)
     base_minutes = int((Decimal(120) * multiplier).to_integral_value(rounding=ROUND_HALF_UP))
     duration_minutes = max(
@@ -535,23 +542,13 @@ def test_happy_path_office_day_full_chain_and_settlement(tmp_path):
     assert loc["longitude"] == home.longitude
 
 
-def test_two_block_installation_duration_scales_with_reserved_block_count(tmp_path):
-    conn, cfg, controller, _ = _build_run(tmp_path)
-    booked = _book_execution(
-        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
-        job_type_id=2,
-    )
-    appointment_id = booked["appointment_id"]
+HVAC_INSTALLATION_CATEGORY_ID = 1
+INSTALL_TECHNICIAN_ID = 2
 
-    reserved_blocks = int(
-        conn.execute(
-            "SELECT COUNT(*) c FROM _appointment_blocks WHERE appointment_id = ?",
-            (appointment_id,),
-        ).fetchone()["c"]
-    )
-    assert reserved_blocks == 2
 
-    origin = execution.technician_home_point(conn, 1)
+def _expected_work_window(conn, cfg, appointment_id, *, technician_id, true_blocks):
+    appointment_origin = origin_keys.of_appointment(conn, appointment_id)
+    origin = execution.technician_home_point(conn, technician_id)
     _job_id, location_id = execution._appointment_job_location_id(conn, appointment_id)
     destination = execution.location_point(conn, location_id)
     block_start = clock.phoenix_instant(2026, 10, 1, 9, 0)
@@ -574,35 +571,86 @@ def test_two_block_installation_duration_scales_with_reserved_block_count(tmp_pa
         (destination.effective_zone_id, WEEKDAY),
     ).fetchone()
     condition_code = ConditionCode(weather_row["condition_code"])
-    noise_key = travel.inbound_trip_noise_key(appointment_id, WEEKDAY, 0)
+    noise_key = travel.inbound_trip_noise_key(appointment_origin, WEEKDAY, 0)
     actual_travel = travel.actual_travel_minutes(
         shadow, cfg, distance_km=distance_km, day_type="weekday",
         minute_of_day=departure_minute, condition_code=condition_code, noise_key=noise_key,
     )
     expected_arrival = expected_departure + actual_travel * 60000
 
-    start_variation = execution.start_variation_minutes(shadow, appointment_id, WEEKDAY)
+    start_variation = execution.start_variation_minutes(shadow, appointment_origin, WEEKDAY)
     expected_work_started = max(expected_arrival, block_start + start_variation * 60000)
 
-    duration_variation = execution.duration_variation_minutes(shadow, appointment_id, WEEKDAY)
+    duration_variation = execution.duration_variation_minutes(shadow, appointment_origin, WEEKDAY)
     multiplier = execution.execution_duration_multiplier(cfg)
     base_minutes = int(
-        (Decimal(120 * reserved_blocks) * multiplier).to_integral_value(rounding=ROUND_HALF_UP)
+        (Decimal(120 * true_blocks) * multiplier).to_integral_value(rounding=ROUND_HALF_UP)
     )
     duration_minutes = max(
         base_minutes + duration_variation, cfg.get_int("appointments.min_actual_duration_minutes")
     )
-    expected_completion = expected_work_started + duration_minutes * 60000
+    return expected_work_started, expected_work_started + duration_minutes * 60000
 
-    status = controller.run()
-    assert str(status) == "completed"
 
-    appt = conn.execute(
-        "SELECT actual_start, actual_end FROM _appointments WHERE id = ?", (appointment_id,)
+def _reserved_block_count(conn, appointment_id):
+    return int(
+        conn.execute(
+            "SELECT COUNT(*) c FROM _appointment_blocks WHERE appointment_id = ?",
+            (appointment_id,),
+        ).fetchone()["c"]
+    )
+
+
+def _actual_window(conn, appointment_id):
+    return conn.execute(
+        "SELECT actual_start, actual_end, scheduled_end FROM _appointments WHERE id = ?",
+        (appointment_id,),
     ).fetchone()
-    assert appt["actual_start"] == expected_work_started
-    assert appt["actual_end"] == expected_completion
+
+
+def test_two_block_installation_duration_scales_with_the_true_job_type_block_count(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=INSTALL_TECHNICIAN_ID, service_date=WEEKDAY,
+        first_block_code="B09_11", job_type_id=2,
+        requested_category_id=HVAC_INSTALLATION_CATEGORY_ID,
+    )
+    appointment_id = booked["appointment_id"]
+    assert _reserved_block_count(conn, appointment_id) == 2
+    expected_start, expected_end = _expected_work_window(
+        conn, cfg, appointment_id, technician_id=INSTALL_TECHNICIAN_ID, true_blocks=2,
+    )
+
+    assert str(controller.run()) == "completed"
+
+    appt = _actual_window(conn, appointment_id)
+    assert appt["actual_start"] == expected_start
+    assert appt["actual_end"] == expected_end
     assert appt["actual_end"] - appt["actual_start"] >= 240 * 60000 - 15 * 60000
+
+
+def test_an_installation_booked_as_a_one_block_service_works_its_true_duration_and_overruns(
+    tmp_path,
+):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=INSTALL_TECHNICIAN_ID, service_date=WEEKDAY,
+        first_block_code="B09_11", job_type_id=1,
+        requested_category_id=HVAC_INSTALLATION_CATEGORY_ID,
+    )
+    appointment_id = booked["appointment_id"]
+    assert _reserved_block_count(conn, appointment_id) == 1
+    expected_start, expected_end = _expected_work_window(
+        conn, cfg, appointment_id, technician_id=INSTALL_TECHNICIAN_ID, true_blocks=2,
+    )
+
+    assert str(controller.run()) == "completed"
+
+    appt = _actual_window(conn, appointment_id)
+    assert appt["actual_start"] == expected_start
+    assert appt["actual_end"] == expected_end
+    assert appt["actual_end"] - appt["actual_start"] >= 240 * 60000 - 15 * 60000
+    assert appt["actual_end"] > appt["scheduled_end"]
 
 
 def test_late_finish_moves_closing_invocation_to_actual_finish(tmp_path):
@@ -710,7 +758,7 @@ def test_consecutive_chain_departs_from_previous_job_at_actual_finish(tmp_path):
     )
     trip_index = appointments.trip_index_for_appointment(conn, second["appointment_id"])
     assert trip_index == 0
-    noise_key = travel.inbound_trip_noise_key(second["appointment_id"], WEEKDAY, trip_index)
+    noise_key = travel.inbound_trip_noise_key(origin_keys.of_appointment(conn, second["appointment_id"]), WEEKDAY, trip_index)
     shadow = _shadow_rng()
     actual_minutes = travel.actual_travel_minutes(
         shadow, cfg, distance_km=distance_km, day_type="weekday",
@@ -1028,7 +1076,7 @@ def _ledger_off_hours_entries(conn, service_date):
     return conn.execute(
         "SELECT entry_type, amount_cents, technician_id, job_id FROM _ledger_entries "
         "WHERE service_date = ? AND entry_type IN ('payroll_off_hours', 'payroll_off_hours_bonus') "
-        "ORDER BY id",
+        "AND description NOT LIKE 'overtime wages%' ORDER BY id",
         (service_date,),
     ).fetchall()
 
@@ -1314,8 +1362,8 @@ def test_abandoned_trip_en_route_reassignment_turns_technician_back(tmp_path):
     )
     departure_local = clock.phoenix_local(dispatched["occurred_at"])
     departure_minute = departure_local.hour * 60 + departure_local.minute
-    original_noise_key = travel.inbound_trip_noise_key(appointment_id, WEEKDAY, 0)
-    new_noise_key = travel.inbound_trip_noise_key(appointment_id, WEEKDAY, 1)
+    original_noise_key = travel.inbound_trip_noise_key(origin_keys.of_appointment(conn, appointment_id), WEEKDAY, 0)
+    new_noise_key = travel.inbound_trip_noise_key(origin_keys.of_appointment(conn, appointment_id), WEEKDAY, 1)
     would_be_original_minutes = travel.actual_travel_minutes(
         _shadow_rng(), cfg, distance_km=distance_km, day_type="weekday",
         minute_of_day=departure_minute, condition_code=condition_code, noise_key=original_noise_key,
@@ -1334,6 +1382,7 @@ def test_reassign_during_a_same_address_chain_trip_turns_back_to_the_true_origin
     conn, cfg, controller, _ = _build_run(tmp_path)
     first = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+        origin_key=EARLY_FINISH_ORIGIN,
     )
     second = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B11_13",
@@ -1341,6 +1390,9 @@ def test_reassign_during_a_same_address_chain_trip_turns_back_to_the_true_origin
     )
     first_id = first["appointment_id"]
     second_id = second["appointment_id"]
+    shadow = _shadow_rng()
+    assert execution.start_variation_minutes(shadow, EARLY_FINISH_ORIGIN, WEEKDAY) < 0
+    assert execution.duration_variation_minutes(shadow, EARLY_FINISH_ORIGIN, WEEKDAY) < 0
 
     first_point = execution.location_point(
         conn, execution._appointment_job_location_id(conn, first_id)[1]
@@ -2841,15 +2893,16 @@ def _job_finance_expectation(conn, cfg, job_id):
         (job_id,),
     ).fetchone()
     completion_date = clock.service_date_for_ms(int(row["completed_at"]))
+    scope = f"{origin_keys.of_job(conn, job_id)}|{completion_date}"
     shadow = _shadow_rng()
     amounts = cfg.resolved["invoices.amount"][row["code"]][row["segment"]]
     subtotal = shadow.triangular_cents(
-        KeyedStreamName.JOB_FINANCE.value, "job", job_id, completion_date, "invoice_amount",
+        KeyedStreamName.JOB_FINANCE.value, "job_origin", 1, scope, "invoice_amount",
         amounts["min_cents"], amounts["mode_cents"], amounts["max_cents"], 0,
     )
     percent_range = cfg.resolved["materials.percent_range"][row["code"]]
     basis_points = shadow.bounded_int(
-        KeyedStreamName.JOB_FINANCE.value, "job", job_id, completion_date, "material_percentage",
+        KeyedStreamName.JOB_FINANCE.value, "job_origin", 1, scope, "material_percentage",
         percent_range["min_basis_points"], percent_range["max_basis_points"], 0,
     )
     return {
@@ -2933,14 +2986,16 @@ def test_paid_completion_writes_invoice_item_payment_and_two_ledger_entries(tmp_
     assert materials[0]["job_id"] == job_id
     assert materials[0]["invoice_id"] == invoice["id"]
 
+    finance_scope = f"{origin_keys.of_job(conn, job_id)}|{expected['completion_date']}"
     audit = conn.execute(
         "SELECT event_kind, scope, draw_index, simulated_ts_ms FROM _random_audit "
-        "WHERE stream_name = ? AND entity_type = 'job' AND entity_id = ? ORDER BY seq",
-        (KeyedStreamName.JOB_FINANCE.value, job_id),
+        "WHERE stream_name = ? AND entity_type = 'job_origin' AND entity_id = 1 AND scope = ? "
+        "ORDER BY seq",
+        (KeyedStreamName.JOB_FINANCE.value, finance_scope),
     ).fetchall()
     assert [tuple(row) for row in audit] == [
-        ("invoice_amount", expected["completion_date"], 0, completed_at),
-        ("material_percentage", expected["completion_date"], 0, completed_at),
+        ("invoice_amount", finance_scope, 0, completed_at),
+        ("material_percentage", finance_scope, 0, completed_at),
     ]
 
 
@@ -3455,7 +3510,7 @@ def test_a_weekend_evening_job_earns_exactly_one_off_hours_bonus(tmp_path):
     ]
 
 
-def test_off_hours_settlement_wage_is_unchanged_by_an_overrun(tmp_path):
+def test_off_hours_block_wage_is_unchanged_by_an_overrun_which_is_paid_as_overtime(tmp_path):
     conn, cfg, controller, _ = _build_run(
         tmp_path, end_date=WEEKEND, **{"appointments.min_actual_duration_minutes": 260}
     )
@@ -3477,9 +3532,13 @@ def test_off_hours_settlement_wage_is_unchanged_by_an_overrun(tmp_path):
     assert int(appointment["actual_end"]) > int(appointment["scheduled_end"])
     entries = _ledger_off_hours_entries(conn, WEEKEND)
     assert [row["amount_cents"] for row in entries] == [-(2 * wage), -bonus]
+    overrun_minutes = (int(appointment["actual_end"]) - int(appointment["scheduled_end"])) // 60000
+    assert [row["amount_cents"] for row in _overtime_rows(conn, WEEKEND)] == [
+        -_expected_overtime_cents(overrun_minutes, wage)
+    ]
 
 
-def test_off_hours_settlement_orders_entries_by_ascending_appointment_id(tmp_path):
+def test_off_hours_settlement_orders_entries_by_booking_origin_not_by_block_time(tmp_path):
     conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
     later_block = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B13_15",
@@ -3500,7 +3559,8 @@ def test_off_hours_settlement_orders_entries_by_ascending_appointment_id(tmp_pat
 
     entries = conn.execute(
         "SELECT entry_type, job_id FROM _ledger_entries WHERE service_date = ? "
-        "AND entry_type IN ('payroll_off_hours', 'payroll_off_hours_bonus') ORDER BY id",
+        "AND entry_type IN ('payroll_off_hours', 'payroll_off_hours_bonus') "
+        "AND description NOT LIKE 'overtime wages%' ORDER BY id",
         (WEEKEND,),
     ).fetchall()
     assert [(row["entry_type"], row["job_id"]) for row in entries] == [
@@ -3570,3 +3630,249 @@ def test_a_second_invoice_or_payment_for_a_paid_completion_is_unreachable(tmp_pa
                 invoice["issued_at"],
             ),
         )
+
+
+def _overtime_rows(conn, service_date):
+    return conn.execute(
+        "SELECT amount_cents, technician_id, job_id, description FROM _ledger_entries "
+        "WHERE service_date = ? AND entry_type = 'payroll_off_hours' "
+        "AND description LIKE 'overtime wages%' ORDER BY id",
+        (service_date,),
+    ).fetchall()
+
+
+def _bonus_rows_for_job(conn, job_id):
+    return conn.execute(
+        "SELECT amount_cents FROM _ledger_entries "
+        "WHERE entry_type = 'payroll_off_hours_bonus' AND job_id = ?",
+        (job_id,),
+    ).fetchall()
+
+
+def _wage(conn, technician_id):
+    return int(
+        conn.execute(
+            "SELECT hourly_wage_cents FROM _technicians WHERE id = ?", (technician_id,)
+        ).fetchone()[0]
+    )
+
+
+def _expected_overtime_cents(minutes, wage):
+    return (minutes * wage + 30) // 60
+
+
+def test_an_under_booked_installation_in_the_last_office_block_pays_overtime(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    booked = _book_execution(
+        controller, cfg, technician_id=INSTALL_TECHNICIAN_ID, service_date=WEEKDAY,
+        first_block_code="B15_17", job_type_id=1,
+        requested_category_id=HVAC_INSTALLATION_CATEGORY_ID,
+    )
+
+    assert str(controller.run()) == "completed"
+
+    appt = _actual_window(conn, booked["appointment_id"])
+    shift_end = clock.phoenix_instant(2026, 10, 1, 17, 0)
+    minutes = (int(appt["actual_end"]) - shift_end) // 60000
+    assert minutes >= 105
+    rows = _overtime_rows(conn, WEEKDAY)
+    assert [(r["technician_id"], r["job_id"], r["amount_cents"]) for r in rows] == [
+        (
+            INSTALL_TECHNICIAN_ID,
+            booked["job_id"],
+            -_expected_overtime_cents(minutes, _wage(conn, INSTALL_TECHNICIAN_ID)),
+        )
+    ]
+    assert rows[0]["description"] == f"overtime wages ({minutes} min past shift end)"
+    assert _bonus_rows_for_job(conn, booked["job_id"]) == []
+
+
+def test_an_ordinary_overrun_past_the_office_shift_end_pays_overtime(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path, **{"appointments.min_actual_duration_minutes": 150}
+    )
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B15_17",
+    )
+
+    assert str(controller.run()) == "completed"
+
+    appt = _actual_window(conn, booked["appointment_id"])
+    minutes = (int(appt["actual_end"]) - clock.phoenix_instant(2026, 10, 1, 17, 0)) // 60000
+    assert minutes >= 30
+    rows = _overtime_rows(conn, WEEKDAY)
+    assert [(r["job_id"], r["amount_cents"]) for r in rows] == [
+        (booked["job_id"], -_expected_overtime_cents(minutes, _wage(conn, 1)))
+    ]
+    assert _bonus_rows_for_job(conn, booked["job_id"]) == []
+
+
+def test_work_inside_a_paid_after_hours_block_is_not_paid_again_as_overtime(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path, **{"appointments.min_actual_duration_minutes": 150}
+    )
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B17_19",
+    )
+
+    assert str(controller.run()) == "completed"
+
+    appt = _actual_window(conn, booked["appointment_id"])
+    block_end = clock.phoenix_instant(2026, 10, 1, 19, 0)
+    minutes_past_block = (int(appt["actual_end"]) - block_end) // 60000
+    assert minutes_past_block >= 1
+    rows = _overtime_rows(conn, WEEKDAY)
+    assert [(r["job_id"], r["amount_cents"]) for r in rows] == [
+        (booked["job_id"], -_expected_overtime_cents(minutes_past_block, _wage(conn, 1)))
+    ]
+    assert len(_bonus_rows_for_job(conn, booked["job_id"])) == 1
+
+
+def test_a_job_finishing_inside_its_shift_pays_no_overtime(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+
+    assert str(controller.run()) == "completed"
+
+    assert _overtime_rows(conn, WEEKDAY) == []
+
+
+def test_overtime_minutes_count_only_time_after_shift_end_outside_paid_windows():
+    from trades_bench import overtime
+
+    shift_end = 1_000 * 60_000
+    paid = [(0, shift_end), (shift_end + 60 * 60_000, shift_end + 120 * 60_000)]
+    span = (shift_end - 30 * 60_000, shift_end + 150 * 60_000)
+
+    assert overtime.overtime_minutes(span, shift_end, paid) == 90
+    assert overtime.overtime_minutes(span, shift_end, [(0, shift_end)]) == 150
+    assert overtime.overtime_minutes((0, shift_end), shift_end, paid) == 0
+    assert overtime.overtime_cents(90, 5_000) == 7_500
+    assert overtime.overtime_cents(1, 4_999) == 83
+
+
+def _overtime_minutes_of(rows):
+    return [int(row["description"].split("(")[1].split(" ")[0]) for row in rows]
+
+
+def test_a_weekday_technician_without_a_shift_row_is_not_paid_overtime_inside_office_hours(
+    tmp_path,
+):
+    conn, cfg, controller, _ = _build_run(tmp_path)
+    _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    conn.execute(
+        "DELETE FROM _technician_shifts WHERE technician_id = 1 AND service_date = ?",
+        (WEEKDAY,),
+    )
+
+    assert str(controller.run()) == "completed"
+
+    assert _overtime_rows(conn, WEEKDAY) == []
+
+
+def test_overtime_counts_from_the_final_dispatch_of_a_redispatched_visit(tmp_path):
+    from trades_bench import overtime
+
+    conn, cfg, controller, _ = _build_run(
+        tmp_path, **{"appointments.min_actual_duration_minutes": 150}
+    )
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B15_17",
+    )
+    assert str(controller.run()) == "completed"
+    final_dispatch = int(conn.execute(
+        "SELECT occurred_at FROM _appointment_events WHERE appointment_id = ? "
+        "AND event_type = 'dispatched'",
+        (booked["appointment_id"],),
+    ).fetchone()[0])
+    early_dispatch = final_dispatch - 3 * 60 * 60_000
+    conn.execute(
+        "INSERT INTO _appointment_events (appointment_id, technician_id, event_type, "
+        "occurred_at, service_date, detail, created_at) VALUES (?, 1, 'dispatched', ?, ?, '{}', ?)",
+        (booked["appointment_id"], early_dispatch, WEEKDAY, early_dispatch),
+    )
+
+    visits = overtime._worked_visits(conn, WEEKDAY)
+
+    assert [(v.appointment_id, v.departed_at) for v in visits] == [
+        (booked["appointment_id"], final_dispatch)
+    ]
+
+
+def test_chained_visits_past_the_shift_end_pay_only_time_outside_the_paid_block(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path, **{"appointments.min_actual_duration_minutes": 150}
+    )
+    first = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B15_17",
+    )
+    second = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B17_19",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+
+    assert str(controller.run()) == "completed"
+
+    first_end = int(_actual_window(conn, first["appointment_id"])["actual_end"])
+    second_end = int(_actual_window(conn, second["appointment_id"])["actual_end"])
+    second_dispatch = int(conn.execute(
+        "SELECT occurred_at FROM _appointment_events WHERE appointment_id = ? "
+        "AND event_type = 'dispatched'",
+        (second["appointment_id"],),
+    ).fetchone()[0])
+    shift_end = clock.phoenix_instant(2026, 10, 1, 17, 0)
+    block_end = clock.phoenix_instant(2026, 10, 1, 19, 0)
+    assert second_dispatch == first_end > shift_end
+    assert second_end > block_end
+    assert first_end < block_end
+    rows = _overtime_rows(conn, WEEKDAY)
+    assert [row["job_id"] for row in rows] == [second["job_id"]]
+    assert _overtime_minutes_of(rows) == [(second_end - block_end) // 60000]
+
+
+def test_weekend_travel_to_a_block_is_unpaid_and_only_the_overrun_past_it_is_overtime(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path, end_date=WEEKEND, **{"appointments.min_actual_duration_minutes": 150}
+    )
+    booked = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
+    )
+
+    assert str(controller.run()) == "completed"
+
+    appt = _actual_window(conn, booked["appointment_id"])
+    dispatched = int(conn.execute(
+        "SELECT occurred_at FROM _appointment_events WHERE appointment_id = ? "
+        "AND event_type = 'dispatched'",
+        (booked["appointment_id"],),
+    ).fetchone()[0])
+    assert dispatched < clock.phoenix_instant(2026, 10, 3, 9, 0)
+    rows = _overtime_rows(conn, WEEKEND)
+    assert _overtime_minutes_of(rows) == [
+        (int(appt["actual_end"]) - int(appt["scheduled_end"])) // 60000
+    ]
+
+
+def test_overtime_rows_are_ordered_by_technician_not_by_booking(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path, **{"appointments.min_actual_duration_minutes": 150}
+    )
+    plumbing = _book_execution(
+        controller, cfg, technician_id=3, service_date=WEEKDAY, first_block_code="B15_17",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+    hvac = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B15_17",
+    )
+    assert plumbing["appointment_id"] < hvac["appointment_id"]
+
+    assert str(controller.run()) == "completed"
+
+    rows = _overtime_rows(conn, WEEKDAY)
+    assert [(row["technician_id"], row["job_id"]) for row in rows] == [
+        (1, hvac["job_id"]), (3, plumbing["job_id"]),
+    ]

@@ -11,7 +11,7 @@ from typing import Any
 
 from .errors import ErrorCode
 
-SPEC_VERSION = "1.0.0"
+SPEC_VERSION = "1.1.0"
 
 _incident_logger = logging.getLogger("trades_bench.engine.incidents")
 

@@ -43,6 +43,8 @@ TWO_WEEK_HORIZON_DAYS = 14
 THREE_DAYS = ("2026-10-01", "2026-10-03")
 SHORT_HORIZON_DAYS = 3
 
+CANCELLATION_PROBABILITY_BY_SEGMENT = {"residential": 0.25, "commercial": 0.25, "apartment": 0.25}
+
 BEYOND_END_SERVICE_DATE = "2026-10-08"
 BEYOND_END_BLOCK_START = "09:00"
 
@@ -91,13 +93,14 @@ SKILLED_ASSIGNMENTS_SQL = (
 )
 
 
-def policy_config(dates: tuple[str, str]) -> RunConfig:
+def policy_config(dates: tuple[str, str], **overrides) -> RunConfig:
     keys = {
         "geography.artifact_id": GEO_ARTIFACT_ID,
         "geography.artifact_sha256": geo_artifact_sha256(),
         "demand.zone_weights": GEO_FIXTURE_ZONE_WEIGHTS,
         "run.start_date": dates[0],
         "run.end_date": dates[1],
+        **overrides,
     }
     return load_run_config(scenario_json=json.dumps({"keys": keys}))
 
@@ -471,6 +474,19 @@ def twin_runs(tmp_path_factory, config) -> dict[str, tuple[PolicyRunResult, ...]
 
 
 @pytest.fixture(scope="module")
+def cancelling_runs(tmp_path_factory) -> dict[str, PolicyRunResult]:
+    config = policy_config(
+        TWO_WEEKS,
+        **{"cancellations.base_probability_by_segment": CANCELLATION_PROBABILITY_BY_SEGMENT},
+    )
+    base = tmp_path_factory.mktemp("cancelling-policies")
+    return {
+        name: drive(build_policy(name, config), config, base / name, TWO_WEEK_HORIZON_DAYS)
+        for name in BOOKING_POLICY_NAMES
+    }
+
+
+@pytest.fixture(scope="module")
 def beyond_end_twin_runs(
     tmp_path_factory, short_config
 ) -> tuple[tuple[PolicyRunResult, BeyondEndBooker], ...]:
@@ -631,9 +647,9 @@ def test_pol02_every_accept_all_appointment_lands_in_window_and_reaches_a_termin
 
 @pytest.mark.parametrize("name", BOOKING_POLICY_NAMES)
 def test_pol_common_a_booking_policy_acknowledges_at_least_one_cancellation(
-    twin_runs, name
+    cancelling_runs, name
 ):
-    assert twin_runs[name][0].report["calls"]["cancellation"]["acknowledged"] >= 1
+    assert cancelling_runs[name].report["calls"]["cancellation"]["acknowledged"] >= 1
 
 
 def test_pol03_reject_heavy_rejects_a_seed_stable_proper_subset(twin_runs, config):

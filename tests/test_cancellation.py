@@ -10,6 +10,7 @@ from _helpers import (
     GEO_ARTIFACT_DIR,
     GEO_ARTIFACT_ID,
     geo_artifact_sha256,
+    next_test_origin,
     register_conn,
 )
 from trades_bench import appointments, booking, calls, clock, execution
@@ -108,8 +109,8 @@ def _insert_customer(conn, now, segment="residential", propensity_micros=0):
     )
     conn.execute(
         "INSERT INTO _customer_repeat_state (customer_id, propensity_micros, last_outcome, "
-        "competitor_captured_at, updated_at) VALUES (?, ?, NULL, NULL, ?)",
-        (customer_id, propensity_micros, now),
+        "competitor_captured_at, updated_at, origin_key) VALUES (?, ?, NULL, NULL, ?, ?)",
+        (customer_id, propensity_micros, now, f"t:customer:{customer_id}"),
     )
     return customer_id
 
@@ -156,6 +157,7 @@ def _insert_pending(conn, now, arrival_at, **overrides):
         "prospect_id": None,
         "related_job_id": None,
         "slot_index": None,
+        "origin_key": next_test_origin(conn),
         "created_at": now,
     }
     fields.update(overrides)
@@ -323,8 +325,9 @@ def _manufacture_call(
         call_id = int(call_cur.lastrowid)
         conn.execute(
             "INSERT INTO _call_hidden (call_id, true_segment, requested_category_id, "
-            "prospect_id, arrival_event_id, created_at) VALUES (?, ?, 2, NULL, ?, ?)",
-            (call_id, segment, fake_event_id, now),
+            "prospect_id, arrival_event_id, origin_key, created_at) "
+            "VALUES (?, ?, 2, NULL, ?, ?, ?)",
+            (call_id, segment, fake_event_id, f"t:hidden:{call_id}", now),
         )
     except BaseException:
         db.rollback(conn)

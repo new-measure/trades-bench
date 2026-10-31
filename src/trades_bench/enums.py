@@ -113,6 +113,14 @@ class EntityType(StrEnum):
     PENDING_CALL = "pending_call"
 
 
+class OriginEntity(StrEnum):
+
+    CALL = "call_origin"
+    JOB = "job_origin"
+    APPOINTMENT = "appointment_origin"
+    CUSTOMER = "customer_origin"
+
+
 class EventKind(StrEnum):
 
     DAY_ROLLOVER = "day_rollover"

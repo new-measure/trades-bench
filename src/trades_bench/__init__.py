@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-SPEC_VERSION: str = "1.0.0"
+from .wire import SPEC_VERSION
 
 __all__ = ["SPEC_VERSION"]

@@ -157,7 +157,7 @@ def test_sm_orch_05_final_day_closes_settles_finalizes_and_records_score(ordinar
     kinds = [
         row["kind"]
         for row in conn.execute(
-            "SELECT kind FROM _events WHERE status = 'applied' ORDER BY scheduled_at_ms, priority, event_id"
+            "SELECT kind FROM _events WHERE status = 'applied' ORDER BY scheduled_at_ms, priority, order_key, event_id"
         )
     ]
     assert day["settlement_status"] == "settled"
@@ -193,7 +193,7 @@ def test_sm_orch_05_final_day_job_finishes_after_midnight_before_finalize(tmp_pa
             row["kind"]
             for row in conn.execute(
                 "SELECT kind FROM _events WHERE status = 'applied' "
-                "ORDER BY scheduled_at_ms, priority, event_id"
+                "ORDER BY scheduled_at_ms, priority, order_key, event_id"
             )
         ][-4:]
         assert tail == ["closing_invocation", "daily_settlement", "checkpoint", "run_finalize"]
@@ -214,7 +214,7 @@ def test_sm_orch_07_no_holiday_calendar(ordinary_run):
 def test_sm_orch_08_weather_precedes_demand_and_demand_precedes_opening(ordinary_run):
     conn, _, _ = ordinary_run
     rows = conn.execute(
-        "SELECT kind FROM _events WHERE scheduled_at_ms = ? ORDER BY priority, event_id",
+        "SELECT kind FROM _events WHERE scheduled_at_ms = ? ORDER BY priority, order_key, event_id",
         (_instant(START, 6, 45),),
     ).fetchall()
     kinds = [row["kind"] for row in rows]
@@ -343,7 +343,7 @@ def test_sm_orch_09_previous_day_cascade_defers_the_next_day_without_reordering(
         assert second_day["opening_at"] == actual_end
         assert second_day["closing_at"] >= second_day["opening_at"]
         rows = conn.execute(
-            "SELECT kind FROM _events WHERE scheduled_at_ms = ? ORDER BY priority, event_id",
+            "SELECT kind FROM _events WHERE scheduled_at_ms = ? ORDER BY priority, order_key, event_id",
             (planned_opening,),
         ).fetchall()
         kinds = [row["kind"] for row in rows]
