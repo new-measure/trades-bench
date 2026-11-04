@@ -4,29 +4,20 @@
 
 *How good are LLMs at running a simulated home services business?*
 
-[Blog](https://newmeasure.ai/benchmarks/tradesbench) · [Explore the published runs](https://huggingface.co/datasets/adityabressl/trades-bench)
+[Blog](https://newmeasure.ai/benchmarks/tradesbench) · [Transcripts](https://huggingface.co/datasets/adityabressl/trades-bench) · [Visualize runs](https://tradesbench.newmeasure.ai/?tab=office&run=seed5-claude-opus-5-5-xhigh-a1)
 
 </div>
 
-
-Trades Bench measures how well an AI agent can operate Sunridge Services, a fictional
+Trades Bench measures how well an AI agent can operate a fictional
 home services company providing HVAC, plumbing, and electrical services. During two simulated
 weeks, the agent handles customer calls, books jobs and dispatches four
 technicians. The simulation considers real routes across the Phoenix area road network and weather conditions to estimate drive time of the technician to the customer. The benchmark reports profit, defined as final cash minus the $25,000 starting cash after the 14 day run.
 
-Good service grows the business: every job done on time brings a little more demand the next
-day, while a missed or failed visit loses customers and cuts demand.
-Weather, cancellations, variable job lengths, and drive times decide the rest.
-
-The benchmark is designed for exact replay. The run seed is hashed with the
-identity of each uncertain event, so identical seeds and actions produce identical
-simulated world. This remains true when a run resumes from a copied SQLite file.
-
 ## Results
 
-The [full write-up](https://newmeasure.ai/benchmarks/tradesbench) explains the
-methodology and reports the evaluation: five models on seed 5. We ran each model
-multiple times, and the table shows the best run of each model. Profit is final
+The [blog](https://newmeasure.ai/benchmarks/tradesbench) explains the
+methodology and has detail analysis. We ran each model
+multiple times on seed 5, and the table shows the best run of each model. Profit is final
 cash minus the $25,000 starting cash.
 
 | Run                                    | Profit             |
@@ -41,24 +32,25 @@ cash minus the $25,000 starting cash.
 | Do-nothing baseline                    | Bankrupt on day 10 |
 | Accept-all baseline                    | Bankrupt on day 12 |
 
-The [published dataset](https://huggingface.co/datasets/adityabressl/trades-bench)
-contains each model's best run on seed 5: the policy report, the full run database
-(`run.db`), complete per-turn agent logs, and the agent's final workspace. It also
-has the reference policy reports and the geography artifact used to build the
+We have [published](https://huggingface.co/datasets/adityabressl/trades-bench)
+transcripts of each model's best run on seed 5 and the geography artifact used to build the
 Phoenix area road network and address catalog.
 
 ## What's in the repository
 
-- `[src/trades_bench/](src/trades_bench/)` contains the simulation engine.
-- `[tools/policies/](tools/policies/)` contains the benchmark driver, the LLM agent
-runner, and scripted baseline policies.
-- `[tools/geo_build/](tools/geo_build/)` builds the geography artifact from an
-OpenStreetMap extract. It requires Docker and the `geo` dependency group.
-- `[data/geography-arizona-v1/](data/geography-arizona-v1/)` contains the map
-artifact. Map data is from OpenStreetMap using a Geofabrik
-extract. The artifact used in this benchmark is [published on Hugging Face](https://huggingface.co/datasets/adityabressl/trades-bench/tree/main/geography-arizona-v1).
+```text
+.
+├── src/
+│   └── trades_bench/          simulation engine
+├── tools/
+│   ├── policies/              benchmark driver, LLM agent runner, scripted baseline policies
+│   └── geo_build/             builds the geography artifact from an OpenStreetMap extract
+│                              (requires Docker and the `geo` dependency group)
+└── data/
+    └── geography-arizona-v1/  map artifact (OpenStreetMap data from a Geofabrik extract)
+```
 
-
+The geography artifact used in this benchmark is [published on Hugging Face](https://huggingface.co/datasets/adityabressl/trades-bench/tree/main/geography-arizona-v1).
 
 ## Quick start
 
@@ -102,17 +94,31 @@ docker run --rm \
   trades-bench
 ```
 
-`TB_PROVIDER`, `TB_MODEL`, and `TB_THINKING` are required. The provider is one of
-`openai`, `anthropic`, `google`, `xai`, or `meta`, and needs its Pi API key variable:
-`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, or
-`META_API_KEY`. Optional settings are `TB_SEED` (default `5`), `TB_SCENARIO` (default
-`oct_default`), and `TB_LABEL` (default `<model>-<thinking>-a1`). Results are written to
-`runs/<label>/`, including the policy report, the run database, per-turn logs, and the
-agent's final workspace. The container refuses a label that already holds results, so
-set `TB_LABEL` (for example `-e TB_LABEL=gpt-5.6-luna-high-a2`) for each further attempt.
+| Variable      | Required | Default                  | Description                                            |
+| ------------- | -------- | ------------------------ | ------------------------------------------------------ |
+| `TB_PROVIDER` | yes      |                          | `openai`, `anthropic`, `google`, `xai`, or `meta`      |
+| `TB_MODEL`    | yes      |                          | Model name, for example `gpt-5.6-luna`                 |
+| `TB_THINKING` | yes      |                          | Thinking level, for example `high`                     |
+| `TB_SEED`     | no       | `5`                      | Simulation seed                                        |
+| `TB_SCENARIO` | no       | `oct_default`            | Scenario to run                                        |
+| `TB_LABEL`    | no       | `<model>-<thinking>-a1`  | Results folder name under `runs/`                      |
 
-To
-stop a run early, use `docker stop -t 120 <container>`. The container then records the run
+Each provider also needs its Pi API key variable:
+
+| Provider    | API key variable    |
+| ----------- | ------------------- |
+| `openai`    | `OPENAI_API_KEY`    |
+| `anthropic` | `ANTHROPIC_API_KEY` |
+| `google`    | `GEMINI_API_KEY`    |
+| `xai`       | `XAI_API_KEY`       |
+| `meta`      | `META_API_KEY`      |
+
+Results are written to `runs/<label>/`, including the policy report, the run database,
+per-turn logs, and the agent's final workspace. The container refuses a label that already
+holds results, so set `TB_LABEL` (for example `-e TB_LABEL=gpt-5.6-luna-high-a2`) for each
+further attempt.
+
+To stop a run early, use `docker stop -t 120 <container>`. The container then records the run
 as failed with reason `interrupted`, writes the usage so far, and copies the run database
 before it exits.
 
