@@ -1,4 +1,4 @@
-import { Building2, Map } from "lucide-react";
+import { Building2, ChevronDown, Map } from "lucide-react";
 import type { Model } from "@/lib/model";
 import { runName } from "@/lib/runName";
 import { fmtClock, fmtDay, fmtMoney } from "@/lib/timeline";
@@ -32,22 +32,30 @@ export default function TopBar({ runs, replay, model, tab, onTab, onRun, simMs }
         ]}
       />
       {runs.length > 1 ? (
-        <select
-          value={replay.label}
-          onChange={(e) => onRun(e.target.value)}
-          className="h-9 rounded-lg border border-line bg-panel px-3 text-sm text-ink shadow-card outline-none focus:border-accent"
-        >
-          {runs.map((r, i) => {
-            // Several attempts of one config share a name; number them only when that happens.
-            const name = runName(r.label);
-            const same = runs.filter((o) => runName(o.label) === name);
-            return (
-              <option key={r.label} value={r.label}>
-                {same.length > 1 ? `${name} (${same.indexOf(runs[i]) + 1})` : name}
-              </option>
-            );
-          })}
-        </select>
+        <div className="relative">
+          <select
+            value={replay.label}
+            onChange={(e) => onRun(e.target.value)}
+            className="h-9 cursor-pointer appearance-none rounded-lg border border-line bg-panel pl-3 pr-9 text-sm text-ink shadow-card outline-none focus:border-accent"
+          >
+            {runs.map((r, i) => {
+              // Several attempts of one config share a name; number them only when that happens.
+              const name = runName(r.label);
+              const same = runs.filter((o) => runName(o.label) === name);
+              return (
+                <option key={r.label} value={r.label}>
+                  {same.length > 1 ? `${name} (${same.indexOf(runs[i]) + 1})` : name}
+                </option>
+              );
+            })}
+          </select>
+          <ChevronDown
+            size={15}
+            strokeWidth={1.75}
+            aria-hidden
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted"
+          />
+        </div>
       ) : (
         <span className="text-sm text-muted">{runName(replay.label)}</span>
       )}

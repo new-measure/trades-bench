@@ -4,7 +4,7 @@
 
 *How good are LLMs at running a simulated home services business?*
 
-[Read the results](https://newmeasure.ai/benchmarks/tradesbench) · [Explore the published runs](https://huggingface.co/datasets/adityabressl/trades-bench)
+[Blog](https://newmeasure.ai/benchmarks/tradesbench) · [Explore the published runs](https://huggingface.co/datasets/adityabressl/trades-bench)
 
 </div>
 

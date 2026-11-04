@@ -66,11 +66,13 @@ function furry(geometry: THREE.BufferGeometry, length = FUR_LENGTH): THREE.Group
 
 // ---- model logos: official marks (LobeHub icons, MIT) in public/logos, printed on a patch of the creature's own fur
 
-type Brand = "claude" | "openai" | "grok" | "other";
+type Brand = "claude" | "openai" | "grok" | "gemini" | "meta" | "other";
 
 export function brandFor(label: string): Brand {
   if (/opus|sonnet|haiku|claude/i.test(label)) return "claude";
   if (/grok/i.test(label)) return "grok";
+  if (/gemini/i.test(label)) return "gemini";
+  if (/muse|meta/i.test(label)) return "meta";
   if (/\b(sol|terra|luna|gpt)/i.test(label)) return "openai";
   return "other";
 }

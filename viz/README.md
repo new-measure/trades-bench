@@ -22,11 +22,11 @@ Replays a Trades Bench run in the browser with one shared timeline and two 3D vi
 | Notebook history | `rebuilt/memory-history.jsonl` | edit/write tool calls only (approximate) |
 | Cash curve | `run.db` ledger | `policy-report.json` daily cash |
 
-Published Hugging Face runs ship only `pi-logs/` and `policy-report.json`. `build/rebuild_run.py`
-recreates the rest: it drives the real engine through the real harness and answers each prompt by
-re-running that turn's recorded tool calls in a Docker sandbox laid out like the original agent
-host. The result is checked against the `dump_hash` in `policy-report.json`, so a verified rebuild
-is the exact world the agent played.
+Published Hugging Face runs include `run.db`, so they need no rebuild. For a run without one,
+`build/rebuild_run.py` recreates it: it drives the real engine through the real harness and answers
+each prompt by re-running that turn's recorded tool calls in a Docker sandbox laid out like the
+original agent host. The result is checked against the `dump_hash` in `policy-report.json`, so a
+verified rebuild is the exact world the agent played.
 
 ## Usage
 
@@ -34,13 +34,13 @@ Requires Docker (for rebuilds), uv, and Node 20+.
 
 ```bash
 # 1. fetch a run (any path under runs/ on the dataset)
-python3 viz/build/fetch_run.py seed5/opus5-xhigh-a1
+python3 viz/build/fetch_run.py seed5/claude-opus-5-5-xhigh-a1
 
-# 2. rebuild run.db if the run doesn't have one (~10 min), verified against dump_hash
-uv run python viz/build/rebuild_run.py runs/seed5/opus5-xhigh-a1
+# 2. only if the run has no run.db: rebuild it (~10 min), verified against dump_hash
+uv run python viz/build/rebuild_run.py runs/seed5/claude-opus-5-5-xhigh-a1
 
 # 3. build the viewer data (any number of runs)
-uv run python viz/build/build_replay.py runs/seed5/opus5-xhigh-a1
+uv run python viz/build/build_replay.py runs/seed5/claude-opus-5-5-xhigh-a1
 
 # 4. open the viewer
 cd viz/app && npm install && npm run dev
