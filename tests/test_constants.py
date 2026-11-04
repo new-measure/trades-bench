@@ -30,9 +30,7 @@ def test_timing_variation_triangular_15_0_15():
     assert const_mod.GRACE_MINUTES == 10
 
 
-def test_install_and_workforce_constants():
-    assert const_mod.INSTALL_BLOCKS == 2
-    assert const_mod.INSTALL_MAX_START_MIN == 13 * 60
+def test_workforce_constants():
     assert const_mod.STARTING_TECHNICIANS == 4
     assert const_mod.SICKNESS_DAYS == (1, 3)
     assert const_mod.WEEKDAY_PAY_MULTIPLIER == 10

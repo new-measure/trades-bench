@@ -11,8 +11,8 @@ def new_caller(local_date: str, zone_id: int, slot_index: int) -> str:
     return f"n:{local_date}:{zone_id}:{slot_index}"
 
 
-def repeat_call(local_date: str, customer_origin: str) -> str:
-    return f"r:{local_date}:{customer_origin}"
+def repeat_call(local_date: str, slot_index: int, customer_origin: str) -> str:
+    return f"r:{local_date}:{slot_index}:{customer_origin}"
 
 
 def cancellation_call(appointment_origin: str) -> str:

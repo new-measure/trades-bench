@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import date
 
 from . import clock, constants
-from .enums import DayType, EventKind
+from .money import basis_point_amount
 
 MINUTE_MS = 60_000
 MINUTES_PER_HOUR = 60
@@ -34,25 +33,9 @@ class WorkedVisit:
     ended_at: int
 
 
-def _overlap_ms(span: Interval, paid: list[Interval]) -> int:
-    start, end = span
-    covered = 0
-    cursor = start
-    for paid_start, paid_end in sorted(paid):
-        lo = max(cursor, paid_start)
-        hi = min(end, paid_end)
-        if hi > lo:
-            covered += hi - lo
-            cursor = hi
-    return covered
-
-
-def overtime_minutes(visit_span: Interval, eligible_from: int, paid: list[Interval]) -> int:
-    start = max(visit_span[0], eligible_from)
-    end = visit_span[1]
-    if end <= start:
-        return 0
-    return (end - start - _overlap_ms((start, end), paid)) // MINUTE_MS
+def overtime_minutes(visit_span: Interval, paid_until: int) -> int:
+    start = max(visit_span[0], paid_until)
+    return max(0, visit_span[1] - start) // MINUTE_MS
 
 
 def office_shift_end(service_date: str) -> int:
@@ -61,24 +44,37 @@ def office_shift_end(service_date: str) -> int:
     return clock.phoenix_instant(d.year, d.month, d.day, end_minute // 60, end_minute % 60)
 
 
-def visit_overtime_minutes(
-    *,
-    service_date: str,
-    scheduled_start: int,
-    departed_at: int,
-    ended_at: int,
-    paid_off_hours: list[Interval],
-) -> int:
-    weekday = (
-        DayType.from_iso_weekday(date.fromisoformat(service_date).isoweekday())
-        is DayType.WEEKDAY
-    )
-    eligible_from = office_shift_end(service_date) if weekday else scheduled_start
-    return overtime_minutes((departed_at, ended_at), eligible_from, paid_off_hours)
+def paid_until(conn: sqlite3.Connection, technician_id: int, service_date: str) -> int:
+    row = conn.execute(
+        "SELECT MAX(end_at) AS end_at FROM _technician_shifts "
+        "WHERE technician_id = ? AND service_date = ? AND active = 1",
+        (technician_id, service_date),
+    ).fetchone()
+    if row["end_at"] is None:
+        return office_shift_end(service_date)
+    return int(row["end_at"])
 
 
 def overtime_cents(minutes: int, hourly_wage_cents: int) -> int:
     return (minutes * hourly_wage_cents + MINUTES_PER_HOUR // 2) // MINUTES_PER_HOUR
+
+
+def paid_invoice_subtotal_cents(conn: sqlite3.Connection, appointment_id: int) -> int | None:
+    row = conn.execute(
+        "SELECT i.subtotal_cents AS subtotal_cents FROM _appointments a "
+        "JOIN _invoices i ON i.job_id = a.job_id "
+        "WHERE a.id = ? AND a.status = 'completed' AND i.status = 'paid'",
+        (appointment_id,),
+    ).fetchone()
+    return None if row is None else int(row["subtotal_cents"])
+
+
+def capped_overtime_cents(
+    hourly_cents: int, paid_subtotal_cents: int | None, cap_basis_points: int
+) -> int:
+    if paid_subtotal_cents is None:
+        return hourly_cents
+    return min(hourly_cents, basis_point_amount(paid_subtotal_cents, cap_basis_points))
 
 
 def _worked_visits(conn: sqlite3.Connection, service_date: str) -> list[WorkedVisit]:
@@ -111,46 +107,26 @@ def _worked_visits(conn: sqlite3.Connection, service_date: str) -> list[WorkedVi
     )
 
 
-def _paid_off_hours_windows(
-    conn: sqlite3.Connection, day_start: int, day_end: int
-) -> dict[int, list[Interval]]:
-    windows: dict[int, list[Interval]] = {}
-    marks = conn.execute(
-        "SELECT payload FROM _events WHERE kind = ? AND status = 'applied' "
-        "AND scheduled_at_ms >= ? AND scheduled_at_ms < ? ORDER BY order_key, event_id",
-        (EventKind.OFF_HOURS_ACCRUAL_MARK.value, day_start, day_end),
-    ).fetchall()
-    for mark in marks:
-        payload = json.loads(mark["payload"]) if mark["payload"] else {}
-        if "technician_id" not in payload:
-            continue
-        appointment = conn.execute(
-            "SELECT scheduled_start, scheduled_end FROM _appointments WHERE id = ?",
-            (int(payload["appointment_id"]),),
-        ).fetchone()
-        windows.setdefault(int(payload["technician_id"]), []).append(
-            (int(appointment["scheduled_start"]), int(appointment["scheduled_end"]))
-        )
-    return windows
-
-
 def overtime_pay(
-    conn: sqlite3.Connection, service_date: str, *, day_start: int, day_end: int
+    conn: sqlite3.Connection,
+    service_date: str,
+    *,
+    cap_basis_points: int,
 ) -> list[OvertimePay]:
-    off_hours = _paid_off_hours_windows(conn, day_start, day_end)
     pay: list[OvertimePay] = []
     for visit in _worked_visits(conn, service_date):
-        minutes = visit_overtime_minutes(
-            service_date=service_date,
-            scheduled_start=visit.scheduled_start,
-            departed_at=visit.departed_at,
-            ended_at=visit.ended_at,
-            paid_off_hours=off_hours.get(visit.technician_id, []),
+        minutes = overtime_minutes(
+            (visit.departed_at, visit.ended_at),
+            paid_until(conn, visit.technician_id, service_date),
         )
         wage = conn.execute(
             "SELECT hourly_wage_cents FROM _technicians WHERE id = ?", (visit.technician_id,)
         ).fetchone()
-        amount = overtime_cents(minutes, int(wage["hourly_wage_cents"]))
+        amount = capped_overtime_cents(
+            overtime_cents(minutes, int(wage["hourly_wage_cents"])),
+            paid_invoice_subtotal_cents(conn, visit.appointment_id),
+            cap_basis_points,
+        )
         if amount > 0:
             pay.append(OvertimePay(visit.technician_id, visit.job_id, minutes, amount))
     return pay
@@ -159,9 +135,11 @@ def overtime_pay(
 __all__ = [
     "OvertimePay",
     "WorkedVisit",
+    "capped_overtime_cents",
     "office_shift_end",
     "overtime_cents",
     "overtime_minutes",
     "overtime_pay",
-    "visit_overtime_minutes",
+    "paid_invoice_subtotal_cents",
+    "paid_until",
 ]

@@ -64,7 +64,10 @@ CORE_TABLES: tuple[_Table, ...] = (
     _Table("_appointment_blocks", "id"),
     _Table("_appointment_assignments", "id"),
     _Table("_appointment_events", "id"),
-    _Table("_technician_block_holds", "technician_id, block_start"),
+    _Table(
+        "_technician_block_holds",
+        "technician_id, block_start, hold_kind, appointment_id, non_job_appointment_id",
+    ),
     _Table("_technicians", "id"),
     _Table("_technician_skills", "id"),
     _Table("_technician_shifts", "id"),

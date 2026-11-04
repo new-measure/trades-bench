@@ -52,7 +52,7 @@ TWO_WEEK_HORIZON_DAYS = 14
 THREE_DAYS = ("2026-10-01", "2026-10-03")
 SHORT_HORIZON_DAYS = 3
 
-CANCELLATION_PROBABILITY_BY_SEGMENT = {"residential": 0.25, "commercial": 0.25, "apartment": 0.25}
+CANCELLATION_PROBABILITY_BY_SEGMENT = {"residential": 0.5, "commercial": 0.5, "apartment": 0.5}
 
 BEYOND_END_SERVICE_DATE = "2026-10-08"
 BEYOND_END_BLOCK_START = "09:00"
@@ -64,11 +64,16 @@ ACTIVE_TECHNICIANS_SQL = (
 POLICY_NAMES = ("do_nothing", "accept_all", "reject_heavy")
 BOOKING_POLICY_NAMES = ("accept_all", "reject_heavy")
 
-POLICY_MODULE_NAMES = ("__init__", "base", "accept_all", "do_nothing", "reject_heavy")
+POLICY_MODULE_NAMES = (
+    "__init__",
+    "base",
+    "accept_all",
+    "do_nothing",
+    "reject_heavy",
+    "oracle",
+)
 OPERATOR_MODULE_NAMES = (
     "runner",
-    "oracle",
-    "fork_search",
     "calibration",
     "experiment",
     "pi_run",

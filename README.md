@@ -11,10 +11,12 @@
 
 Trades Bench measures how well an AI agent can operate Sunridge Services, a fictional
 home services company providing HVAC, plumbing, and electrical services. During two simulated
-weeks, the agent handles customer calls, schedules work, and dispatches four technicians.
-The benchmark reports profit, defined as final cash minus the $29,500 starting cash
-after the 14 day run. Weather, demand, cancellations, and travel across a real
-Phoenix area road network determine the outcome.
+weeks, the agent handles customer calls, books jobs and dispatches four
+technicians. The simulation considers real routes across the Phoenix area road network and weather conditions to estimate drive time of the technician to the customer. The benchmark reports profit, defined as final cash minus the $25,000 starting cash after the 14 day run.
+
+Good service grows the business: every job done on time brings a little more demand the next
+day, while a missed or failed visit loses customers and cuts demand.
+Weather, cancellations, variable job lengths, and drive times decide the rest.
 
 The benchmark is designed for exact replay. The run seed is hashed with the
 identity of each uncertain event, so identical seeds and actions produce identical
@@ -22,21 +24,28 @@ simulated world. This remains true when a run resumes from a copied SQLite file.
 
 ## Results
 
-The [full write up](https://newmeasure.ai/benchmarks/tradesbench) explains the
-methodology and reports the evaluation - 14 configurations across claude-opus-5,
-grok-4.6, gpt-5.6-sol, gpt-5.6-terra, and gpt-5.6-luna. Each configuration received
-three attempts, with the best attempt reported.
+The [full write-up](https://newmeasure.ai/benchmarks/tradesbench) explains the
+methodology and reports the evaluation: five models on seed 5. We ran each model
+multiple times, and the table shows the best run of each model. Profit is final
+cash minus the $25,000 starting cash.
 
-
-| Result                                                   | Profit      |
-| -------------------------------------------------------- | ----------- |
-| Best model run, claude-opus-5 with xhigh thinking effort | +$13,098.42 |
-| Rule-based baseline                                      | +$15,843.26 |
-
+| Run                                    | Profit             |
+| -------------------------------------- | ------------------ |
+| Oracle (scripted reference policy)     | +$30,289.56        |
+| GPT-6 Astra, xhigh thinking effort     | +$23,934.51        |
+| Gemini 4 Argon, high thinking effort   | +$23,431.93        |
+| Claude Opus 5.5, xhigh thinking effort | +$23,118.20        |
+| GPT-6.1 Sol, xhigh thinking effort     | +$21,911.92        |
+| Muse Wonder, xhigh thinking effort     | +$11,432.48        |
+| Reject-heavy baseline                  | Bankrupt on day 11 |
+| Do-nothing baseline                    | Bankrupt on day 10 |
+| Accept-all baseline                    | Bankrupt on day 12 |
 
 The [published dataset](https://huggingface.co/datasets/adityabressl/trades-bench)
-contains the manifest for seed 5, per run policy reports, complete per-turn agent
-logs, and the geography artifact used to build the Phoenix area road network and address catalog.
+contains each model's best run on seed 5: the policy report, the full run database
+(`run.db`), complete per-turn agent logs, and the agent's final workspace. It also
+has the reference policy reports and the geography artifact used to build the
+Phoenix area road network and address catalog.
 
 ## What's in the repository
 

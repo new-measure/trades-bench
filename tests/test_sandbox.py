@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from trades_bench.config import load_run_config
 from trades_bench.harness import workspace
 from trades_bench.harness.sandbox import (
     AGENT_HOME_MODE,
@@ -185,7 +186,7 @@ def test_the_real_probe_and_workspace_hand_over_as_an_unprivileged_user():
         public = base / "public.txt"
         public.write_text("visible", encoding="utf-8")
         os.chmod(public, SHARED_FILE_MODE)
-        root = workspace.create(base / "workspace")
+        root = workspace.create(base / "workspace", load_run_config())
         hand_over_workspace(
             root,
             user,
@@ -272,7 +273,7 @@ def test_the_agent_can_write_its_workspace_but_never_replace_the_docs():
     base = Path(tempfile.mkdtemp(prefix="sandbox-docs-", dir="/tmp"))
     try:
         os.chmod(base, SHARED_DIR_MODE)
-        root = workspace.create(base / "workspace")
+        root = workspace.create(base / "workspace", load_run_config())
         hand_over_workspace(
             root,
             user,

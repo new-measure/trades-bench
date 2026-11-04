@@ -69,6 +69,7 @@ _STOP_LOCK_TIMEOUT_SECONDS = 5.0
 _STOP_DRAIN_TIMEOUT_SECONDS = 20.0
 _STOP_DRAIN_POLL_SECONDS = 0.02
 _LOOPBACK_HOST = "127.0.0.1"
+_LISTEN_BACKLOG = 64
 
 _CONTROL_FIELDS: dict[str, frozenset[str]] = {
     "next_invocation": frozenset({"request_id"}),
@@ -449,6 +450,11 @@ def _fit_row_count(columns: list[str], rows: list[list], max_bytes: int) -> int:
     return lo
 
 
+class _Server(ThreadingHTTPServer):
+
+    request_queue_size = _LISTEN_BACKLOG
+
+
 class Engine:
 
     def __init__(
@@ -479,7 +485,7 @@ class Engine:
         self.sql_conn = open_agent_session(self.db_path)
         self.shadow_conn = open_shadow_connection(self.db_path)
         self._as_of_fallback = clock.to_iso8601(clock.now(services.conn))
-        self._httpd: ThreadingHTTPServer | None = None
+        self._httpd: _Server | None = None
         self._thread: threading.Thread | None = None
         self._shutting_down = False
         self._stopped = False
@@ -511,7 +517,7 @@ class Engine:
             raise RuntimeError("engine has been stopped and cannot be restarted")
         if self._httpd is not None:
             raise RuntimeError("engine already started")
-        httpd = ThreadingHTTPServer((self.host, 0), _Handler)
+        httpd = _Server((self.host, 0), _Handler)
         httpd.engine = self  # type: ignore[attr-defined]
         self._httpd = httpd
         thread = threading.Thread(target=httpd.serve_forever, daemon=True)

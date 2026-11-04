@@ -140,7 +140,7 @@ def run_pi_agent(
         require_sealed_ancestors(chosen_workspace, SandboxUser.lookup(pi_config.sandbox_user))
     require_fresh_workspace(chosen_workspace)
     paths = PolicyRunPaths.under(run_dir, workspace=workspace_dir)
-    paths.create()
+    paths.create(config)
     sandbox = _prepare_sandbox(paths, pi_config)
     staging = None if sandbox is None else create_session_staging(sandbox)
     archive = paths.run_dir / SESSION_ARCHIVE_DIRNAME

@@ -266,17 +266,25 @@ def test_settlement_posts_expected_ledger_rows_in_order(completed_run):
             (service_date,),
         ).fetchall()
         weekday = date.fromisoformat(service_date).isoweekday() <= 5
+        on_call_hours = 2 if weekday else 12
+        wages = {int(t["id"]): int(t["hourly_wage_cents"]) for t in technicians}
+        on_call = rows[:2]
+        assert [(row["entry_type"], row["description"], row["technician_id"]) for row in on_call] == [
+            ("payroll_off_hours", "on-call wages", 1), ("payroll_off_hours", "on-call wages", 3),
+        ]
+        for row in on_call:
+            assert row["amount_cents"] == -on_call_hours * wages[row["technician_id"]]
         if weekday:
-            assert [row["entry_type"] for row in rows] == ["payroll_base"] * 4 + [
+            assert [row["entry_type"] for row in rows[2:]] == ["payroll_base"] * 4 + [
                 "operating_overhead"
             ]
-            for row, technician in zip(rows[:4], technicians, strict=False):
+            for row, technician in zip(rows[2:6], technicians, strict=False):
                 assert row["technician_id"] == technician["id"]
                 assert row["amount_cents"] == -(
                     constants.WEEKDAY_PAY_MULTIPLIER * technician["hourly_wage_cents"]
                 )
         else:
-            assert [row["entry_type"] for row in rows] == ["operating_overhead"]
+            assert [row["entry_type"] for row in rows[2:]] == ["operating_overhead"]
         assert rows[-1]["amount_cents"] == -overhead
         for row in rows:
             assert row["amount_cents"] < 0

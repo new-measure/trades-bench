@@ -11,8 +11,8 @@ from _helpers import (
     GEO_FIXTURE_ZONE_WEIGHTS,
     geo_artifact_sha256,
 )
-from policies import calibration
-from policies.runner import report_bytes
+from policies import calibration, oracle
+from policies.runner import REPORT_FILENAME, report_bytes
 from trades_bench.config import RunConfig, load_run_config
 from trades_bench.run_init import initialize_run, open_run_db
 
@@ -413,3 +413,14 @@ def test_the_ledger_digest_separates_two_different_runs(short_matrix):
     assert calibration.ledger_digest(idle, geo_dir=GEO_ARTIFACT_DIR) != calibration.ledger_digest(
         booking, geo_dir=GEO_ARTIFACT_DIR
     )
+
+
+def test_the_oracle_row_is_played_through_the_public_policy_runner(short_matrix):
+    _, out_dir = short_matrix
+    for scenario in ("oct_default", "july_monsoon"):
+        run_dir = out_dir / scenario / str(SEED) / calibration.ORACLE_POLICY_NAME
+        stored = json.loads((run_dir / REPORT_FILENAME).read_bytes())
+
+        assert calibration.ORACLE_POLICY_NAME == oracle.POLICY_NAME == "oracle"
+        assert stored["policy"] == oracle.POLICY_NAME
+        assert (run_dir / "run.db").is_file()

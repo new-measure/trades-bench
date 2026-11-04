@@ -584,7 +584,7 @@ def _parse_json_stream(stdout_path: Path) -> _ParsedStream:
         elif kind == "agent_end":
             messages = event.get("messages")
             if isinstance(messages, list):
-                finished = [m for m in messages if isinstance(m, dict)]
+                finished = [*(finished or []), *(m for m in messages if isinstance(m, dict))]
 
     everything = finished if finished is not None else streamed
     messages = [m for m in everything if m.get("role") == "assistant"]

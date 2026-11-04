@@ -1,779 +1,625 @@
 from __future__ import annotations
 
-import json
-import sqlite3
-from collections.abc import Callable, Iterator, Mapping, Sequence
+import math
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import ROUND_HALF_UP, Decimal
-from pathlib import Path
-from typing import Any
 
-from policies.base import DEFAULT_HORIZON_DAYS
-from policies.runner import (
-    DEFAULT_SCENARIO,
-    PolicyRunPaths,
-    PolicyRunResult,
-    build_report,
-    write_scored_report,
-)
-from trades_bench import (
-    appointments,
-    booking,
-    calls,
-    clock,
-    crm,
-    execution,
-    overtime,
-    run_init,
-)
-from trades_bench.adapter import AdapterPrompt, AdapterResponse
-from trades_bench.appointments import BLOCK_CODES, BookingPlan
-from trades_bench.config import RunConfig
-from trades_bench.constants import (
-    BLOCK_GRID_MINUTES,
-    TIMING_VARIATION_HIGH,
-    TIMING_VARIATION_LOW,
-)
-from trades_bench.controller import Controller
-from trades_bench.enums import DayType, PromptKind
-from trades_bench.errors import EngineError
+from policies import accept_all
+from policies.base import PolicyOutcome, PolicyRequest
+from trades_bench import clock
+from trades_bench.appointments import BLOCK_CODES, is_off_hours
 
 POLICY_NAME = "oracle"
-POLICY_VERSION = "1.1.0"
-TRACK = "oracle"
+POLICY_VERSION = "2.1.0"
 
-BASELINE_GREEDY = "greedy"
-BASELINE_DATE_MAJOR = "date_major"
+EARTH_DIAMETER_KM = 12742.0
+ROAD_DETOUR_FACTOR = 1.3
+PLANNING_SPEED_KMH = 40.0
+MINIMUM_TRAVEL_MINUTES = 5
+OPENING_MINUTE_OF_DAY = 6 * 60 + 45
+MINUTE_MS = 60_000
+INSTALL_JOB_TYPE_CODE = "hvac_installation"
+PUBLISHED_DURATIONS: Mapping[str, Mapping[str, int]] = {
+    "hvac_service": {"min": 45, "mode": 75, "max": 180},
+    "hvac_installation": {"min": 120, "mode": 300, "max": 480},
+    "plumbing": {"min": 45, "mode": 75, "max": 180},
+    "electrical": {"min": 45, "mode": 90, "max": 210},
+}
 
-RUN_END_DATE_KEY = "run.end_date"
-
-BASIS_POINTS = 10_000
-MINUTES_PER_HOUR = 60
-MILLISECONDS_PER_DAY = 86_400_000
-
-BLOCK_HOURS = (BLOCK_GRID_MINUTES[0][1] - BLOCK_GRID_MINUTES[0][0]) // MINUTES_PER_HOUR
-OFF_HOURS_BLOCK_CODE = "B17_19"
-
-BLOCK_STARTS: tuple[str, ...] = tuple(
-    f"{start // 60:02d}:{start % 60:02d}" for start, _end in BLOCK_GRID_MINUTES
+ROUTE_SQL = (
+    "SELECT aa.technician_id AS technician_id, a.id AS appointment_id, "
+    "a.arrival_window_start AS window_start, a.arrival_window_end AS window_end, "
+    "l.latitude AS latitude, l.longitude AS longitude, jt.code AS job_type_code, "
+    "jt.required_skill_code AS required_skill_code, "
+    "a.status AS status, a.actual_start AS actual_start "
+    "FROM appointments a "
+    "JOIN appointment_assignments aa ON aa.appointment_id = a.id AND aa.status = 'active' "
+    "JOIN jobs j ON j.id = a.job_id "
+    "JOIN job_types jt ON jt.id = j.job_type_id "
+    "JOIN locations l ON l.id = j.location_id "
+    "WHERE a.status NOT IN ('completed', 'failed', 'no_show', 'cancelled') "
+    "ORDER BY a.arrival_window_start, a.id"
 )
-
-CALL_SQL = (
-    "SELECT c.id AS call_id, c.arrived_at AS arrived_at, c.call_kind AS call_kind, "
-    "c.urgent AS urgent, c.segment AS segment, c.customer_id AS customer_id, "
-    "c.location_id AS location_id, c.caller_name AS caller_name, "
-    "c.caller_phone AS caller_phone, h.requested_category_id AS requested_category_id "
-    "FROM _calls c JOIN _call_hidden h ON h.call_id = c.id WHERE c.id = ?"
-)
-TRUE_JOB_TYPE_SQL = (
-    "SELECT jt.id AS id, jt.code AS code, jt.scheduled_blocks AS scheduled_blocks, "
-    "jt.required_skill_code AS required_skill_code "
-    "FROM _call_hidden h JOIN _service_catalog sc ON sc.id = h.requested_category_id "
-    "JOIN _job_types jt ON jt.id = sc.supported_job_type_id WHERE h.call_id = ?"
-)
-ACTIVE_TECHNICIANS_SQL = (
-    "SELECT id, hourly_wage_cents FROM _technicians "
+HOMES_SQL = (
+    "SELECT id, home_latitude, home_longitude FROM technicians "
     "WHERE employment_status = 'active' ORDER BY id"
 )
-SKILL_HOLDER_SQL = (
-    "SELECT 1 FROM _technician_skills "
-    "WHERE technician_id = ? AND skill_code = ? AND active = 1 LIMIT 1"
-)
-ACCEPTANCE_PARAMETERS_SQL = (
-    "SELECT base_micros, decay_micros, floor_micros FROM _acceptance_parameters "
-    "WHERE urgency_class = ?"
-)
-CUSTOMER_SEGMENT_SQL = "SELECT segment FROM _customers WHERE id = ?"
-
-
-class OracleError(RuntimeError):
-    pass
-
-
-def _decimal(value: object) -> Decimal:
-    return Decimal(str(value))
-
-
-def _cents(value: Decimal) -> int:
-    return int(value.to_integral_value(rounding=ROUND_HALF_UP))
+LOCATION_SQL = "SELECT latitude, longitude FROM locations WHERE id = {location_id}"
 
 
 @dataclass(frozen=True)
-class ReadContext:
+class Stop:
 
-    conn: sqlite3.Connection
-    now_ms: int
-
-    def now(self) -> int:
-        return self.now_ms
-
-
-@dataclass(frozen=True)
-class Technician:
-
-    technician_id: int
-    hourly_wage_cents: int
+    window_start: int
+    window_end: int
+    point: tuple[float, float]
+    duration_minutes: int
+    started_at: int | None = None
+    appointment_id: int | None = None
+    skill_code: str | None = None
+    movable: bool = False
+    unstarted: bool = False
 
 
 @dataclass(frozen=True)
-class JobType:
-
-    job_type_id: int
-    code: str
-    scheduled_blocks: int
-    required_skill_code: str | None
-
-
-@dataclass(frozen=True)
-class Candidate:
+class Slot:
 
     service_date: str
-    block_start: str
+    block_index: int
     technician_id: int
-    score_cents: int
+    window: tuple[int, int]
+    off_hours: bool
+    added_minutes: int
 
 
-@dataclass(frozen=True)
-class Pricing:
-
-    expected_margin_cents: Decimal
-    acceptance_base: Decimal
-    acceptance_decay: Decimal
-    acceptance_floor: Decimal
-    cancellation_base: Decimal
-    cancellation_urgent_multiplier: Decimal
-    cancellation_lead_days_coefficient: Decimal
-    off_hours_bonus_cents: int
-
-
-def _row(conn: sqlite3.Connection, statement: str, *params: object) -> sqlite3.Row | None:
-    return conn.execute(statement, params).fetchone()
-
-
-def read_call(conn: sqlite3.Connection, call_id: int) -> sqlite3.Row:
-    row = _row(conn, CALL_SQL, call_id)
-    if row is None:
-        raise OracleError(f"call {call_id} carries no arrived-call record")
-    return row
-
-
-def true_job_type(conn: sqlite3.Connection, call_id: int) -> JobType | None:
-    row = _row(conn, TRUE_JOB_TYPE_SQL, call_id)
-    if row is None:
-        return None
-    required_skill_code = row["required_skill_code"]
-    return JobType(
-        job_type_id=int(row["id"]),
-        code=str(row["code"]),
-        scheduled_blocks=int(row["scheduled_blocks"]),
-        required_skill_code=None if required_skill_code is None else str(required_skill_code),
+def travel_minutes(a: tuple[float, float], b: tuple[float, float]) -> int:
+    lat1, lon1, lat2, lon2 = map(math.radians, (*a, *b))
+    haversine = (
+        math.sin((lat2 - lat1) / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
     )
+    kilometres = EARTH_DIAMETER_KM * math.asin(math.sqrt(haversine)) * ROAD_DETOUR_FACTOR
+    return max(MINIMUM_TRAVEL_MINUTES, round(kilometres / PLANNING_SPEED_KMH * 60))
 
 
-def active_technicians(conn: sqlite3.Connection) -> tuple[Technician, ...]:
-    return tuple(
-        Technician(
-            technician_id=int(row["id"]), hourly_wage_cents=int(row["hourly_wage_cents"])
-        )
-        for row in conn.execute(ACTIVE_TECHNICIANS_SQL).fetchall()
-    )
+def expected_minutes(durations: Mapping[str, Mapping[str, int]], job_type_code: str) -> int:
+    triple = durations[job_type_code]
+    total = int(triple["min"]) + int(triple["mode"]) + int(triple["max"])
+    return (total + 1) // 3
 
 
-def arrival_failure_reason(
-    conn: sqlite3.Connection, technician_id: int, job_type: JobType
-) -> str | None:
-    if job_type.required_skill_code is None:
-        return None
-    holder = _row(conn, SKILL_HOLDER_SQL, technician_id, job_type.required_skill_code)
-    return None if holder is not None else "unqualified"
-
-
-def acceptance_parameters(
-    conn: sqlite3.Connection, urgency_class: str
-) -> tuple[Decimal, Decimal, Decimal]:
-    row = _row(conn, ACCEPTANCE_PARAMETERS_SQL, urgency_class)
-    if row is None:
-        raise OracleError(f"no acceptance parameters for urgency class {urgency_class!r}")
-    scale = Decimal(10**6)
-    return (
-        Decimal(int(row["base_micros"])) / scale,
-        Decimal(int(row["decay_micros"])) / scale,
-        Decimal(int(row["floor_micros"])) / scale,
-    )
-
-
-def customer_segment(conn: sqlite3.Connection, customer_id: int) -> str:
-    row = _row(conn, CUSTOMER_SEGMENT_SQL, customer_id)
-    if row is None:
-        raise OracleError(f"customer {customer_id} carries no segment")
-    return str(row["segment"])
-
-
-def expected_margin_cents(config: RunConfig, job_type_code: str, segment: str) -> Decimal:
-    amounts = config.resolved["invoices.amount"][job_type_code][segment]
-    mean_invoice = (
-        _decimal(amounts["min_cents"])
-        + _decimal(amounts["mode_cents"])
-        + _decimal(amounts["max_cents"])
-    ) / Decimal(3)
-    percent_range = config.resolved["materials.percent_range"][job_type_code]
-    mean_basis_points = (
-        _decimal(percent_range["min_basis_points"]) + _decimal(percent_range["max_basis_points"])
-    ) / Decimal(2)
-    return mean_invoice * (Decimal(1) - mean_basis_points / Decimal(BASIS_POINTS))
-
-
-def pricing_for(
-    conn: sqlite3.Connection,
-    config: RunConfig,
-    *,
-    job_type: JobType,
-    segment: str,
-    urgency_class: str,
-) -> Pricing:
-    base, decay, floor = acceptance_parameters(conn, urgency_class)
-    return Pricing(
-        expected_margin_cents=expected_margin_cents(config, job_type.code, segment),
-        acceptance_base=base,
-        acceptance_decay=decay,
-        acceptance_floor=floor,
-        cancellation_base=_decimal(
-            config.resolved["cancellations.base_probability_by_segment"][segment]
-        ),
-        cancellation_urgent_multiplier=config.get_decimal("cancellations.urgent_multiplier"),
-        cancellation_lead_days_coefficient=config.get_decimal(
-            "cancellations.lead_days_coefficient"
-        ),
-        off_hours_bonus_cents=config.get_int("payroll.off_hours_bonus_per_job"),
-    )
-
-
-def cancellation_probability(pricing: Pricing, *, urgent: bool, lead_days: Decimal) -> Decimal:
-    probability = (
-        pricing.cancellation_base
-        * (pricing.cancellation_urgent_multiplier if urgent else Decimal(1))
-        * (Decimal(1) + pricing.cancellation_lead_days_coefficient * lead_days)
-    )
-    return max(Decimal(0), min(Decimal(1), probability))
-
-
-def off_hours_cost_cents(
-    plan: BookingPlan, *, hourly_wage_cents: int, bonus_cents: int
+def quantile_minutes(
+    durations: Mapping[str, Mapping[str, int]], job_type_code: str, quantile: float
 ) -> int:
-    day_type = execution.day_type_for(plan.service_date)
-    off_hours = any(
-        day_type is DayType.WEEKEND or block_code == OFF_HOURS_BLOCK_CODE
-        for block_code in plan.block_codes
+    triple = durations[job_type_code]
+    low, mode, high = int(triple["min"]), int(triple["mode"]), int(triple["max"])
+    if high == low:
+        return low
+    if quantile < (mode - low) / (high - low):
+        value = low + math.sqrt(quantile * (high - low) * (mode - low))
+    else:
+        value = high - math.sqrt((1 - quantile) * (high - low) * (high - mode))
+    return math.ceil(value)
+
+
+def planned_load_minutes(stops: Sequence[Stop], driven: int) -> int:
+    return driven + sum(stop.duration_minutes for stop in stops)
+
+
+def _day_floor_ms(service_date: str) -> int:
+    day = date.fromisoformat(service_date)
+    return clock.phoenix_instant(
+        day.year, day.month, day.day, OPENING_MINUTE_OF_DAY // 60, OPENING_MINUTE_OF_DAY % 60
     )
-    if not off_hours:
-        return 0
-    return BLOCK_HOURS * plan.scheduled_blocks * hourly_wage_cents + bonus_cents
 
 
-def _duration_variation_weights() -> list[tuple[int, int]]:
-    peak = TIMING_VARIATION_HIGH + 1
+def planned_starts(
+    home: tuple[float, float], stops: Sequence[Stop], *, floor_ms: int
+) -> Iterator[tuple[Stop, int, int]]:
+    started = sorted(
+        (stop for stop in stops if stop.started_at is not None),
+        key=lambda stop: int(stop.started_at or 0),
+    )
+    remaining = sorted(
+        (stop for stop in stops if stop.started_at is None),
+        key=lambda stop: (stop.window_start, stop.point),
+    )
+    position = home
+    clock_ms = floor_ms
+    driven = 0
+    first = not started
+    for stop in started:
+        clock_ms = max(clock_ms, int(stop.started_at or 0) + stop.duration_minutes * MINUTE_MS)
+        position = stop.point
+    while remaining:
+        earliest = remaining[0].window_start
+        same_window = [stop for stop in remaining if stop.window_start == earliest]
+        stop = min(same_window, key=lambda candidate: travel_minutes(position, candidate.point))
+        remaining.remove(stop)
+        leg = travel_minutes(position, stop.point)
+        driven += leg
+        arrival = (
+            max(stop.window_start, clock_ms + leg * MINUTE_MS)
+            if first
+            else clock_ms + leg * MINUTE_MS
+        )
+        start = max(arrival, stop.window_start)
+        yield stop, start, driven
+        clock_ms = start + stop.duration_minutes * MINUTE_MS
+        position = stop.point
+        first = False
+
+
+def route_plan(
+    home: tuple[float, float],
+    stops: Sequence[Stop],
+    *,
+    floor_ms: int,
+    margin_minutes: int,
+) -> tuple[bool, int]:
+    driven = 0
+    for stop, start, driven in planned_starts(home, stops, floor_ms=floor_ms):
+        if start > stop.window_end - margin_minutes * MINUTE_MS:
+            return False, driven
+    return True, driven
+
+
+def late_stops(
+    home: tuple[float, float], stops: Sequence[Stop], *, floor_ms: int
+) -> list[Stop]:
     return [
-        (minutes, peak - abs(minutes))
-        for minutes in range(TIMING_VARIATION_LOW, TIMING_VARIATION_HIGH + 1)
+        stop
+        for stop, start, _ in planned_starts(home, stops, floor_ms=floor_ms)
+        if start > stop.window_end
     ]
 
 
-def expected_overtime_cents(
-    plan: BookingPlan, *, hourly_wage_cents: int, paid_off_hours: bool
-) -> Decimal:
-    scheduled_start = plan.windows[0][0]
-    scheduled_end = plan.windows[-1][1]
-    planned_end = scheduled_start + BLOCK_HOURS * MINUTES_PER_HOUR * plan.scheduled_blocks * 60_000
-    paid = [(scheduled_start, scheduled_end)] if paid_off_hours else []
-    weights = _duration_variation_weights()
-    total = Decimal(0)
-    for variation, weight in weights:
-        minutes = overtime.visit_overtime_minutes(
-            service_date=plan.service_date,
-            scheduled_start=scheduled_start,
-            departed_at=scheduled_start,
-            ended_at=planned_end + variation * 60_000,
-            paid_off_hours=paid,
-        )
-        total += Decimal(weight * overtime.overtime_cents(minutes, hourly_wage_cents))
-    return total / Decimal(sum(weight for _, weight in weights))
-
-
-def settles_inside_run(service_date: str, end_service_date: str | None) -> bool:
-    return end_service_date is None or service_date <= end_service_date
-
-
-def score_cents(
-    plan: BookingPlan,
-    pricing: Pricing,
+def reassignment_fits(
+    source: tuple[tuple[float, float], Sequence[Stop]],
+    target: tuple[tuple[float, float], Sequence[Stop]],
     *,
-    urgent: bool,
-    arrived_at_ms: int,
-    hourly_wage_cents: int,
-    failure_reason: str | None,
-    end_service_date: str | None = None,
-) -> int:
-    scheduled_start = plan.windows[0][0]
-    lead_days = Decimal(scheduled_start - arrived_at_ms) / Decimal(MILLISECONDS_PER_DAY)
-    p_accept = booking._acceptance_probability(
-        pricing.acceptance_base,
-        pricing.acceptance_decay,
-        lead_days,
-        pricing.acceptance_floor,
+    moved: Stop,
+    new_stop: Stop,
+    floor_ms: int,
+    margin_minutes: int,
+) -> bool:
+    source_home, source_stops = source
+    target_home, target_stops = target
+    kept = [stop for stop in source_stops if stop is not moved]
+    source_fits, _ = route_plan(
+        source_home, [*kept, new_stop], floor_ms=floor_ms, margin_minutes=margin_minutes
     )
-    p_keep = Decimal(1) - cancellation_probability(pricing, urgent=urgent, lead_days=lead_days)
-    earns_margin = failure_reason is None and settles_inside_run(
-        plan.service_date, end_service_date
+    if not source_fits:
+        return False
+    target_fits, _ = route_plan(
+        target_home, [*target_stops, moved], floor_ms=floor_ms, margin_minutes=margin_minutes
     )
-    margin = pricing.expected_margin_cents if earns_margin else Decimal(0)
-    off_hours = off_hours_cost_cents(
-        plan, hourly_wage_cents=hourly_wage_cents, bonus_cents=pricing.off_hours_bonus_cents
-    )
-    overtime_cost = expected_overtime_cents(
-        plan, hourly_wage_cents=hourly_wage_cents, paid_off_hours=off_hours > 0
-    )
-    return _cents(p_accept * p_keep * (margin - Decimal(off_hours) - overtime_cost))
+    return target_fits
 
 
-def walk_candidates(
-    ctx: ReadContext,
-    config: RunConfig,
-    *,
-    job_type: JobType,
-    technicians: Sequence[Technician],
-    from_service_date: str,
-    horizon_days: int,
-) -> Iterator[tuple[Technician, BookingPlan]]:
-    first_day = date.fromisoformat(from_service_date)
-    last_block_index = len(BLOCK_CODES) - job_type.scheduled_blocks
-    for offset in range(horizon_days + 1):
-        service_date = (first_day + timedelta(days=offset)).isoformat()
-        for block_index in range(last_block_index + 1):
-            for technician in technicians:
-                try:
-                    plan = appointments.validate_booking(
-                        ctx,
-                        config,
-                        job_type_id=job_type.job_type_id,
-                        technician_id=technician.technician_id,
-                        service_date=service_date,
-                        first_block_code=BLOCK_CODES[block_index],
-                    )
-                except EngineError:
+@dataclass(frozen=True)
+class Move:
+
+    appointment_id: int
+    technician_id: int
+    slot: Slot
+
+
+@dataclass(frozen=True)
+class Board:
+
+    now_ms: int
+    homes: dict[int, tuple[float, float]]
+    routes: dict[tuple[int, str], list[Stop]]
+    shifts_by_day: dict[str, list[tuple[int, int, int]]]
+    skills: dict[int, frozenset[str]]
+
+
+class OraclePolicy:
+
+    def __init__(
+        self,
+        *,
+        margin_minutes: int = 40,
+        urgent_margin_minutes: int = 40,
+        defer_off_hours: bool = False,
+        reassign: bool = False,
+        planning_quantile: float | None = 0.65,
+        install_latest_start: str | None = None,
+        max_planned_minutes: int | None = None,
+        rescue: bool = False,
+        durations: Mapping[str, Mapping[str, int]] | None = None,
+        name: str = POLICY_NAME,
+        version: str = POLICY_VERSION,
+    ) -> None:
+        self.defer_off_hours = defer_off_hours
+        self.reassign = reassign
+        self.planning_quantile = planning_quantile
+        self.install_latest_start = install_latest_start
+        self.max_planned_minutes = max_planned_minutes
+        self.rescue = rescue
+        self.durations = PUBLISHED_DURATIONS if durations is None else durations
+        self.margin_minutes = margin_minutes
+        self.urgent_margin_minutes = urgent_margin_minutes
+        self.name = name
+        self.version = version
+
+    def decide(self, request: PolicyRequest) -> PolicyOutcome:
+        if request.call.is_cancellation:
+            return accept_all.acknowledge_cancellation(request)
+        if not self.rescue:
+            return self._book(request)
+        notes = self._rescue(request)
+        outcome = self._book(request)
+        return PolicyOutcome(terminal=outcome.terminal, notes=(*notes, *outcome.notes))
+
+    def _rescue(self, request: PolicyRequest) -> tuple[str, ...]:
+        board = self._board(request)
+        service_date = request.service_date
+        floor_ms = self._floor(board, service_date)
+        candidates: list[tuple[int, int, int, int]] = []
+        for (technician_id, day), stops in sorted(board.routes.items()):
+            if day != service_date or technician_id not in board.homes:
+                continue
+            home = board.homes[technician_id]
+            for late in late_stops(home, stops, floor_ms=floor_ms):
+                if not late.unstarted or late.appointment_id is None:
                     continue
-                yield technician, plan
-
-
-def ranked_candidates(
-    ctx: ReadContext,
-    config: RunConfig,
-    *,
-    job_type: JobType,
-    technicians: Sequence[Technician],
-    pricing: Pricing,
-    from_service_date: str,
-    horizon_days: int,
-    urgent: bool,
-    arrived_at_ms: int,
-    end_service_date: str | None = None,
-) -> list[Candidate]:
-    scored: list[Candidate] = []
-    for technician, plan in walk_candidates(
-        ctx,
-        config,
-        job_type=job_type,
-        technicians=technicians,
-        from_service_date=from_service_date,
-        horizon_days=horizon_days,
-    ):
-        block_index = BLOCK_CODES.index(plan.block_codes[0])
-        scored.append(
-            Candidate(
-                service_date=plan.service_date,
-                block_start=BLOCK_STARTS[block_index],
-                technician_id=technician.technician_id,
-                score_cents=score_cents(
-                    plan,
-                    pricing,
-                    urgent=urgent,
-                    arrived_at_ms=arrived_at_ms,
-                    hourly_wage_cents=technician.hourly_wage_cents,
-                    failure_reason=arrival_failure_reason(
-                        ctx.conn, technician.technician_id, job_type
-                    ),
-                    end_service_date=end_service_date,
-                ),
-            )
+                window = (late.window_start, late.window_end)
+                for target_id in self._qualified(board, late.skill_code):
+                    if target_id == technician_id or not self._can_staff(
+                        board, target_id, service_date, window
+                    ):
+                        continue
+                    target_stops = board.routes.get((target_id, service_date), [])
+                    target_home = board.homes[target_id]
+                    fits, driven = route_plan(
+                        target_home, [*target_stops, late],
+                        floor_ms=floor_ms, margin_minutes=self.margin_minutes,
+                    )
+                    if not fits:
+                        continue
+                    _, before = route_plan(
+                        target_home, target_stops, floor_ms=floor_ms, margin_minutes=0
+                    )
+                    candidates.append(
+                        (late.window_end, driven - before, late.appointment_id, target_id)
+                    )
+        if not candidates:
+            return ()
+        _, _, appointment_id, target_id = min(candidates)
+        result = request.api.op(
+            "dispatch.assign",
+            {
+                "appointment_id": appointment_id,
+                "technician_id": target_id,
+                "request_id": request.request_id("rescue", appointment_id),
+            },
         )
-    return sorted(scored, key=lambda candidate: -candidate.score_cents)
+        if not result.ok:
+            return (result.describe(),)
+        return (f"rescued appointment {appointment_id} to technician {target_id}",)
 
-
-def greedy_order(ranked: list[Candidate]) -> list[Candidate]:
-    return ranked
-
-
-def date_major_order(ranked: list[Candidate]) -> list[Candidate]:
-    return sorted(
-        [candidate for candidate in ranked if candidate.score_cents > 0],
-        key=lambda candidate: candidate.service_date,
-    )
-
-
-BASELINE_ORDERS: Mapping[str, Callable[[list[Candidate]], list[Candidate]]] = {
-    BASELINE_GREEDY: greedy_order,
-    BASELINE_DATE_MAJOR: date_major_order,
-}
-
-BASELINE_END_AWARE: Mapping[str, bool] = {
-    BASELINE_GREEDY: True,
-    BASELINE_DATE_MAJOR: False,
-}
-
-BASELINE_NAMES: tuple[str, ...] = (BASELINE_GREEDY, BASELINE_DATE_MAJOR)
-
-
-def _result(response: bytes) -> Mapping[str, Any] | None:
-    body = json.loads(response)
-    if not body.get("ok"):
-        return None
-    return body["result"]
-
-
-class OracleDispatcher:
-
-    def __init__(
-        self,
-        read_conn: sqlite3.Connection,
-        *,
-        horizon_days: int = DEFAULT_HORIZON_DAYS,
-        branch: str = "",
-        baseline: str = BASELINE_GREEDY,
-    ) -> None:
-        if baseline not in BASELINE_ORDERS:
-            raise OracleError(f"unknown dispatcher baseline {baseline!r}")
-        self.read_conn = read_conn
-        self.horizon_days = int(horizon_days)
-        self.branch = branch
-        self.baseline = baseline
-        self.controller: Controller | None = None
-        self.decisions: list[str] = []
-
-    @property
-    def _controller(self) -> Controller:
-        if self.controller is None:
-            raise OracleError("the dispatcher was driven before its controller was bound")
-        return self.controller
-
-    def end_service_date(self) -> str | None:
-        if not BASELINE_END_AWARE[self.baseline]:
-            return None
-        return self._controller.config.get_string(RUN_END_DATE_KEY)
-
-    def rank(self, call_id: int, ranked: list[Candidate]) -> list[Candidate]:
-        return BASELINE_ORDERS[self.baseline](ranked)
-
-    def request_id(self, call_id: int, *parts: object) -> str:
-        segments = [POLICY_NAME, str(call_id)]
-        if self.branch:
-            segments.append(self.branch)
-        segments.extend(str(part) for part in parts)
-        return "-".join(segments)
-
-    def send(self, prompt: AdapterPrompt) -> AdapterResponse:
-        if prompt.kind is PromptKind.CALL:
-            return self._decide(prompt)
-        if prompt.kind is PromptKind.REMINDER:
-            return self._reject(int(prompt.payload["call_id"]), "reminder fallback")
-        return AdapterResponse(text="", terminal_action_taken=False)
-
-    def _decide(self, prompt: AdapterPrompt) -> AdapterResponse:
-        call_id = int(prompt.payload["call_id"])
-        call = read_call(self.read_conn, call_id)
-        if str(call["call_kind"]) == "cancellation":
-            return self._acknowledge(call_id)
-        return self._book(prompt, call)
-
-    def _acknowledge(self, call_id: int) -> AdapterResponse:
-        controller = self._controller
-        result = _result(
-            appointments.acknowledge_cancellation_command(
-                controller.services,
-                self.request_id(call_id, "acknowledge"),
-                controller.config,
-                call_id=call_id,
-                artifact=controller.artifact,
-            )
+    def _book(self, request: PolicyRequest) -> PolicyOutcome:
+        call = request.call
+        notes: list[str] = []
+        wanted = "".join(
+            character if character.isalnum() else "_"
+            for character in (call.requested_service or "").lower()
         )
-        return self._record(call_id, "acknowledged", result is not None)
-
-    def _reject(self, call_id: int, reason: str) -> AdapterResponse:
-        controller = self._controller
-        result = _result(
-            calls.reject_command(
-                controller.services,
-                self.request_id(call_id, "reject"),
-                controller.config,
-                call_id=call_id,
-            )
+        job_type = next(
+            (row for row in request.api.sql(accept_all.JOB_TYPES_SQL) if str(row["code"]) == wanted),
+            None,
         )
-        return self._record(call_id, f"rejected ({reason})", result is not None)
-
-    def _record(self, call_id: int, outcome: str, terminal: bool) -> AdapterResponse:
-        self.decisions.append(f"call {call_id}: {outcome}")
-        return AdapterResponse(text="", terminal_action_taken=terminal)
-
-    def _registered(self, prompt: AdapterPrompt, call: sqlite3.Row) -> tuple[int, int] | None:
-        controller = self._controller
-        call_id = int(call["call_id"])
-        customer_id = call["customer_id"]
-        if customer_id is None:
-            created = _result(
-                crm.create_customer_command(
-                    controller.services,
-                    self.request_id(call_id, "customer"),
-                    controller.config,
-                    call_id=call_id,
-                    name=str(call["caller_name"]),
-                    segment=str(call["segment"]),
-                    contacts=[
-                        {"contact_type": "phone", "value": str(call["caller_phone"])}
-                    ],
-                )
-            )
-            if created is None:
-                return None
-            customer_id = int(created["customer_id"])
-        location_id = call["location_id"]
-        if location_id is None:
-            created = _result(
-                crm.create_location_command(
-                    controller.services,
-                    self.request_id(call_id, "location"),
-                    controller.config,
-                    call_id=call_id,
-                    customer_id=int(customer_id),
-                    address=str(prompt.payload["address"]),
-                    artifact=controller.artifact,
-                )
-            )
-            if created is None:
-                return None
-            location_id = int(created["location_id"])
-        return int(customer_id), int(location_id)
-
-    def _book(self, prompt: AdapterPrompt, call: sqlite3.Row) -> AdapterResponse:
-        controller = self._controller
-        call_id = int(call["call_id"])
-        job_type = true_job_type(self.read_conn, call_id)
         if job_type is None:
-            return self._reject(call_id, "unsupported category")
-        technicians = active_technicians(self.read_conn)
-        qualified = [
-            technician
-            for technician in technicians
-            if arrival_failure_reason(self.read_conn, technician.technician_id, job_type)
-            is None
-        ]
-        if not qualified:
-            return self._reject(call_id, "no qualified technician")
-
-        registration = self._registered(prompt, call)
-        if registration is None:
-            return self._record(call_id, "registration refused", False)
-        customer_id, location_id = registration
-
-        service_date = clock.service_date_for_ms(prompt.ts_ms)
-        pricing = pricing_for(
-            self.read_conn,
-            controller.config,
-            job_type=job_type,
-            segment=customer_segment(self.read_conn, customer_id),
-            urgency_class="urgent" if int(call["urgent"]) else "standard",
+            return accept_all.reject(request, f"we do not do {call.requested_service!r}")
+        customer_id = call.customer_id
+        if customer_id is None:
+            customer_id, note = accept_all._register_customer(request)
+            notes.append(note)
+            if customer_id is None:
+                return PolicyOutcome(notes=tuple(notes))
+        location_id = call.location_id
+        if location_id is None:
+            location_id, note = accept_all._register_location(request, customer_id)
+            notes.append(note)
+            if location_id is None:
+                return PolicyOutcome(notes=tuple(notes))
+        row = request.api.sql(LOCATION_SQL.format(location_id=int(location_id)))[0]
+        point = (float(row["latitude"]), float(row["longitude"]))
+        new_stop_minutes = self._planned_minutes(str(job_type["code"]))
+        skill = job_type["required_skill_code"]
+        required_skill_code = None if skill is None else str(skill)
+        install = str(job_type["code"]) == INSTALL_JOB_TYPE_CODE
+        margin = self.urgent_margin_minutes if call.urgent else self.margin_minutes
+        board = self._board(request)
+        booking = {
+            "call_id": call.call_id,
+            "customer_id": customer_id,
+            "location_id": location_id,
+            "job_type_id": int(job_type["id"]),
+        }
+        slots = self._slots(
+            request, board, point=point, duration_minutes=new_stop_minutes,
+            required_skill_code=required_skill_code, margin_minutes=margin, install=install,
+            load_cap=self.max_planned_minutes,
         )
-        ranked = self.rank(
-            call_id,
-            ranked_candidates(
-                ReadContext(conn=self.read_conn, now_ms=prompt.ts_ms),
-                controller.config,
-                job_type=job_type,
-                technicians=technicians,
-                pricing=pricing,
-                from_service_date=service_date,
-                horizon_days=self.horizon_days,
-                urgent=bool(int(call["urgent"])),
-                arrived_at_ms=int(call["arrived_at"]),
-                end_service_date=self.end_service_date(),
-            ),
-        )
-
+        if not slots and self.reassign:
+            move = self._move(
+                request, board, point=point, duration_minutes=new_stop_minutes,
+                required_skill_code=required_skill_code, margin_minutes=margin,
+                install=install, urgent=call.urgent,
+            )
+            if move is not None:
+                result = request.api.op(
+                    "dispatch.assign",
+                    {
+                        "appointment_id": move.appointment_id,
+                        "technician_id": move.technician_id,
+                        "request_id": request.request_id("reassign", move.appointment_id),
+                    },
+                )
+                if result.ok:
+                    notes.append(
+                        f"moved appointment {move.appointment_id} to technician "
+                        f"{move.technician_id}"
+                    )
+                    slots = [move.slot]
+                else:
+                    notes.append(result.describe())
+        if not slots:
+            slots = self._slots(
+                request, board, point=point, duration_minutes=new_stop_minutes,
+                required_skill_code=required_skill_code, margin_minutes=0, install=install,
+            )
+        if install:
+            slots = self._prefer_mornings(slots)
         attempt = 0
-        for candidate in ranked:
-            if candidate.score_cents <= 0:
-                break
+        for slot in self._ordered(slots, urgent=call.urgent):
             attempt += 1
-            result = _result(
-                booking.book_command(
-                    controller.services,
-                    self.request_id(call_id, "book", attempt),
-                    controller.config,
-                    call_id=call_id,
-                    customer_id=customer_id,
-                    location_id=location_id,
-                    job_type_id=job_type.job_type_id,
-                    service_date=candidate.service_date,
-                    block_start=candidate.block_start,
-                    technician_id=candidate.technician_id,
-                    artifact=controller.artifact,
+            result = request.api.op(
+                "jobs.book",
+                {
+                    **booking,
+                    "service_date": slot.service_date,
+                    "block_start": accept_all.BLOCK_STARTS[slot.block_index],
+                    "technician_id": slot.technician_id,
+                    "request_id": request.request_id("book", attempt),
+                },
+            )
+            if result.ok:
+                notes.append(
+                    f"booking {result.outcome} on {slot.service_date} "
+                    f"{accept_all.BLOCK_STARTS[slot.block_index]} with technician {slot.technician_id}"
+                )
+                return PolicyOutcome(terminal=True, notes=tuple(notes))
+            if accept_all._advances(result):
+                continue
+            notes.append(result.describe())
+            return PolicyOutcome(notes=tuple(notes))
+        return accept_all.reject(request, f"no window fits the route in {attempt} attempts")
+
+    def _planned_minutes(self, job_type_code: str) -> int:
+        if self.planning_quantile is None:
+            return expected_minutes(self.durations, job_type_code)
+        return quantile_minutes(self.durations, job_type_code, self.planning_quantile)
+
+    def _prefer_mornings(self, slots: list[Slot]) -> list[Slot]:
+        if self.install_latest_start is None:
+            return slots
+        latest = self.install_latest_start
+        mornings = [
+            slot for slot in slots if accept_all.BLOCK_STARTS[slot.block_index] <= latest
+        ]
+        return mornings or slots
+
+    def _ordered(self, slots: list[Slot], *, urgent: bool) -> list[Slot]:
+        def key(slot: Slot) -> tuple[int, int, int, int]:
+            deferred = 1 if self.defer_off_hours and not urgent and slot.off_hours else 0
+            return (deferred, slot.window[0], slot.added_minutes, slot.technician_id)
+
+        return sorted(slots, key=key)
+
+    def _board(self, request: PolicyRequest) -> Board:
+        api = request.api
+        moment = request.call.moment
+        now_ms = clock.phoenix_instant(
+            moment.year, moment.month, moment.day, moment.hour, moment.minute
+        )
+        homes = {
+            int(row["id"]): (float(row["home_latitude"]), float(row["home_longitude"]))
+            for row in api.sql(HOMES_SQL)
+        }
+        routes: dict[tuple[int, str], list[Stop]] = {}
+        for row in api.sql(ROUTE_SQL):
+            started_at = None if row["actual_start"] is None else int(row["actual_start"])
+            window_start = int(row["window_start"])
+            if started_at is None and int(row["window_end"]) <= now_ms:
+                continue
+            skill = row["required_skill_code"]
+            service_date = clock.service_date_for_ms(window_start)
+            routes.setdefault((int(row["technician_id"]), service_date), []).append(
+                Stop(
+                    window_start=window_start,
+                    window_end=int(row["window_end"]),
+                    point=(float(row["latitude"]), float(row["longitude"])),
+                    duration_minutes=self._planned_minutes(str(row["job_type_code"])),
+                    started_at=started_at,
+                    appointment_id=int(row["appointment_id"]),
+                    skill_code=None if skill is None else str(skill),
+                    movable=(
+                        started_at is None
+                        and str(row["status"]) == "scheduled"
+                        and window_start > now_ms
+                    ),
+                    unstarted=started_at is None and str(row["status"]) == "scheduled",
                 )
             )
-            if result is not None:
-                return self._record(
-                    call_id,
-                    f"{result['outcome']} on {candidate.service_date} "
-                    f"{candidate.block_start} with technician {candidate.technician_id} "
-                    f"scored {candidate.score_cents}",
-                    True,
-                )
-        return self._reject(call_id, f"no profitable block in {len(ranked)} candidates")
+        return Board(
+            now_ms=now_ms,
+            homes=homes,
+            routes=routes,
+            shifts_by_day=accept_all._shifts_by_day(api),
+            skills=accept_all._skills_by_technician(api),
+        )
 
+    def _windows(
+        self, request: PolicyRequest, board: Board, *, install: bool
+    ) -> list[tuple[str, int, tuple[int, int], bool]]:
+        first_day = date.fromisoformat(request.service_date)
+        windows: list[tuple[str, int, tuple[int, int], bool]] = []
+        for offset in range(int(request.horizon_days) + 1):
+            service_date = (first_day + timedelta(days=offset)).isoformat()
+            if not board.shifts_by_day.get(service_date):
+                continue
+            for block_index, block_code in enumerate(BLOCK_CODES):
+                window = accept_all._block_window_ms(service_date, block_index)
+                if window[0] <= board.now_ms:
+                    continue
+                off_hours = is_off_hours(service_date, (block_code,))
+                if install and off_hours:
+                    continue
+                windows.append((service_date, block_index, window, off_hours))
+        return windows
 
-class DateMajorDispatcher(OracleDispatcher):
+    def _can_staff(
+        self, board: Board, technician_id: int, service_date: str, window: tuple[int, int]
+    ) -> bool:
+        return technician_id in board.homes and accept_all._covered_by_shift(
+            board.shifts_by_day.get(service_date, []), technician_id, window
+        )
 
-    def __init__(
+    def _qualified(self, board: Board, required_skill_code: str | None) -> list[int]:
+        return [
+            technician_id
+            for technician_id in sorted(board.homes)
+            if required_skill_code is None
+            or required_skill_code in board.skills.get(technician_id, frozenset())
+        ]
+
+    def _floor(self, board: Board, service_date: str) -> int:
+        return max(_day_floor_ms(service_date), board.now_ms)
+
+    def _slots(
         self,
-        read_conn: sqlite3.Connection,
+        request: PolicyRequest,
+        board: Board,
         *,
-        horizon_days: int = DEFAULT_HORIZON_DAYS,
-        branch: str = "",
-    ) -> None:
-        super().__init__(
-            read_conn,
-            horizon_days=horizon_days,
-            branch=branch,
-            baseline=BASELINE_DATE_MAJOR,
-        )
+        point: tuple[float, float],
+        duration_minutes: int,
+        required_skill_code: str | None,
+        margin_minutes: int,
+        install: bool = False,
+        load_cap: int | None = None,
+    ) -> list[Slot]:
+        slots: list[Slot] = []
+        for service_date, block_index, window, off_hours in self._windows(
+            request, board, install=install
+        ):
+            floor_ms = self._floor(board, service_date)
+            for technician_id in self._qualified(board, required_skill_code):
+                if not self._can_staff(board, technician_id, service_date, window):
+                    continue
+                existing = board.routes.get((technician_id, service_date), [])
+                home = board.homes[technician_id]
+                planned = [*existing, Stop(window[0], window[1], point, duration_minutes)]
+                fits, driven = route_plan(
+                    home, planned, floor_ms=floor_ms, margin_minutes=margin_minutes
+                )
+                if not fits:
+                    continue
+                if load_cap is not None and planned_load_minutes(planned, driven) > load_cap:
+                    continue
+                _, before = route_plan(
+                    home, existing, floor_ms=floor_ms, margin_minutes=margin_minutes
+                )
+                slots.append(
+                    Slot(
+                        service_date=service_date,
+                        block_index=block_index,
+                        technician_id=technician_id,
+                        window=window,
+                        off_hours=off_hours,
+                        added_minutes=driven - before,
+                    )
+                )
+        return slots
 
-
-def open_read_connection(db_path: str | Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    conn.isolation_level = None
-    return conn
-
-
-def run_oracle(
-    *,
-    config: RunConfig,
-    master_seed: int,
-    run_dir: str | Path,
-    geo_dir: str | Path | None = None,
-    scenario: str = DEFAULT_SCENARIO,
-    horizon_days: int = DEFAULT_HORIZON_DAYS,
-    dataset_version: str = "",
-    baseline: str = BASELINE_GREEDY,
-) -> PolicyRunResult:
-    paths = PolicyRunPaths.under(run_dir)
-    paths.run_dir.mkdir(parents=True, exist_ok=True)
-    run_id = run_init.initialize_run(
-        paths.db_path,
-        master_seed=master_seed,
-        config=config,
-        dataset_version=dataset_version,
-        artifact_dir=geo_dir,
-        harness_name=POLICY_NAME,
-        harness_version=POLICY_VERSION,
-        track=TRACK,
-    )
-    run_status = drive_oracle(
-        paths.db_path,
-        config=config,
-        geo_dir=geo_dir,
-        horizon_days=horizon_days,
-        baseline=baseline,
-    )
-    report = build_report(
-        paths.db_path,
-        policy_name=POLICY_NAME,
-        config=config,
-        scenario=scenario,
-        geo_dir=geo_dir,
-    )
-    report_path = write_scored_report(paths.run_dir, report)
-    return PolicyRunResult(
-        run_id=run_id,
-        run_status=run_status,
-        paths=paths,
-        report=report,
-        report_path=report_path,
-    )
-
-
-def drive_oracle(
-    db_path: str | Path,
-    *,
-    config: RunConfig,
-    geo_dir: str | Path | None = None,
-    horizon_days: int = DEFAULT_HORIZON_DAYS,
-    branch: str = "",
-    baseline: str = BASELINE_GREEDY,
-) -> str:
-    conn = run_init.open_run_db(db_path, artifact_dir=geo_dir)
-    read_conn = open_read_connection(db_path)
-    try:
-        dispatcher = OracleDispatcher(
-            read_conn, horizon_days=horizon_days, branch=branch, baseline=baseline
-        )
-        controller = Controller(conn, config, dispatcher, artifact_dir=geo_dir)
-        dispatcher.controller = controller
-        return controller.run().value
-    finally:
-        read_conn.close()
-        conn.close()
+    def _move(
+        self,
+        request: PolicyRequest,
+        board: Board,
+        *,
+        point: tuple[float, float],
+        duration_minutes: int,
+        required_skill_code: str | None,
+        margin_minutes: int,
+        install: bool,
+        urgent: bool,
+    ) -> Move | None:
+        moves: list[Move] = []
+        for service_date, block_index, window, off_hours in self._windows(
+            request, board, install=install
+        ):
+            floor_ms = self._floor(board, service_date)
+            new_stop = Stop(window[0], window[1], point, duration_minutes)
+            for source_id in self._qualified(board, required_skill_code):
+                if not self._can_staff(board, source_id, service_date, window):
+                    continue
+                source_stops = board.routes.get((source_id, service_date), [])
+                for moved in source_stops:
+                    if not moved.movable or moved.appointment_id is None:
+                        continue
+                    moved_window = (moved.window_start, moved.window_end)
+                    for target_id in self._qualified(board, moved.skill_code):
+                        if target_id == source_id or not self._can_staff(
+                            board, target_id, service_date, moved_window
+                        ):
+                            continue
+                        if reassignment_fits(
+                            (board.homes[source_id], source_stops),
+                            (
+                                board.homes[target_id],
+                                board.routes.get((target_id, service_date), []),
+                            ),
+                            moved=moved,
+                            new_stop=new_stop,
+                            floor_ms=floor_ms,
+                            margin_minutes=margin_minutes,
+                        ):
+                            moves.append(
+                                Move(
+                                    appointment_id=moved.appointment_id,
+                                    technician_id=target_id,
+                                    slot=Slot(
+                                        service_date=service_date,
+                                        block_index=block_index,
+                                        technician_id=source_id,
+                                        window=window,
+                                        off_hours=off_hours,
+                                        added_minutes=0,
+                                    ),
+                                )
+                            )
+        if not moves:
+            return None
+        ordered = self._ordered([move.slot for move in moves], urgent=urgent)
+        first = ordered[0]
+        return next(move for move in moves if move.slot is first)
 
 
 __all__ = [
-    "ACCEPTANCE_PARAMETERS_SQL",
-    "ACTIVE_TECHNICIANS_SQL",
-    "BASELINE_DATE_MAJOR",
-    "BASELINE_END_AWARE",
-    "BASELINE_GREEDY",
-    "BASELINE_NAMES",
-    "BASELINE_ORDERS",
-    "BLOCK_STARTS",
-    "CALL_SQL",
-    "CUSTOMER_SEGMENT_SQL",
     "POLICY_NAME",
     "POLICY_VERSION",
-    "SKILL_HOLDER_SQL",
-    "TRACK",
-    "TRUE_JOB_TYPE_SQL",
-    "RUN_END_DATE_KEY",
-    "Candidate",
-    "DateMajorDispatcher",
-    "JobType",
-    "OracleDispatcher",
-    "OracleError",
-    "Pricing",
-    "ReadContext",
-    "Technician",
-    "acceptance_parameters",
-    "active_technicians",
-    "arrival_failure_reason",
-    "cancellation_probability",
-    "customer_segment",
-    "date_major_order",
-    "drive_oracle",
-    "expected_margin_cents",
-    "greedy_order",
-    "off_hours_cost_cents",
-    "open_read_connection",
-    "pricing_for",
-    "ranked_candidates",
-    "read_call",
-    "run_oracle",
-    "score_cents",
-    "settles_inside_run",
-    "true_job_type",
-    "walk_candidates",
+    "PUBLISHED_DURATIONS",
+    "OraclePolicy",
+    "expected_minutes",
+    "late_stops",
+    "planned_starts",
+    "planned_load_minutes",
+    "quantile_minutes",
+    "reassignment_fits",
+    "route_plan",
+    "travel_minutes",
 ]

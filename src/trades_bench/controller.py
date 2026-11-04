@@ -35,6 +35,7 @@ from .events import EventHandler, Events
 from .geo_reader import GeoArtifact
 from .invocations import PROMPT_TEMPLATE_VERSION, Invocations
 from .ledger import Ledger, LedgerEntry
+from .money import basis_point_amount
 from .rng import Rng, sqlite_audit_recorder
 from .txn import (
     Services,
@@ -90,6 +91,8 @@ _BLOCK_START_MINUTES = {
 }
 
 _PAYING_EMPLOYMENT_STATUSES = ("active", "pending_termination", "resigning_notice")
+
+_HOUR_MS = 3_600_000
 
 _NO_PENDING_EVENT_MESSAGE = (
     "the run is active but no invocation is open and no event is pending"
@@ -253,10 +256,6 @@ def _closing_invocation_handler(ctx: TxnContext, row: sqlite3.Row) -> dict | Non
     return None
 
 
-def _off_hours_bonus_cents(config: RunConfig) -> int:
-    return config.get_int("payroll.off_hours_bonus_per_job")
-
-
 def _off_hours_entries(
     ctx: TxnContext, config: RunConfig, service_date: str, occurred_at_ms: int
 ) -> list[LedgerEntry]:
@@ -276,29 +275,26 @@ def _off_hours_entries(
             continue
         technician_id = int(payload["technician_id"])
         job_id = int(payload["job_id"])
-        wages_cents = int(payload["block_hours"]) * int(payload["hourly_wage_cents"])
-        entries.append(
-            LedgerEntry(
-                entry_type=LedgerCategory.PAYROLL_OFF_HOURS,
-                amount_cents=-wages_cents,
-                occurred_at_ms=occurred_at_ms,
-                service_date=service_date,
-                description="off-hours wages",
-                technician_id=technician_id,
-                job_id=job_id,
-            )
+        paid_subtotal_cents = overtime.paid_invoice_subtotal_cents(
+            ctx.conn, int(payload["appointment_id"])
         )
-        entries.append(
-            LedgerEntry(
-                entry_type=LedgerCategory.PAYROLL_OFF_HOURS_BONUS,
-                amount_cents=-_off_hours_bonus_cents(config),
-                occurred_at_ms=occurred_at_ms,
-                service_date=service_date,
-                description="off-hours bonus",
-                technician_id=technician_id,
-                job_id=job_id,
-            )
+        if paid_subtotal_cents is None:
+            continue
+        pay_cents = basis_point_amount(
+            paid_subtotal_cents, config.get_int("payroll.off_hours_share_basis_points")
         )
+        if pay_cents > 0:
+            entries.append(
+                LedgerEntry(
+                    entry_type=LedgerCategory.PAYROLL_OFF_HOURS_BONUS,
+                    amount_cents=-pay_cents,
+                    occurred_at_ms=occurred_at_ms,
+                    service_date=service_date,
+                    description="off-hours technician share",
+                    technician_id=technician_id,
+                    job_id=job_id,
+                )
+            )
     return entries
 
 
@@ -328,6 +324,36 @@ def _weekday_payroll_entries(
     ]
 
 
+def _on_call_payroll_entries(
+    ctx: TxnContext, service_date: str, occurred_at_ms: int
+) -> list[LedgerEntry]:
+    placeholders = ", ".join("?" for _ in _PAYING_EMPLOYMENT_STATUSES)
+    shifts = ctx.conn.execute(
+        "SELECT s.technician_id AS technician_id, s.start_at AS start_at, s.end_at AS end_at, "
+        "t.hourly_wage_cents AS hourly_wage_cents FROM _technician_shifts s "
+        "JOIN _technicians t ON t.id = s.technician_id "
+        f"WHERE s.service_date = ? AND s.active = 1 AND s.on_call_rotation_id IS NOT NULL "
+        f"AND t.employment_status IN ({placeholders}) "
+        "AND t.joined_on <= ? AND (t.final_working_date IS NULL OR t.final_working_date >= ?) "
+        "ORDER BY s.technician_id, s.start_at, s.id",
+        (service_date, *_PAYING_EMPLOYMENT_STATUSES, service_date, service_date),
+    ).fetchall()
+    return [
+        LedgerEntry(
+            entry_type=LedgerCategory.PAYROLL_OFF_HOURS,
+            amount_cents=-(
+                (int(shift["end_at"]) - int(shift["start_at"])) // _HOUR_MS
+                * int(shift["hourly_wage_cents"])
+            ),
+            occurred_at_ms=occurred_at_ms,
+            service_date=service_date,
+            description="on-call wages",
+            technician_id=int(shift["technician_id"]),
+        )
+        for shift in shifts
+    ]
+
+
 def _daily_settlement_handler(config: RunConfig) -> EventHandler:
 
     def handler(ctx: TxnContext, row: sqlite3.Row) -> dict | None:
@@ -342,21 +368,21 @@ def _daily_settlement_handler(config: RunConfig) -> EventHandler:
                 ErrorCode.STATE_ILLEGAL,
                 f"day {service_date} is not awaiting settlement",
             )
-        entries = _off_hours_entries(ctx, config, service_date, now)
-        next_day = (date.fromisoformat(service_date) + timedelta(days=1)).isoformat()
+        entries = _on_call_payroll_entries(ctx, service_date, now)
+        entries.extend(_off_hours_entries(ctx, config, service_date, now))
         entries.extend(
             LedgerEntry(
                 entry_type=LedgerCategory.PAYROLL_OFF_HOURS,
                 amount_cents=-pay.amount_cents,
                 occurred_at_ms=now,
                 service_date=service_date,
-                description=f"overtime wages ({pay.minutes} min past shift end)",
+                description=f"overtime wages ({pay.minutes} min past paid hours)",
                 technician_id=pay.technician_id,
                 job_id=pay.job_id,
             )
             for pay in overtime.overtime_pay(
                 ctx.conn, service_date,
-                day_start=_instant(service_date, 0), day_end=_instant(next_day, 0),
+                cap_basis_points=config.get_int("payroll.overtime_cap_basis_points"),
             )
         )
         if day["day_type"] == DayType.WEEKDAY.value:

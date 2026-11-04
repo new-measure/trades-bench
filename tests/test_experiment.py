@@ -5,6 +5,7 @@ import json
 import pytest
 
 from policies import calibration, experiment
+from policies.oracle import OraclePolicy
 
 
 def row(
@@ -94,7 +95,6 @@ def test_trial_summary_accepts_the_strict_cash_ceiling_and_oracle_gap():
         (5,),
         passing_rows(),
         oracle_requested=True,
-        oracle_skipped=False,
     )
 
     assert summary["feasible"] is True
@@ -104,6 +104,62 @@ def test_trial_summary_accepts_the_strict_cash_ceiling_and_oracle_gap():
         "median_oracle_gap_cents": 1,
         "min_oracle_gap_cents": 1,
     }
+
+
+def test_trial_summary_rejects_an_oracle_that_does_not_beat_accept_all():
+    rows = passing_rows()
+    oracle = next(item for item in rows if item["policy"] == calibration.ORACLE_POLICY_NAME)
+    oracle["final_cash_cents"] = 1_000_000
+    trial = experiment.Trial(name="candidate", overrides={})
+
+    summary = experiment._trial_summary(
+        trial,
+        (calibration.SCENARIO_DIR / "oct_default.json",),
+        (5,),
+        rows,
+        oracle_requested=True,
+    )
+
+    assert summary["feasible"] is False
+    assert summary["oracle_failures"] == [
+        {
+            "master_seed": 5,
+            "policy": calibration.ORACLE_POLICY_NAME,
+            "scenario": "oct_default",
+        }
+    ]
+    assert summary["objective"] is None
+
+
+def test_the_oracle_is_built_like_every_other_reference_policy(tmp_path):
+    scenario_path = calibration.SCENARIO_DIR / "oct_default.json"
+    _, config = experiment._scenario_config(scenario_path, {})
+    task = experiment.ExperimentTask(
+        trial=experiment.Trial(name="candidate", overrides={}),
+        scenario_path=str(scenario_path),
+        master_seed=5,
+        policy=calibration.ORACLE_POLICY_NAME,
+        geo_dir=str(tmp_path),
+        work_root=str(tmp_path),
+        horizon_days=14,
+    )
+
+    policy = experiment._policy(task, config)
+
+    assert isinstance(policy, OraclePolicy)
+    assert policy.name == calibration.ORACLE_POLICY_NAME
+
+
+def test_the_experiment_cli_carries_no_search_budget_flags():
+    options = {
+        option
+        for action in experiment.parser()._actions
+        for option in action.option_strings
+    }
+
+    assert not {option for option in options if "fork" in option or "lookahead" in option}
+    assert "--include-reject" not in options
+    assert "--run-oracle-on-infeasible" not in options
 
 
 def test_trial_summary_rejects_accept_all_above_the_strict_cash_ceiling():
@@ -126,7 +182,6 @@ def test_trial_summary_rejects_accept_all_above_the_strict_cash_ceiling():
         (5,),
         rows,
         oracle_requested=False,
-        oracle_skipped=False,
     )
 
     assert summary["feasible"] is False
@@ -159,7 +214,6 @@ def test_trial_summary_can_require_accept_all_to_survive():
         (5,),
         rows,
         oracle_requested=False,
-        oracle_skipped=False,
         require_accept_all_survival=True,
     )
 

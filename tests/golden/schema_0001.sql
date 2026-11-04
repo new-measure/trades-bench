@@ -664,7 +664,6 @@ CREATE TABLE _technician_block_holds (
     appointment_id          INTEGER REFERENCES _appointments(id) ON DELETE RESTRICT,
     non_job_appointment_id  INTEGER REFERENCES _non_job_appointments(id) ON DELETE RESTRICT,
     created_at              INTEGER NOT NULL,
-    PRIMARY KEY (technician_id, block_start),
     CHECK ((appointment_id IS NULL) != (non_job_appointment_id IS NULL))
 )
 
@@ -908,6 +907,18 @@ CREATE UNIQUE INDEX _pending_calls_origin_key ON _pending_calls (origin_key)
 -- index: _random_audit_key
 CREATE INDEX _random_audit_key ON _random_audit
     (stream_name, entity_type, entity_id, scope, event_kind, draw_index)
+
+-- index: _technician_block_holds_job
+CREATE UNIQUE INDEX _technician_block_holds_job
+    ON _technician_block_holds (appointment_id, block_start) WHERE hold_kind = 'job'
+
+-- index: _technician_block_holds_non_job
+CREATE UNIQUE INDEX _technician_block_holds_non_job
+    ON _technician_block_holds (technician_id, block_start) WHERE hold_kind != 'job'
+
+-- index: _technician_block_holds_slot
+CREATE INDEX _technician_block_holds_slot
+    ON _technician_block_holds (technician_id, block_start)
 
 -- index: idx_address_pool_eff_apartment
 CREATE INDEX idx_address_pool_eff_apartment ON _address_catalog(effective_zone_id, id) WHERE status = 'usable' AND (',' || segment_eligibility || ',') LIKE '%,apartment,%'

@@ -32,15 +32,16 @@ FULL_DATES = tuple(
     for offset in range(12)
 )
 FAST_END_DATE = "2026-10-03"
-STARTING_CASH = 4_200_000
+STARTING_CASH = 4_243_200
+ON_CALL_TECHNICIAN_IDS = (1, 3)
+ON_CALL_HOURS_TO_BANKRUPTCY = 8 * 2 + 4 * 12
 FINAL_CASH = -80_000
 RESUME_SAMPLE_COUNT = 30
 
 NO_OP_FIXTURE_ECONOMICS = {
-    "demand.base_new_caller_rate_per_day": 2,
+    "demand.level_start": 2,
     "finance.daily_operating_overhead": 220_000,
     "finance.starting_cash": STARTING_CASH,
-    "payroll.off_hours_bonus_per_job": 125_000,
 }
 
 DAY_ONE_TRACE = [
@@ -57,10 +58,10 @@ DAY_ONE_TRACE = [
     ("first_block_lock", "2026-10-01T06:45:00-07:00", 905),
     ("first_trip_dispatch", "2026-10-01T06:45:00-07:00", 906),
     ("block_lock", "2026-10-01T09:00:00-07:00", 200),
-    ("call_invocation", "2026-10-01T10:54:00-07:00", 910),
+    ("call_invocation", "2026-10-01T10:24:00-07:00", 910),
     ("block_lock", "2026-10-01T11:00:00-07:00", 200),
+    ("call_invocation", "2026-10-01T12:10:00-07:00", 910),
     ("block_lock", "2026-10-01T13:00:00-07:00", 200),
-    ("call_invocation", "2026-10-01T14:46:00-07:00", 910),
     ("block_lock", "2026-10-01T15:00:00-07:00", 200),
     ("block_lock", "2026-10-01T17:00:00-07:00", 200),
     ("closing_invocation", "2026-10-01T19:00:00-07:00", 920),
@@ -210,7 +211,8 @@ def test_final_cash_retains_the_negative_bankruptcy_causing_balance(full_run):
     assert len(wages) == 4
     daily_payroll = constants.WEEKDAY_PAY_MULTIPLIER * sum(wages)
     overhead = config.get_int("finance.daily_operating_overhead")
-    assert starting - 8 * daily_payroll - 12 * overhead == FINAL_CASH
+    on_call = ON_CALL_HOURS_TO_BANKRUPTCY * sum(wages[i - 1] for i in ON_CALL_TECHNICIAN_IDS)
+    assert starting - 8 * daily_payroll - 12 * overhead - on_call == FINAL_CASH
     balance = conn.execute(
         "SELECT COALESCE(SUM(amount_cents), 0) s FROM _ledger_entries"
     ).fetchone()["s"]

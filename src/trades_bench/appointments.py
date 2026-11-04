@@ -27,6 +27,40 @@ _BLOCK_END_MINUTES: dict[str, int] = {
 
 _TERMINAL_APPOINTMENT_STATUSES = frozenset({"completed", "failed", "no_show", "cancelled"})
 
+_HOUR_MS = 3_600_000
+
+OFF_HOURS_BLOCK_CODE = "B17_19"
+
+
+def off_hours_block_indices(service_date: str, block_codes: tuple[str, ...]) -> list[int]:
+    day_type = DayType.from_iso_weekday(date.fromisoformat(service_date).isoweekday())
+    return [
+        idx
+        for idx, code in enumerate(block_codes)
+        if day_type is DayType.WEEKEND or code == OFF_HOURS_BLOCK_CODE
+    ]
+
+
+def is_off_hours(service_date: str, block_codes: tuple[str, ...]) -> bool:
+    return bool(off_hours_block_indices(service_date, block_codes))
+
+
+def appointment_is_off_hours(conn: sqlite3.Connection, appointment_id: int) -> bool:
+    appointment = conn.execute(
+        "SELECT scheduled_start FROM _appointments WHERE id = ?", (appointment_id,)
+    ).fetchone()
+    if appointment is None:
+        raise EngineError(ErrorCode.ENTITY_NOT_FOUND, f"appointment {appointment_id} not found")
+    block_codes = tuple(
+        str(row["block_code"])
+        for row in conn.execute(
+            "SELECT block_code FROM _appointment_blocks WHERE appointment_id = ? ORDER BY ordinal",
+            (appointment_id,),
+        ).fetchall()
+    )
+    service_date = clock.service_date_for_ms(int(appointment["scheduled_start"]))
+    return is_off_hours(service_date, block_codes)
+
 
 def _instant(service_date: str, minutes_from_midnight: int) -> int:
     d = date.fromisoformat(service_date)
@@ -57,62 +91,17 @@ def _call_row(conn: sqlite3.Connection, call_id: int) -> sqlite3.Row:
     return row
 
 
-def validate_reservation_shape(scheduled_blocks: int, block_codes: tuple[str, ...]) -> None:
-    if len(block_codes) != scheduled_blocks:
-        raise _state_illegal(
-            "grid_violation",
-            f"expected {scheduled_blocks} reserved block(s), got {len(block_codes)}",
-            scheduled_blocks=scheduled_blocks, block_codes=list(block_codes),
-        )
-    for code in block_codes:
-        if code not in BLOCK_CODES:
-            raise _validation_error(
-                "block_alignment", "block_start", f"unknown block_code {code!r}"
-            )
-    if scheduled_blocks == 1:
-        return
-    if scheduled_blocks != constants.INSTALL_BLOCKS:
-        raise _state_illegal(
-            "grid_violation",
-            f"unsupported reservation length {scheduled_blocks}",
-            scheduled_blocks=scheduled_blocks,
-        )
-    first, second = block_codes
-    if _BLOCK_START_MINUTES[first] > constants.INSTALL_MAX_START_MIN:
-        raise _state_illegal(
-            "grid_violation",
-            f"an install reservation may not start at {first}",
-            block_code=first,
-        )
-    expected_index = BLOCK_CODES.index(first) + 1
-    if expected_index >= len(BLOCK_CODES) or second != BLOCK_CODES[expected_index]:
-        raise _state_illegal(
-            "grid_violation",
-            "install reservation blocks must be consecutive within the same day",
-            block_codes=list(block_codes),
-        )
-
-
-def _derive_reservation_blocks(scheduled_blocks: int, first_block_code: str) -> tuple[str, ...]:
+def _reservation_blocks(first_block_code: str) -> tuple[str, ...]:
     if first_block_code not in BLOCK_CODES:
         raise _validation_error(
             "block_alignment", "block_start", f"unknown block_code {first_block_code!r}"
         )
-    start_index = BLOCK_CODES.index(first_block_code)
-    end_index = start_index + scheduled_blocks
-    if end_index > len(BLOCK_CODES):
-        raise _state_illegal(
-            "grid_violation",
-            f"a {scheduled_blocks}-block reservation starting at {first_block_code} "
-            "would cross past the end of the day",
-            block_code=first_block_code, scheduled_blocks=scheduled_blocks,
-        )
-    return BLOCK_CODES[start_index:end_index]
+    return (first_block_code,)
 
 
 def _job_type_row(conn: sqlite3.Connection, job_type_id: int) -> sqlite3.Row:
     row = conn.execute(
-        "SELECT id, code, scheduled_blocks, business_unit_id FROM _job_types WHERE id = ?",
+        "SELECT id, code, business_unit_id FROM _job_types WHERE id = ?",
         (job_type_id,),
     ).fetchone()
     if row is None:
@@ -208,23 +197,38 @@ def _check_overlap(
     conn: sqlite3.Connection,
     technician_id: int,
     block_starts: list[tuple[str, int]],
-    *,
-    exclude_appointment_id: int | None,
 ) -> None:
     for block_code, block_start in block_starts:
-        query = "SELECT 1 FROM _technician_block_holds WHERE technician_id = ? AND block_start = ?"
-        params: list[object] = [technician_id, block_start]
-        if exclude_appointment_id is not None:
-            query += " AND (appointment_id IS NULL OR appointment_id != ?)"
-            params.append(exclude_appointment_id)
-        existing = conn.execute(query, params).fetchone()
+        existing = conn.execute(
+            "SELECT hold_kind FROM _technician_block_holds WHERE technician_id = ? "
+            "AND block_start = ? AND hold_kind != 'job' LIMIT 1",
+            (technician_id, block_start),
+        ).fetchone()
         if existing is not None:
             raise _state_illegal(
                 "overlap",
-                f"technician {technician_id} already holds block {block_code} "
-                f"starting at {block_start}",
+                f"technician {technician_id} holds a {existing['hold_kind']} block "
+                f"{block_code} starting at {block_start}",
                 technician_id=technician_id, block_code=block_code,
             )
+
+
+INSTALLATION_JOB_TYPE_CODE = "hvac_installation"
+
+
+def _check_install_window(
+    job_type_code: str, service_date: str, block_codes: tuple[str, ...]
+) -> None:
+    if job_type_code != INSTALLATION_JOB_TYPE_CODE:
+        return
+    if not is_off_hours(service_date, block_codes):
+        return
+    raise _state_illegal(
+        "install_off_hours",
+        f"{INSTALLATION_JOB_TYPE_CODE} cannot be booked in the {OFF_HOURS_BLOCK_CODE} window "
+        f"or on a weekend; {service_date} {block_codes[0]} is off-hours",
+        service_date=service_date, block_code=block_codes[0],
+    )
 
 
 @dataclass(frozen=True)
@@ -233,7 +237,6 @@ class BookingPlan:
     job_type_id: int
     job_type_code: str
     business_unit_id: int | None
-    scheduled_blocks: int
     technician_id: int
     service_date: str
     block_codes: tuple[str, ...]
@@ -253,9 +256,8 @@ def validate_booking(
     now = ctx.now()
 
     job_type = _job_type_row(conn, job_type_id)
-    scheduled_blocks = int(job_type["scheduled_blocks"])
-    block_codes = _derive_reservation_blocks(scheduled_blocks, first_block_code)
-    validate_reservation_shape(scheduled_blocks, block_codes)
+    block_codes = _reservation_blocks(first_block_code)
+    _check_install_window(job_type["code"], service_date, block_codes)
 
     _check_not_locked(conn, service_date, block_codes[0], appointment_id=None)
 
@@ -271,16 +273,13 @@ def validate_booking(
 
     _check_shift_coverage(conn, technician_id, service_date, block_codes)
     _check_overlap(
-        conn, technician_id,
-        list(zip(block_codes, [w[0] for w in windows], strict=True)),
-        exclude_appointment_id=None,
+        conn, technician_id, list(zip(block_codes, [w[0] for w in windows], strict=True))
     )
 
     return BookingPlan(
         job_type_id=int(job_type["id"]),
         job_type_code=job_type["code"],
         business_unit_id=job_type["business_unit_id"],
-        scheduled_blocks=scheduled_blocks,
         technician_id=technician_id,
         service_date=service_date,
         block_codes=block_codes,
@@ -311,7 +310,6 @@ def create_booking(
     service_date = plan.service_date
     block_codes = plan.block_codes
     windows = plan.windows
-    scheduled_blocks = plan.scheduled_blocks
 
     job_cur = conn.execute(
         "INSERT INTO _jobs (job_number, call_id, customer_id, location_id, job_type_id, "
@@ -372,12 +370,7 @@ def create_booking(
             (technician_id, block_start, appointment_id, now),
         )
 
-    day_type = DayType.from_iso_weekday(date.fromisoformat(service_date).isoweekday())
-    off_hours_indices = [
-        idx
-        for idx, code in enumerate(block_codes)
-        if day_type is DayType.WEEKEND or code == "B17_19"
-    ]
+    off_hours_indices = off_hours_block_indices(service_date, block_codes)
     if off_hours_indices:
         first_off_hours_start = windows[off_hours_indices[0]][0]
         Events(conn, ctx.rng).schedule(
@@ -386,7 +379,10 @@ def create_booking(
             entity_type=EntityType.APPOINTMENT.value,
             entity_id=appointment_id,
             order_key=origin_keys.of_appointment(conn, appointment_id),
-            payload={"appointment_id": appointment_id, "block_hours": 2 * scheduled_blocks},
+            payload={
+                "appointment_id": appointment_id,
+                "block_hours": sum(end - start for start, end in windows) // _HOUR_MS,
+            },
         )
 
     Events(conn, ctx.rng).schedule(
@@ -407,7 +403,6 @@ def create_booking(
         execution.replan_same_day(
             ctx, config, artifact,
             technician_id=technician_id, service_date=service_date,
-            appointment_id=appointment_id,
         )
 
     return {
@@ -514,14 +509,7 @@ def assign(
         appointment_id=appointment_id, reason="appointment_locked",
     )
 
-    job_type_id = int(
-        conn.execute(
-            "SELECT job_type_id FROM _jobs WHERE id = ?", (appt["job_id"],)
-        ).fetchone()["job_type_id"]
-    )
-    scheduled_blocks = int(_job_type_row(conn, job_type_id)["scheduled_blocks"])
     block_codes = tuple(row["block_code"] for row in block_rows)
-    validate_reservation_shape(scheduled_blocks, block_codes)
 
     first_start = int(first_block["block_start"])
     if first_start <= now:
@@ -534,9 +522,7 @@ def assign(
 
     _check_shift_coverage(conn, technician_id, service_date, block_codes)
     _check_overlap(
-        conn, technician_id,
-        [(row["block_code"], int(row["block_start"])) for row in block_rows],
-        exclude_appointment_id=appointment_id,
+        conn, technician_id, [(row["block_code"], int(row["block_start"])) for row in block_rows]
     )
 
     current_active = conn.execute(
@@ -607,7 +593,6 @@ def assign(
         execution.replan_same_day(
             ctx, config, artifact,
             technician_id=technician_id, service_date=service_date,
-            appointment_id=appointment_id,
         )
 
     return {
@@ -824,15 +809,19 @@ def acknowledge_cancellation_command(
 
 __all__ = [
     "BLOCK_CODES",
+    "INSTALLATION_JOB_TYPE_CODE",
     "BookingPlan",
+    "OFF_HOURS_BLOCK_CODE",
     "acknowledge_cancellation",
     "acknowledge_cancellation_command",
     "assign",
     "assign_command",
     "book",
     "cancel_appointment",
+    "appointment_is_off_hours",
     "create_booking",
+    "is_off_hours",
+    "off_hours_block_indices",
     "trip_index_for_appointment",
     "validate_booking",
-    "validate_reservation_shape",
 ]

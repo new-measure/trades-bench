@@ -50,6 +50,8 @@ def _config(**overrides):
         "geography.artifact_id": GEO_ARTIFACT_ID,
         "geography.artifact_sha256": geo_artifact_sha256(),
         "demand.zone_weights": _ZONE_WEIGHTS,
+        "demand.level_start": 0,
+        "demand.level_gain_per_on_time_visit": 0,
         "run.end_date": END_DATE,
         **_ACCEPT_ALWAYS,
         **overrides,

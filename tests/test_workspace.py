@@ -7,11 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from trades_bench import handbook
+from trades_bench.config import load_run_config
 from trades_bench.harness import workspace
 
 
 def test_create_materializes_docs_and_empty_memory(tmp_path):
-    root = workspace.create(tmp_path / "ws")
+    root = workspace.create(tmp_path / "ws", load_run_config())
     assert root.is_dir()
     assert workspace.memory_path(root).read_bytes() == b""
     docs = workspace.docs_path(root)
@@ -21,13 +23,13 @@ def test_create_materializes_docs_and_empty_memory(tmp_path):
 
 def test_create_never_rewrites_existing_agent_files(tmp_path):
     root = tmp_path / "ws"
-    workspace.create(root)
+    workspace.create(root, load_run_config())
     workspace.memory_path(root).write_text("day one notes\n", encoding="utf-8")
     (root / "helper.py").write_text("print(1)\n", encoding="utf-8")
     (root / "exports").mkdir()
     (root / "exports" / "jobs.csv").write_text("id\n1\n", encoding="utf-8")
 
-    workspace.create(root)
+    workspace.create(root, load_run_config())
 
     assert workspace.memory_path(root).read_text(encoding="utf-8") == "day one notes\n"
     assert (root / "helper.py").read_text(encoding="utf-8") == "print(1)\n"
@@ -36,7 +38,7 @@ def test_create_never_rewrites_existing_agent_files(tmp_path):
 
 def test_workspace_digest_is_stable_and_content_sensitive(tmp_path):
     root = tmp_path / "ws"
-    workspace.create(root)
+    workspace.create(root, load_run_config())
     first = workspace.workspace_digest(root)
     assert first == workspace.workspace_digest(root)
     workspace.memory_path(root).write_text("notes\n", encoding="utf-8")
@@ -69,7 +71,7 @@ def test_workspace_module_learns_no_private_paths():
 
 def test_workspace_digest_hashes_a_symlink_target_as_text_without_reading_it(tmp_path):
     root = tmp_path / "ws"
-    workspace.create(root)
+    workspace.create(root, load_run_config())
     private = tmp_path / "run.db"
     private.write_text("future calls", encoding="utf-8")
     (root / "peek").symlink_to(private)
@@ -85,7 +87,7 @@ def test_workspace_digest_hashes_a_symlink_target_as_text_without_reading_it(tmp
 
 def test_workspace_digest_never_descends_a_symlinked_directory(tmp_path):
     root = tmp_path / "ws"
-    workspace.create(root)
+    workspace.create(root, load_run_config())
     outside = tmp_path / "run"
     outside.mkdir()
     (outside / "index.jsonl").write_text("{}", encoding="utf-8")
@@ -100,7 +102,7 @@ def test_workspace_digest_never_descends_a_symlinked_directory(tmp_path):
 
 def test_workspace_digest_skips_a_fifo_without_blocking(tmp_path):
     root = tmp_path / "ws"
-    workspace.create(root)
+    workspace.create(root, load_run_config())
     before = workspace.workspace_digest(root)
 
     os.mkfifo(root / "pipe")
@@ -110,7 +112,7 @@ def test_workspace_digest_skips_a_fifo_without_blocking(tmp_path):
 
 def test_large_files_are_hashed_and_copied_in_bounded_chunks(tmp_path, monkeypatch):
     root = tmp_path / "ws"
-    workspace.create(root)
+    workspace.create(root, load_run_config())
     sparse = root / "sparse.bin"
     with sparse.open("wb") as handle:
         handle.truncate(64 * workspace.CHUNK_BYTES)
@@ -137,7 +139,7 @@ def test_large_files_are_hashed_and_copied_in_bounded_chunks(tmp_path, monkeypat
 
 def test_workspace_digest_hashes_a_name_that_is_not_utf8(tmp_path):
     root = tmp_path / "ws"
-    workspace.create(root)
+    workspace.create(root, load_run_config())
     before = workspace.workspace_digest(root)
     try:
         descriptor = os.open(os.fsencode(root) + b"/notes-\xff.md", os.O_CREAT | os.O_WRONLY, 0o644)
@@ -150,7 +152,7 @@ def test_workspace_digest_hashes_a_name_that_is_not_utf8(tmp_path):
 
 def test_workspace_digest_skips_a_path_longer_than_the_system_allows(tmp_path):
     root = tmp_path / "ws"
-    workspace.create(root)
+    workspace.create(root, load_run_config())
     before = workspace.workspace_digest(root)
     parent = os.open(root, os.O_RDONLY)
     try:
@@ -164,3 +166,14 @@ def test_workspace_digest_skips_a_path_longer_than_the_system_allows(tmp_path):
         os.close(parent)
 
     assert len(workspace.workspace_digest(root)) == len(before)
+
+
+def test_handbook_states_on_call_pay_and_the_overtime_cap_without_hidden_numbers():
+    text = handbook.render_handbook(load_run_config())
+    assert "the HVAC service technician and the plumbing technician" in text
+    assert "paid their hourly wage for every on-call hour" in text
+    assert "capped at 20% of the job's invoice" in text
+    assert "after 19:00 for an on-call technician" in text
+    lowered = text.lower()
+    for hidden in ("guarantee", "demand", "level", "calls per day", "2026-10-14"):
+        assert hidden not in lowered

@@ -9,7 +9,7 @@ from .enums import InvocationStatus, InvocationType
 from .errors import EngineError, ErrorCode
 from .txn import fingerprint, privileged_request_id, privileged_with_replay
 
-PROMPT_TEMPLATE_VERSION = "1.0.0"
+PROMPT_TEMPLATE_VERSION = "1.1.0"
 
 
 class Invocations:

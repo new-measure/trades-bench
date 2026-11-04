@@ -1,0 +1,847 @@
+{
+  "spec_version": "1.1.0",
+  "config_version": "1.0.5",
+  "master_seed": 1,
+  "pairs": [
+    {
+      "case": "crm.get_customer",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/crm.get_customer",
+        "body": {
+          "customer_id": 1
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": "{\"error\":{\"code\":\"not_found\",\"message\":\"not found\"},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\"}}"
+      }
+    },
+    {
+      "case": "crm.list_customers",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/crm.list_customers",
+        "body": {
+          "limit": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":[],\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "crm.create_customer",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/crm.create_customer",
+        "body": {
+          "call_id": 1,
+          "name": "Example Customer",
+          "segment": "residential",
+          "contacts": [
+            {
+              "contact_type": "phone",
+              "value": "(602) 555-0142"
+            }
+          ],
+          "request_id": "example-crm.create_customer-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"customer_id\":1},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"request_id\":\"example-crm.create_customer-1\",\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "crm.get_location",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/crm.get_location",
+        "body": {
+          "location_id": 1
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": "{\"error\":{\"code\":\"not_found\",\"message\":\"not found\"},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\"}}"
+      }
+    },
+    {
+      "case": "crm.list_locations",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/crm.list_locations",
+        "body": {
+          "limit": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":[],\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "crm.create_location",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/crm.create_location",
+        "body": {
+          "call_id": 1,
+          "customer_id": 1,
+          "address": "1 E Geneva Dr, Tempe, AZ 85282",
+          "request_id": "example-crm.create_location-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"location_id\":1},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"request_id\":\"example-crm.create_location-1\",\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "calls.get",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/calls.get",
+        "body": {
+          "call_id": 1
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"arrived_at\":1790862360000,\"arrived_at_iso\":\"2026-10-01T06:46:00-07:00\",\"call_kind\":\"new_job\",\"caller_name\":\"Example Caller\",\"caller_phone\":\"6025550142\",\"created_at\":1790862360000,\"created_at_iso\":\"2026-10-01T06:46:00-07:00\",\"created_job_id\":null,\"customer_id\":1,\"id\":1,\"location_id\":1,\"related_job_id\":null,\"requested_service_name\":\"HVAC service\",\"segment\":\"residential\",\"service_city\":\"Tempe\",\"service_date\":\"2026-10-01\",\"service_postal_code\":\"85282\",\"service_state\":\"AZ\",\"service_street\":\"1 E Geneva Dr\",\"service_unit\":null,\"status\":\"active\",\"target_appointment_id\":null,\"target_job_id\":null,\"terminal_at\":null,\"terminal_at_iso\":null,\"terminal_reason\":null,\"urgent\":0},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "calls.list",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/calls.list",
+        "body": {
+          "limit": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":[{\"arrived_at\":1790862360000,\"arrived_at_iso\":\"2026-10-01T06:46:00-07:00\",\"call_kind\":\"new_job\",\"caller_name\":\"Example Caller\",\"caller_phone\":\"6025550142\",\"created_at\":1790862360000,\"created_at_iso\":\"2026-10-01T06:46:00-07:00\",\"created_job_id\":null,\"customer_id\":1,\"id\":1,\"location_id\":1,\"related_job_id\":null,\"requested_service_name\":\"HVAC service\",\"segment\":\"residential\",\"service_city\":\"Tempe\",\"service_date\":\"2026-10-01\",\"service_postal_code\":\"85282\",\"service_state\":\"AZ\",\"service_street\":\"1 E Geneva Dr\",\"service_unit\":null,\"status\":\"active\",\"target_appointment_id\":null,\"target_job_id\":null,\"terminal_at\":null,\"terminal_at_iso\":null,\"terminal_reason\":null,\"urgent\":0}],\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "calls.reject",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/calls.reject",
+        "body": {
+          "call_id": 1,
+          "request_id": "example-calls.reject-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"call_id\":1,\"message\":\"Call rejected.\",\"outcome\":\"rejected\"},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"request_id\":\"example-calls.reject-1\",\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "jobs.get",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/jobs.get",
+        "body": {
+          "job_id": 1
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": "{\"error\":{\"code\":\"not_found\",\"message\":\"not found\"},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\"}}"
+      }
+    },
+    {
+      "case": "jobs.list",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/jobs.list",
+        "body": {
+          "limit": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":[],\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "jobs.book",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/jobs.book",
+        "body": {
+          "call_id": 1,
+          "customer_id": 1,
+          "location_id": 1,
+          "job_type_id": 1,
+          "service_date": "2026-10-01",
+          "block_start": "09:00",
+          "technician_id": 1,
+          "request_id": "example-jobs.book-1"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": "{\"error\":{\"code\":\"conflict\",\"details\":{\"rule\":\"call_not_active\"},\"message\":\"conflict\"},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\"}}"
+      }
+    },
+    {
+      "case": "appointments.get",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/appointments.get",
+        "body": {
+          "appointment_id": 1
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": "{\"error\":{\"code\":\"not_found\",\"message\":\"not found\"},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\"}}"
+      }
+    },
+    {
+      "case": "appointments.list",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/appointments.list",
+        "body": {
+          "limit": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":[],\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "appointments.list_events",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/appointments.list_events",
+        "body": {
+          "appointment_id": 1
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":[],\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "appointments.acknowledge_cancellation",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/appointments.acknowledge_cancellation",
+        "body": {
+          "call_id": 1,
+          "request_id": "example-appointments.acknowledge_cancellation-1"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": "{\"error\":{\"code\":\"conflict\",\"details\":{\"rule\":\"call_not_active\"},\"message\":\"conflict\"},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\"}}"
+      }
+    },
+    {
+      "case": "dispatch.assign",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/dispatch.assign",
+        "body": {
+          "appointment_id": 1,
+          "technician_id": 1,
+          "request_id": "example-dispatch.assign-1"
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": "{\"error\":{\"code\":\"not_found\",\"message\":\"not found\"},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\"}}"
+      }
+    },
+    {
+      "case": "dispatch.list_assignments",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/dispatch.list_assignments",
+        "body": {
+          "limit": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":[],\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "dispatch.get_technician_location",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/dispatch.get_technician_location",
+        "body": {
+          "technician_id": 1
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"coordinates_updated_at\":1790862300000,\"latitude\":33.401064,\"location_state\":\"home\",\"longitude\":-111.945567,\"technician_id\":1},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "finance.get_cash_position",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/finance.get_cash_position",
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"as_of_ms\":1790862360000,\"cash_balance_cents\":2500000,\"run_status\":\"active\",\"service_date\":\"2026-10-01\"},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "finance.list_invoices",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/finance.list_invoices",
+        "body": {
+          "limit": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":[],\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "finance.list_payments",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/finance.list_payments",
+        "body": {
+          "limit": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":[],\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "finance.list_ledger",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/finance.list_ledger",
+        "body": {
+          "date_from": "2026-10-01",
+          "date_to": "2026-10-07",
+          "limit": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":[],\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "weather.get",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/weather.get",
+        "body": {
+          "zone_id": 1,
+          "date": "2026-10-01"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"date\":\"2026-10-01\",\"high_f\":90,\"horizon_days\":0,\"kind\":\"observed\",\"low_f\":65,\"precipitation_probability\":0.02,\"storm\":false,\"zone_id\":1},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "maps.distance",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/maps.distance",
+        "body": {
+          "origin_address": "1 E Geneva Dr, Tempe, AZ 85282",
+          "destination_address": "100 E Geneva Dr, Tempe, AZ 85282"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"dataset_version\":\"tempe-fixture-v1\",\"destination_address\":\"100 E Geneva Dr, Tempe, AZ 85282\",\"distance_km\":0.3,\"distance_miles\":0.2,\"origin_address\":\"1 E Geneva Dr, Tempe, AZ 85282\"},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:business_units",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM business_units LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"code\",\"name\",\"active\",\"created_at\",\"created_at_iso\"],\"row_count\":3,\"rows\":[[1,\"hvac\",\"HVAC\",1,0,\"1969-12-31T17:00:00-07:00\"],[2,\"plumbing\",\"Plumbing\",1,0,\"1969-12-31T17:00:00-07:00\"],[3,\"electrical\",\"Electrical\",1,0,\"1969-12-31T17:00:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:job_types",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM job_types LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"code\",\"name\",\"business_unit_id\",\"scheduled_blocks\",\"required_skill_code\",\"active\",\"created_at\",\"created_at_iso\"],\"row_count\":5,\"rows\":[[1,\"hvac_service\",\"HVAC Service\",1,1,\"hvac_service\",1,0,\"1969-12-31T17:00:00-07:00\"],[2,\"hvac_installation\",\"HVAC Installation\",1,1,\"hvac_install\",1,0,\"1969-12-31T17:00:00-07:00\"],[3,\"plumbing\",\"Plumbing\",2,1,\"plumbing\",1,0,\"1969-12-31T17:00:00-07:00\"],[4,\"electrical\",\"Electrical\",3,1,\"electrical\",1,0,\"1969-12-31T17:00:00-07:00\"],[5,\"other\",\"Other\",null,1,null,1,0,\"1969-12-31T17:00:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:zones",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM zones LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"code\",\"name\",\"cities_json\",\"postal_codes_json\",\"active\",\"created_at\",\"created_at_iso\"],\"row_count\":5,\"rows\":[[1,\"central_phoenix\",\"Central Phoenix\",\"[\\\"Central Phoenix\\\",\\\"Phoenix\\\"]\",\"[\\\"85001\\\",\\\"85003\\\",\\\"85004\\\",\\\"85006\\\",\\\"85007\\\",\\\"85013\\\",\\\"85016\\\"]\",1,0,\"1969-12-31T17:00:00-07:00\"],[2,\"north_phoenix\",\"North Phoenix\",\"[\\\"North Phoenix\\\",\\\"Phoenix\\\"]\",\"[\\\"85020\\\",\\\"85022\\\",\\\"85024\\\",\\\"85027\\\",\\\"85028\\\",\\\"85029\\\",\\\"85032\\\",\\\"85050\\\",\\\"85051\\\",\\\"85053\\\",\\\"85054\\\",\\\"85085\\\",\\\"85086\\\",\\\"85087\\\"]\",1,0,\"1969-12-31T17:00:00-07:00\"],[3,\"scottsdale\",\"Scottsdale\",\"[\\\"Scottsdale\\\"]\",\"[\\\"85250\\\",\\\"85251\\\",\\\"85254\\\",\\\"85255\\\",\\\"85257\\\",\\\"85258\\\",\\\"85259\\\",\\\"85260\\\",\\\"85262\\\"]\",1,0,\"1969-12-31T17:00:00-07:00\"],[4,\"tempe\",\"Tempe\",\"[\\\"Tempe\\\"]\",\"[\\\"85281\\\",\\\"85282\\\",\\\"85283\\\",\\\"85287\\\",\\\"85301\\\"]\",1,0,\"1969-12-31T17:00:00-07:00\"],[5,\"mesa\",\"Mesa\",\"[\\\"Mesa\\\"]\",\"[\\\"85201\\\",\\\"85202\\\",\\\"85203\\\",\\\"85204\\\",\\\"85205\\\",\\\"85206\\\",\\\"85207\\\",\\\"85208\\\",\\\"85209\\\",\\\"85210\\\",\\\"85211\\\",\\\"85212\\\",\\\"85213\\\",\\\"85215\\\",\\\"85275\\\",\\\"85277\\\"]\",1,0,\"1969-12-31T17:00:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:customers",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM customers LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"name\",\"segment\",\"status\",\"created_at\",\"created_at_iso\",\"created_from_call_id\"],\"row_count\":1,\"rows\":[[1,\"Example Customer\",\"residential\",\"active\",1790862360000,\"2026-10-01T06:46:00-07:00\",1]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:customer_contacts",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM customer_contacts LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"customer_id\",\"contact_type\",\"value\",\"do_not_text\",\"memo\",\"created_at\",\"created_at_iso\"],\"row_count\":1,\"rows\":[[1,1,\"phone\",\"(602) 555-0142\",0,\"\",1790862360000,\"2026-10-01T06:46:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:locations",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM locations LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"customer_id\",\"name\",\"street\",\"unit\",\"city\",\"state\",\"postal_code\",\"latitude\",\"longitude\",\"zone_id\",\"active\",\"created_at\",\"created_at_iso\",\"modified_at\",\"modified_at_iso\"],\"row_count\":1,\"rows\":[[1,1,\"1 E Geneva Dr\",\"1 E Geneva Dr\",\"\",\"Tempe\",\"AZ\",\"85282\",33.395306,-111.939319,4,1,1790862360000,\"2026-10-01T06:46:00-07:00\",1790862360000,\"2026-10-01T06:46:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:location_contacts",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM location_contacts LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"location_id\",\"contact_type\",\"value\",\"do_not_text\",\"memo\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:calls",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM calls LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"arrived_at\",\"arrived_at_iso\",\"service_date\",\"call_kind\",\"status\",\"caller_name\",\"caller_phone\",\"segment\",\"customer_id\",\"location_id\",\"service_street\",\"service_unit\",\"service_city\",\"service_state\",\"service_postal_code\",\"requested_service_name\",\"urgent\",\"related_job_id\",\"target_appointment_id\",\"target_job_id\",\"created_job_id\",\"terminal_at\",\"terminal_at_iso\",\"terminal_reason\",\"created_at\",\"created_at_iso\"],\"row_count\":1,\"rows\":[[1,1790862360000,\"2026-10-01T06:46:00-07:00\",\"2026-10-01\",\"new_job\",\"rejected\",\"Example Caller\",\"6025550142\",\"residential\",1,1,\"1 E Geneva Dr\",null,\"Tempe\",\"AZ\",\"85282\",\"HVAC service\",0,null,null,null,null,1790862360000,\"2026-10-01T06:46:00-07:00\",\"agent_rejected\",1790862360000,\"2026-10-01T06:46:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:call_attempts",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM call_attempts LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"call_id\",\"attempt_number\",\"prompted_at\",\"prompted_at_iso\",\"outcome\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:jobs",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM jobs LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"job_number\",\"call_id\",\"customer_id\",\"location_id\",\"job_type_id\",\"business_unit_id\",\"requested_service_name\",\"status\",\"outcome\",\"priority\",\"no_charge\",\"recall_for_job_id\",\"summary\",\"created_at\",\"created_at_iso\",\"completed_at\",\"completed_at_iso\",\"modified_at\",\"modified_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:appointments",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM appointments LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"appointment_number\",\"job_id\",\"status\",\"scheduled_start\",\"scheduled_start_iso\",\"scheduled_end\",\"scheduled_end_iso\",\"arrival_window_start\",\"arrival_window_start_iso\",\"arrival_window_end\",\"arrival_window_end_iso\",\"actual_start\",\"actual_start_iso\",\"actual_end\",\"actual_end_iso\",\"lateness_minutes\",\"cancelled_at\",\"cancelled_at_iso\",\"created_at\",\"created_at_iso\",\"modified_at\",\"modified_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:appointment_blocks",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM appointment_blocks LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"appointment_id\",\"ordinal\",\"block_code\",\"block_start\",\"block_start_iso\",\"block_end\",\"block_end_iso\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:appointment_assignments",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM appointment_assignments LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"appointment_id\",\"job_id\",\"technician_id\",\"status\",\"assigned_at\",\"assigned_at_iso\",\"unassigned_at\",\"unassigned_at_iso\",\"assigned_by\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:appointment_events",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM appointment_events LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"appointment_id\",\"technician_id\",\"event_type\",\"occurred_at\",\"occurred_at_iso\",\"service_date\",\"detail\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:technicians",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM technicians LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"name\",\"street\",\"unit\",\"city\",\"state\",\"postal_code\",\"home_latitude\",\"home_longitude\",\"home_zone_id\",\"joined_on\",\"hourly_wage_cents\",\"employment_status\",\"availability_status\",\"available_from\",\"final_working_date\",\"created_at\",\"created_at_iso\",\"modified_at\",\"modified_at_iso\"],\"row_count\":4,\"rows\":[[1,\"Marcus Vega\",\"2636 S Wilson St\",\"\",\"Tempe\",\"AZ\",\"85282\",33.401064,-111.945567,4,\"2022-05-02\",3600,\"active\",\"available\",null,null,1651474800000,\"2022-05-02T00:00:00-07:00\",1790862300000,\"2026-10-01T06:45:00-07:00\"],[2,\"Diana Chen\",\"506 E Loyola Dr\",\"\",\"Tempe\",\"AZ\",\"85282\",33.398768,-111.930324,4,\"2026-08-03\",4000,\"active\",\"available\",null,null,1785740400000,\"2026-08-03T00:00:00-07:00\",1790862300000,\"2026-10-01T06:45:00-07:00\"],[3,\"Roberto Salas\",\"133 E Del Rio Dr\",\"\",\"Tempe\",\"AZ\",\"85282\",33.397222,-111.936836,4,\"2023-08-14\",3700,\"active\",\"available\",null,null,1691996400000,\"2023-08-14T00:00:00-07:00\",1790862300000,\"2026-10-01T06:45:00-07:00\"],[4,\"Katherine Osei\",\"310 E El Parque Dr\",\"\",\"Tempe\",\"AZ\",\"85282\",33.406808,-111.933243,4,\"2025-02-10\",3900,\"active\",\"available\",null,null,1739170800000,\"2025-02-10T00:00:00-07:00\",1790862300000,\"2026-10-01T06:45:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:technician_skills",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM technician_skills LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"technician_id\",\"skill_code\",\"active\",\"granted_on\",\"created_at\",\"created_at_iso\"],\"row_count\":5,\"rows\":[[1,1,\"hvac_service\",1,\"2022-05-02\",1651474800000,\"2022-05-02T00:00:00-07:00\"],[2,2,\"hvac_service\",1,\"2026-08-03\",1785740400000,\"2026-08-03T00:00:00-07:00\"],[3,2,\"hvac_install\",1,\"2026-08-03\",1785740400000,\"2026-08-03T00:00:00-07:00\"],[4,3,\"plumbing\",1,\"2023-08-14\",1691996400000,\"2023-08-14T00:00:00-07:00\"],[5,4,\"electrical\",1,\"2025-02-10\",1739170800000,\"2025-02-10T00:00:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:technician_shifts",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM technician_shifts LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"technician_id\",\"shift_type\",\"start_at\",\"start_at_iso\",\"end_at\",\"end_at_iso\",\"service_date\",\"active\",\"on_call_rotation_id\",\"created_at\",\"created_at_iso\"],\"row_count\":5,\"rows\":[[1,1,\"office\",1790863200000,\"2026-10-01T07:00:00-07:00\",1790899200000,\"2026-10-01T17:00:00-07:00\",\"2026-10-01\",1,null,1790862300000,\"2026-10-01T06:45:00-07:00\"],[2,2,\"office\",1790863200000,\"2026-10-01T07:00:00-07:00\",1790899200000,\"2026-10-01T17:00:00-07:00\",\"2026-10-01\",1,null,1790862300000,\"2026-10-01T06:45:00-07:00\"],[3,3,\"office\",1790863200000,\"2026-10-01T07:00:00-07:00\",1790899200000,\"2026-10-01T17:00:00-07:00\",\"2026-10-01\",1,null,1790862300000,\"2026-10-01T06:45:00-07:00\"],[4,4,\"office\",1790863200000,\"2026-10-01T07:00:00-07:00\",1790899200000,\"2026-10-01T17:00:00-07:00\",\"2026-10-01\",1,null,1790862300000,\"2026-10-01T06:45:00-07:00\"],[5,1,\"after_hours\",1790899200000,\"2026-10-01T17:00:00-07:00\",1790906400000,\"2026-10-01T19:00:00-07:00\",\"2026-10-01\",1,1,1790862300000,\"2026-10-01T06:45:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:technician_locations",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM technician_locations LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"technician_id\",\"latitude\",\"longitude\",\"coordinates_updated_at\",\"location_state\"],\"row_count\":4,\"rows\":[[1,33.401064,-111.945567,1790862300000,\"home\"],[2,33.398768,-111.930324,1790862300000,\"home\"],[3,33.397222,-111.936836,1790862300000,\"home\"],[4,33.406808,-111.933243,1790862300000,\"home\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:technician_absences",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM technician_absences LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"technician_id\",\"absence_kind\",\"start_date\",\"expected_return_date\",\"actual_return_date\",\"status\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:non_job_appointments",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM non_job_appointments LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"technician_id\",\"kind\",\"name\",\"start_at\",\"start_at_iso\",\"end_at\",\"end_at_iso\",\"block_code\",\"status\",\"training_reservation_id\",\"technician_absence_id\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:on_call_rotations",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM on_call_rotations LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"business_unit_id\",\"technician_id\",\"effective_start_date\",\"effective_end_date\",\"status\",\"vacated_at\",\"vacated_at_iso\",\"created_at\",\"created_at_iso\",\"modified_at\",\"modified_at_iso\"],\"row_count\":2,\"rows\":[[1,1,1,\"2026-04-01\",null,\"active\",null,null,1775026800000,\"2026-04-01T00:00:00-07:00\",1790862300000,\"2026-10-01T06:45:00-07:00\"],[2,2,3,\"2026-04-01\",null,\"active\",null,null,1775026800000,\"2026-04-01T00:00:00-07:00\",1790862300000,\"2026-10-01T06:45:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:hiring_requests",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM hiring_requests LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"requested_at\",\"requested_at_iso\",\"requested_skill_codes_json\",\"minimum_experience_years\",\"preferred_home_zone_id\",\"status\",\"recruiting_cost_cents\",\"committed_hourly_wage_cents\",\"committed_start_date\",\"technician_id\",\"created_at\",\"created_at_iso\",\"modified_at\",\"modified_at_iso\"],\"row_count\":1,\"rows\":[[1,1782921600000,\"2026-07-01T09:00:00-07:00\",\"[\\\"hvac_service\\\",\\\"hvac_install\\\"]\",3,4,\"completed\",40000,4000,\"2026-08-03\",2,1782921600000,\"2026-07-01T09:00:00-07:00\",1785740400000,\"2026-08-03T00:00:00-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:training_rates",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM training_rates LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"skill_code\",\"rate_date\",\"hourly_rate_cents\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:training_reservations",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM training_reservations LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"technician_id\",\"skill_code\",\"scheduled_at\",\"scheduled_at_iso\",\"total_hours\",\"locked_hourly_rate_cents\",\"prepaid_cost_cents\",\"status\",\"completed_hours\",\"created_at\",\"created_at_iso\",\"modified_at\",\"modified_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:invoices",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM invoices LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"invoice_number\",\"job_id\",\"customer_id\",\"location_id\",\"business_unit_id\",\"invoice_date\",\"issued_at\",\"issued_at_iso\",\"status\",\"no_charge\",\"subtotal_cents\",\"total_cents\",\"material_cost_cents\",\"material_percent_basis_points\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:invoice_items",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM invoice_items LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"invoice_id\",\"item_type\",\"description\",\"quantity\",\"amount_cents\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:payments",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM payments LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"payment_number\",\"invoice_id\",\"customer_id\",\"paid_at\",\"paid_at_iso\",\"amount_cents\",\"payment_type\",\"status\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:ledger_entries",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM ledger_entries LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"occurred_at\",\"occurred_at_iso\",\"service_date\",\"entry_type\",\"amount_cents\",\"balance_after_cents\",\"job_id\",\"invoice_id\",\"payment_id\",\"technician_id\",\"hiring_request_id\",\"training_reservation_id\",\"description\",\"created_at\",\"created_at_iso\"],\"row_count\":2,\"rows\":[[1,1782921600000,\"2026-07-01T09:00:00-07:00\",\"2026-07-01\",\"recruiting_cost\",-40000,-40000,null,null,null,2,1,null,\"Recruiting cost \\u2014 Diana Chen\",1782921600000,\"2026-07-01T09:00:00-07:00\"],[2,1790837999000,\"2026-09-30T23:59:59-07:00\",\"2026-09-30\",\"opening_balance_adjustment\",2540000,2500000,null,null,null,null,null,null,\"Opening balance adjustment\",1790837999000,\"2026-09-30T23:59:59-07:00\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:reviews",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM reviews LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"job_id\",\"appointment_id\",\"customer_id\",\"technician_id\",\"published_at\",\"published_at_iso\",\"service_date\",\"stars\",\"source\",\"created_at\",\"created_at_iso\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:notifications",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM notifications LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"id\",\"created_at\",\"created_at_iso\",\"service_date\",\"notification_type\",\"entity_type\",\"entity_id\",\"message\"],\"row_count\":0,\"rows\":[],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    },
+    {
+      "case": "query.sql:company_state",
+      "request": {
+        "method": "POST",
+        "path": "/v1/ops/query.sql",
+        "body": {
+          "statement": "SELECT * FROM company_state LIMIT 5",
+          "max_rows": 5
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"data\":{\"columns\":[\"service_date\",\"as_of_ms\",\"cash_balance_cents\",\"run_status\"],\"row_count\":1,\"rows\":[[\"2026-10-01\",1790862360000,2500000,\"active\"]],\"truncated\":false},\"meta\":{\"as_of\":\"2026-10-01T06:46:00-07:00\",\"invocation_id\":1,\"spec_version\":\"1.1.0\"}}"
+      }
+    }
+  ]
+}

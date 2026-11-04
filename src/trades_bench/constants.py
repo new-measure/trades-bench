@@ -50,9 +50,6 @@ TIMING_VARIATION: tuple[int, int, int] = (
     TIMING_VARIATION_HIGH,
 )
 
-INSTALL_BLOCKS: int = 2
-INSTALL_MAX_START_MIN: int = 13 * 60
-
 STARTING_TECHNICIANS: int = 4
 RECENT_HIRE_TECHNICIAN_ID: int = 2
 SICKNESS_DAYS_MIN: int = 1
@@ -96,8 +93,6 @@ CONSTANT_ENTRIES: list[ConstantEntry] = [
     ("constants.timing_variation_min", "int", TIMING_VARIATION_LOW, {}),
     ("constants.timing_variation_mode", "int", TIMING_VARIATION_MODE, {}),
     ("constants.timing_variation_max", "int", TIMING_VARIATION_HIGH, {}),
-    ("constants.install_blocks", "int", INSTALL_BLOCKS, {"min": 1}),
-    ("constants.install_max_start_min", "int", INSTALL_MAX_START_MIN, {"min": 0, "max": 1439}),
     ("constants.starting_technicians", "int", STARTING_TECHNICIANS, {"min": 1}),
     (
         "constants.recent_hire_technician_id",
@@ -133,8 +128,6 @@ __all__ = [
     "CONSTANT_VALUES",
     "ConstantEntry",
     "GRACE_MINUTES",
-    "INSTALL_BLOCKS",
-    "INSTALL_MAX_START_MIN",
     "JOB_TYPE_CODES",
     "OFFICE_BLOCK_COUNT",
     "OPENING_HOUR",

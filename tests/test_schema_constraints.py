@@ -166,7 +166,7 @@ def test_block_end_must_be_start_plus_exactly_two_hours(conn):
 def test_block_count_overflow_trigger_per_job_type(conn):
     _parents(conn)
     start = phoenix_instant(2026, 10, 2, 7, 0)
-    for job_id, allowed in ((1, 1), (2, 2)):
+    for job_id, allowed in ((1, 1), (2, 1)):
         aid = _appointment(conn, job_id, start)
         for ordinal in range(1, allowed + 1):
             _block(conn, aid, ordinal, start + (ordinal - 1) * BLOCK_LENGTH_MS)
@@ -200,7 +200,7 @@ def test_one_active_assignment_per_appointment(conn):
     _insert(conn, base, (_next_id(), "reassigned", 0))
 
 
-def test_hold_primary_key_blocks_duplicates(conn):
+def test_hold_unique_index_blocks_duplicate_job_holds(conn):
     _parents(conn)
     start = phoenix_instant(2026, 10, 2, 11, 0)
     hold = (
@@ -211,6 +211,21 @@ def test_hold_primary_key_blocks_duplicates(conn):
     _insert(conn, hold, (start,))
     with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
         _insert(conn, hold, (start,))
+
+
+def test_job_holds_share_a_window_but_non_job_holds_do_not(conn):
+    _parents(conn)
+    start = phoenix_instant(2026, 10, 4, 9, 0)
+    hold = (
+        "INSERT INTO _technician_block_holds (technician_id, block_start, hold_kind, "
+        "appointment_id, non_job_appointment_id, created_at) VALUES (1, ?, ?, ?, ?, 0)"
+    )
+    _insert(conn, hold, (start, "job", _appointment(conn, 1, start), None))
+    _insert(conn, hold, (start, "job", _appointment(conn, 2, start), None))
+    later = start + BLOCK_LENGTH_MS
+    _insert(conn, hold, (later, "training", None, 1))
+    with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
+        _insert(conn, hold, (later, "absence", None, 1))
 
 
 def test_hold_requires_exactly_one_link(conn):

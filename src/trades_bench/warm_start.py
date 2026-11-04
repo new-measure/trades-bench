@@ -37,7 +37,7 @@ _QUALIFICATIONS: dict[int, tuple[str, ...]] = {
     4: ("electrical",),
 }
 
-_ROTATIONS: dict[int, int] = {1: 1, 2: 3, 3: 4}
+_ROTATIONS: dict[int, int] = {1: 1, 2: 3}
 
 _TRUE_SKILL: dict[tuple[int, str], float] = {
     (1, "hvac_service"): 0.72,

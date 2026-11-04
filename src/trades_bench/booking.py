@@ -21,6 +21,16 @@ _BLOCK_START_BY_LABEL: dict[str, str] = {
 }
 
 
+_BLOCK_START_MINUTE_BY_CODE: dict[str, int] = {
+    code: start
+    for code, (start, _end) in zip(
+        appointments.BLOCK_CODES, constants.BLOCK_GRID_MINUTES, strict=True
+    )
+}
+
+_INSTALL_LATE_WINDOW_START_MIN = 15 * 60
+
+
 def _state_illegal(reason: str, message: str, **details: object) -> EngineError:
     return EngineError(ErrorCode.STATE_ILLEGAL, message, details={"reason": reason, **details})
 
@@ -106,6 +116,58 @@ def _acceptance_probability(
     with localcontext() as decctx:
         decctx.prec = 50
         return max(floor, base * (-decay * lead_days).exp())
+
+
+def offer_acceptance_probability(
+    p_accept: Decimal, *, off_hours: bool, off_hours_multiplier: Decimal
+) -> Decimal:
+    return p_accept * off_hours_multiplier if off_hours else p_accept
+
+
+def urgent_acceptance_probability(config: RunConfig, lead_calendar_days: int) -> Decimal:
+    by_lead_day = config.resolved["acceptance.urgent_probability_by_lead_day"]
+    return by_lead_day[min(lead_calendar_days, len(by_lead_day) - 1)]
+
+
+def install_window_acceptance_probability(
+    config: RunConfig, p_accept: Decimal, *, job_type_code: str, first_block_code: str
+) -> Decimal:
+    if job_type_code != appointments.INSTALLATION_JOB_TYPE_CODE:
+        return p_accept
+    if _BLOCK_START_MINUTE_BY_CODE[first_block_code] < _INSTALL_LATE_WINDOW_START_MIN:
+        return p_accept
+    return p_accept * config.get_decimal("acceptance.install_late_window_multiplier")
+
+
+def _offer_base_probability(
+    conn: sqlite3.Connection,
+    config: RunConfig,
+    call: sqlite3.Row,
+    plan: appointments.BookingPlan,
+    lead_days: Decimal,
+) -> Decimal:
+    if call["urgent"]:
+        call_date = date.fromisoformat(clock.service_date_for_ms(int(call["arrived_at"])))
+        lead_calendar_days = (date.fromisoformat(plan.service_date) - call_date).days
+        return urgent_acceptance_probability(config, lead_calendar_days)
+    params = conn.execute(
+        "SELECT base_micros, decay_micros, floor_micros FROM _acceptance_parameters "
+        "WHERE urgency_class = 'standard'"
+    ).fetchone()
+    if params is None:
+        raise EngineError(
+            ErrorCode.INVARIANT_VIOLATED, "no acceptance parameters for urgency_class 'standard'"
+        )
+    base = Decimal(params["base_micros"]) / Decimal(10**6)
+    decay = Decimal(params["decay_micros"]) / Decimal(10**6)
+    floor_p = Decimal(params["floor_micros"]) / Decimal(10**6)
+    return offer_acceptance_probability(
+        _acceptance_probability(base, decay, lead_days, floor_p),
+        off_hours=appointments.is_off_hours(plan.service_date, plan.block_codes),
+        off_hours_multiplier=config.resolved["acceptance.off_hours_multiplier_by_urgency"][
+            "standard"
+        ],
+    )
 
 
 def _nth_cancellation_arrival(window: _CancellationWindow, index: int) -> int:
@@ -216,25 +278,14 @@ def book(
     )
 
     scheduled_start = plan.windows[0][0]
-    urgency_class = "urgent" if call["urgent"] else "standard"
-    params = conn.execute(
-        "SELECT base_micros, decay_micros, floor_micros FROM _acceptance_parameters "
-        "WHERE urgency_class = ?",
-        (urgency_class,),
-    ).fetchone()
-    if params is None:
-        raise EngineError(
-            ErrorCode.INVARIANT_VIOLATED,
-            f"no acceptance parameters for urgency_class {urgency_class!r}",
-        )
-
     lead_ms = scheduled_start - call["arrived_at"]
     lead_days = Decimal(lead_ms) / Decimal(86_400_000)
-
-    base = Decimal(params["base_micros"]) / Decimal(10**6)
-    decay = Decimal(params["decay_micros"]) / Decimal(10**6)
-    floor_p = Decimal(params["floor_micros"]) / Decimal(10**6)
-    p_accept = _acceptance_probability(base, decay, lead_days, floor_p)
+    p_accept = install_window_acceptance_probability(
+        config,
+        _offer_base_probability(conn, config, call, plan, lead_days),
+        job_type_code=plan.job_type_code,
+        first_block_code=plan.block_codes[0],
+    )
 
     accept_threshold = probability_threshold(p_accept)
     call_origin = origin_keys.of_call(conn, call_id)
@@ -413,4 +464,10 @@ def book_command(
     )
 
 
-__all__ = ["book", "book_command"]
+__all__ = [
+    "book",
+    "book_command",
+    "install_window_acceptance_probability",
+    "offer_acceptance_probability",
+    "urgent_acceptance_probability",
+]

@@ -12,7 +12,7 @@ from typing import Any
 from policies.accept_all import AcceptAllPolicy
 from policies.base import DEFAULT_HORIZON_DAYS
 from policies.do_nothing import DoNothingPolicy
-from policies.fork_search import ForkBudget, run_fork_search
+from policies.oracle import OraclePolicy
 from policies.reject_heavy import RejectHeavyPolicy
 from policies.runner import report_bytes, run_policy
 from trades_bench import SPEC_VERSION, run_init
@@ -31,7 +31,7 @@ CALIBRATION_REPORT_FILENAME = "calibration-report.json"
 CALIBRATION_REPORT_VERSION = "1.1.0"
 
 DO_NOTHING_POLICY_NAME = "do_nothing"
-ORACLE_POLICY_NAME = "oracle_fork_search"
+ORACLE_POLICY_NAME = "oracle"
 ACCEPT_ALL_POLICY_NAME = "accept_all"
 REJECT_HEAVY_POLICY_NAME = "reject_heavy"
 
@@ -187,7 +187,6 @@ def run_world(
     world_dir: Path,
     geo_dir: str | Path | None,
     horizon_days: int,
-    budget: ForkBudget,
     sleep: Callable[[float], None],
     retain_run_databases: bool,
 ) -> tuple[PolicyRow, ...]:
@@ -196,6 +195,7 @@ def run_world(
         DoNothingPolicy(),
         AcceptAllPolicy(),
         RejectHeavyPolicy.from_config(config, master_seed=master_seed),
+        OraclePolicy(),
     ):
         result = run_policy(
             policy,
@@ -219,27 +219,6 @@ def run_world(
         )
         if not retain_run_databases:
             result.paths.db_path.unlink()
-    searched = run_fork_search(
-        config=config,
-        master_seed=master_seed,
-        run_dir=world_dir / ORACLE_POLICY_NAME,
-        geo_dir=geo_dir,
-        scenario=scenario,
-        horizon_days=horizon_days,
-        budget=budget,
-    )
-    rows.append(
-        _row(
-            scenario=scenario,
-            master_seed=master_seed,
-            policy=ORACLE_POLICY_NAME,
-            report=searched.run.report,
-            db_path=searched.run.paths.db_path,
-            geo_dir=geo_dir,
-        )
-    )
-    if not retain_run_databases:
-        searched.run.paths.db_path.unlink()
     return tuple(rows)
 
 
@@ -252,7 +231,6 @@ def _run_world_task(
     world_dir: Path,
     geo_dir: str | Path | None,
     horizon_days: int,
-    budget: ForkBudget,
     retain_run_databases: bool,
 ) -> tuple[int, tuple[PolicyRow, ...]]:
     config = config_from_canonical(config_version, canonical_json)
@@ -263,7 +241,6 @@ def _run_world_task(
         world_dir=world_dir,
         geo_dir=geo_dir,
         horizon_days=horizon_days,
-        budget=budget,
         sleep=time.sleep,
         retain_run_databases=retain_run_databases,
     )
@@ -398,7 +375,6 @@ def run_matrix(
     out_dir: str | Path,
     geo_dir: str | Path | None = None,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
-    budget: ForkBudget = ForkBudget(),
     sleep: Callable[[float], None] = time.sleep,
     retain_run_databases: bool = False,
     workers: int = 1,
@@ -434,7 +410,6 @@ def run_matrix(
                     world_dir=base / name / str(seed),
                     geo_dir=geo_dir,
                     horizon_days=horizon_days,
-                    budget=budget,
                     sleep=sleep,
                     retain_run_databases=retain_run_databases,
                 )
@@ -455,7 +430,6 @@ def run_matrix(
                         world_dir=base / name / str(seed),
                         geo_dir=geo_dir,
                         horizon_days=horizon_days,
-                        budget=budget,
                         retain_run_databases=retain_run_databases,
                     )
                     futures[future] = name

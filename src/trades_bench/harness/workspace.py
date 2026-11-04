@@ -7,7 +7,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
 
-from trades_bench import docs_gen
+from trades_bench import docs_gen, handbook
+from trades_bench.config import RunConfig
 
 MEMORY_FILENAME = "MEMORY.md"
 DOCS_DIRNAME = "docs"
@@ -22,10 +23,11 @@ def docs_path(root: str | Path) -> Path:
     return Path(root) / DOCS_DIRNAME
 
 
-def create(root: str | Path) -> Path:
+def create(root: str | Path, config: RunConfig) -> Path:
     directory = Path(root)
     directory.mkdir(parents=True, exist_ok=True)
     docs_gen.render_docs(docs_path(directory))
+    handbook.write_handbook(docs_path(directory), config)
     memory = memory_path(directory)
     if not memory.exists():
         memory.write_bytes(b"")

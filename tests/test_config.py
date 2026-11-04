@@ -63,8 +63,8 @@ def _bad(scenario: str, code: ErrorCode, *, reg: dict | None = None) -> None:
 
 def test_defaults_file_loads_into_immutable_runconfig():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
-    assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.2"
-    assert len(rc.resolved) == 163
+    assert rc.config_version == DEFAULT_CONFIG_VERSION == "1.0.5"
+    assert len(rc.resolved) == 154
     assert rc.config_hash and isinstance(rc.config_hash, str) and len(rc.config_hash) == 64
     with pytest.raises(TypeError):
         rc.resolved["constants.opening_hour"] = 9  # type: ignore[index]
@@ -107,16 +107,39 @@ def test_valid_override_succeeds_for_non_constant_key():
 
 def test_domain_keys_resolve_from_shipped_defaults():
     rc = load_run_config(defaults_json=_defaults_file(), scenario_json="{}")
-    assert rc.get_int("finance.starting_cash") == 2_950_000
-    assert rc.get_int("finance.daily_operating_overhead") == 180_000
-    assert rc.get_int("payroll.off_hours_bonus_per_job") == 50_000
-    assert rc.get_decimal("demand.base_new_caller_rate_per_day") == 6
+    assert rc.get_int("finance.starting_cash") == 2_500_000
+    assert rc.get_int("finance.daily_operating_overhead") == 125_000
+    assert rc.get_int("invoices.off_hours_premium_basis_points") == 2500
+    assert rc.get_int("payroll.off_hours_share_basis_points") == 2500
+    assert rc.get_int("payroll.overtime_cap_basis_points") == 2000
+    assert rc.resolved["acceptance.off_hours_multiplier_by_urgency"] == {
+        "standard": Decimal("1.0"),
+        "urgent": Decimal("1.0"),
+    }
+    assert rc.get_decimal("demand.level_start") == 18
+    assert rc.get_decimal("demand.level_gain_per_on_time_visit") == Decimal("0.1")
+    assert rc.get_decimal("demand.level_loss_per_bad_visit") == 3
+    assert rc.get_decimal("demand.level_max") == 30
+    assert rc.get_decimal("demand.weekend_level_multiplier") == Decimal("0.7")
+    assert rc.get_decimal("demand.weekend_level_floor") == 10
+    assert rc.get_int("demand.invalid_calls_min") == 2
+    assert rc.get_int("demand.invalid_calls_max") == 5
+    assert rc.get_int("demand.install_calls_max") == 2
+    assert rc.get_decimal("demand.existing_customer_call_share") == Decimal("0.25")
+    assert rc.resolved["acceptance.urgent_probability_by_lead_day"] == [
+        Decimal("1"), Decimal("0.15"), Decimal("0.05"),
+    ]
+    assert rc.get_decimal("acceptance.install_late_window_multiplier") == Decimal("0.5")
+    assert "finance.missed_appointment_payment" not in rc.resolved
     assert rc.get_int("calibration.accept_all_max_final_cash") == 3_050_000
     assert rc.resolved["hiring.base_hourly_wage_by_trade"] == {
-        "hvac_service": 5000,
-        "hvac_install": 5500,
-        "plumbing": 4800,
-        "electrical": 5200,
+        "hvac_service": 3600,
+        "hvac_install": 4000,
+        "plumbing": 3700,
+        "electrical": 3900,
+    }
+    assert rc.resolved["execution.duration_minutes_by_job_type"]["hvac_installation"] == {
+        "min": 120, "mode": 300, "max": 480,
     }
 
 
@@ -850,11 +873,86 @@ def test_reject_negative_acceptance_lead_time_decay():
     )
 
 
-def test_reject_served_well_repeat_multiplier_at_boundary():
+def test_reject_the_retired_off_hours_bonus_key():
     _bad(
-        '{"keys": {"competitors.served_well_repeat_multiplier": 1}}',
+        '{"keys": {"payroll.off_hours_bonus_per_job": 50000}}',
+        ErrorCode.UNKNOWN_CONFIG_KEY,
+    )
+
+
+def test_reject_an_off_hours_acceptance_multiplier_above_one():
+    _bad(
+        '{"keys": {"acceptance.off_hours_multiplier_by_urgency": '
+        '{"standard": 1.2, "urgent": 1.0}}}',
         ErrorCode.CONFIG_VALUE_INVALID,
     )
+
+
+def test_reject_an_off_hours_acceptance_multiplier_missing_an_urgency_class():
+    _bad(
+        '{"keys": {"acceptance.off_hours_multiplier_by_urgency": {"standard": 0.4}}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_an_overtime_cap_that_lets_a_paid_weekday_job_lose_money():
+    _bad(
+        '{"keys": {"payroll.overtime_cap_basis_points": 5000}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_an_off_hours_share_that_lets_a_paid_off_hours_job_lose_money():
+    _bad(
+        '{"keys": {"invoices.off_hours_premium_basis_points": 0, '
+        '"payroll.off_hours_share_basis_points": 6000}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_a_cap_whose_cent_rounding_lets_the_cheapest_paid_job_net_zero():
+    _bad(
+        '{"keys": {"payroll.overtime_cap_basis_points": 2499, "materials.percent_range": '
+        '{"electrical": {"min_basis_points": 1800, "max_basis_points": 3200}, '
+        '"hvac_installation": {"min_basis_points": 3500, "max_basis_points": 5000}, '
+        '"hvac_service": {"min_basis_points": 2500, "max_basis_points": 4000}, '
+        '"plumbing": {"min_basis_points": 2000, "max_basis_points": 7500}}}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_reject_a_basis_point_key_at_the_scale():
+    _bad(
+        '{"keys": {"invoices.off_hours_premium_basis_points": 10000}}',
+        ErrorCode.CONFIG_VALUE_INVALID,
+    )
+
+
+def test_removed_demand_and_competitor_keys_are_unknown():
+    for key in (
+        "competitors.served_well_repeat_multiplier",
+        "demand.base_new_caller_rate_per_day",
+        "demand.day_of_week_multipliers",
+        "finance.missed_appointment_payment",
+    ):
+        _bad(f'{{"keys": {{"{key}": 1}}}}', ErrorCode.UNKNOWN_CONFIG_KEY)
+
+
+def test_install_off_hours_margin_is_not_checked_but_its_office_margin_is():
+    def mutate(ranges):
+        ranges["hvac_installation"]["max_basis_points"] = 8000
+
+    _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
+    rc = _load('{"keys": {"invoices.off_hours_premium_basis_points": 0}}')
+    assert rc.get_int("invoices.off_hours_premium_basis_points") == 0
+
+
+def test_reject_demand_level_start_above_level_max():
+    _bad('{"keys": {"demand.level_start": 31}}', ErrorCode.CONFIG_VALUE_INVALID)
+
+
+def test_reject_invalid_calls_min_above_max():
+    _bad('{"keys": {"demand.invalid_calls_min": 6}}', ErrorCode.CONFIG_VALUE_INVALID)
 
 
 def test_reject_heavy_reject_probability_default_is_strictly_inside_the_unit_interval():
@@ -1075,14 +1173,14 @@ def test_reject_invoice_triple_with_unexpected_keys():
 
 def test_reject_invoice_apartment_mode_below_residential():
     def mutate(amounts):
-        amounts["plumbing"]["apartment"]["mode_cents"] = 30000
+        amounts["plumbing"]["apartment"]["mode_cents"] = 29000
 
     _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
 
 
 def test_reject_invoice_commercial_mode_below_apartment():
     def mutate(amounts):
-        amounts["plumbing"]["commercial"]["mode_cents"] = 40000
+        amounts["plumbing"]["commercial"]["mode_cents"] = 30500
 
     _bad(_invoice_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
 
@@ -1147,7 +1245,7 @@ def test_reject_material_installation_min_below_a_service_min():
 
 def test_reject_material_installation_max_below_a_service_max():
     def mutate(ranges):
-        ranges["hvac_service"]["max_basis_points"] = 5100
+        ranges["hvac_service"]["max_basis_points"] = 7600
 
     _bad(_material_scenario(mutate), ErrorCode.CONFIG_VALUE_INVALID)
 

@@ -31,7 +31,7 @@ WEEKEND = "2026-10-03"
 ARTIFACT = geo_reader.load_artifact(GEO_ARTIFACT_DIR)
 DESTINATION_ADDRESS = next(row for row in ARTIFACT.catalog if row.address_id == 2)
 
-_ON_CALL_TECHNICIAN_IDS = (1, 3, 4)
+_ON_CALL_TECHNICIAN_IDS = (1, 3)
 _NON_ON_CALL_TECHNICIAN_ID = 2
 
 _id_seq = count(9000)
@@ -167,47 +167,42 @@ def _set_clock(conn, ms: int, service_date: str) -> None:
         (2, "B09_11", True),
         (2, "B11_13", True),
         (2, "B13_15", True),
-        (2, "B15_17", False),
-        (2, "B17_19", False),
+        (2, "B15_17", True),
     ],
 )
-def test_grid_generated_candidates_accepted_exactly_when_legal(
+def test_grid_every_job_type_books_any_single_window(
     tmp_path, job_type_id, first_block_code, expect_ok
 ):
     conn, cfg, controller = _build(tmp_path)
-    if expect_ok:
-        result = _book_ok(
-            conn, controller, cfg,
-            job_type_id=job_type_id, technician_id=1, first_block_code=first_block_code,
-        )
-        assert result["block_codes"][0] == first_block_code
-    else:
-        error = _book_err(
-            conn, controller, cfg,
-            job_type_id=job_type_id, technician_id=1, first_block_code=first_block_code,
-        )
-        assert error["code"] == ErrorCode.STATE_ILLEGAL.value
-        assert error["details"]["reason"] == "grid_violation"
+    assert expect_ok
+    result = _book_ok(
+        conn, controller, cfg,
+        job_type_id=job_type_id, technician_id=1, first_block_code=first_block_code,
+    )
+    assert result["block_codes"] == [first_block_code]
 
 
-def test_grid_non_consecutive_install_blocks_rejected():
+@pytest.mark.parametrize(
+    "first_block_code, service_date",
+    [("B17_19", WEEKDAY), ("B09_11", WEEKEND), ("B17_19", WEEKEND)],
+)
+def test_installation_refused_in_the_evening_window_and_at_weekends(
+    tmp_path, first_block_code, service_date
+):
+    conn, cfg, controller = _build(tmp_path)
+    error = _book_err(
+        conn, controller, cfg,
+        job_type_id=2, technician_id=1, first_block_code=first_block_code,
+        service_date=service_date,
+    )
+    assert error["code"] == "state_illegal"
+    assert error["details"]["reason"] == "install_off_hours"
+    assert conn.execute("SELECT COUNT(*) FROM _appointments WHERE origin = 'run'").fetchone()[0] == 0
+
+
+def test_grid_unknown_first_block_code_rejected():
     with pytest.raises(EngineError) as ei:
-        appointments.validate_reservation_shape(2, ("B07_09", "B11_13"))
-    assert ei.value.code is ErrorCode.STATE_ILLEGAL
-    assert ei.value.details["reason"] == "grid_violation"
-
-
-def test_grid_unknown_block_code_in_reservation_shape_rejected():
-    with pytest.raises(EngineError) as ei:
-        appointments.validate_reservation_shape(1, ("B99_99",))
-    assert ei.value.code is ErrorCode.INVALID_ARGUMENT
-    assert ei.value.details["rule"] == "block_alignment"
-    assert ei.value.details["field"] == "block_start"
-
-
-def test_grid_unknown_first_block_code_in_derivation_rejected():
-    with pytest.raises(EngineError) as ei:
-        appointments._derive_reservation_blocks(1, "B99_99")
+        appointments._reservation_blocks("B99_99")
     assert ei.value.code is ErrorCode.INVALID_ARGUMENT
     assert ei.value.details["rule"] == "block_alignment"
     assert ei.value.details["field"] == "block_start"
@@ -222,14 +217,15 @@ def test_grid_standard_job_in_after_hours_block_for_on_call_technician_accepted(
     assert result["block_codes"] == ["B17_19"]
 
 
-def test_overlap_same_technician_same_block_rejected(tmp_path):
+def test_same_technician_same_window_accepts_another_job(tmp_path):
     conn, cfg, controller = _build(tmp_path)
-    _book_ok(conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B09_11")
-    error = _book_err(
+    first = _book_ok(
         conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B09_11"
     )
-    assert error["code"] == ErrorCode.STATE_ILLEGAL.value
-    assert error["details"]["reason"] == "overlap"
+    second = _book_ok(
+        conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B09_11"
+    )
+    assert first["appointment_id"] != second["appointment_id"]
 
 
 def test_overlap_two_technicians_same_block_accepted(tmp_path):
@@ -241,14 +237,13 @@ def test_overlap_two_technicians_same_block_accepted(tmp_path):
     assert result["technician_id"] == 3
 
 
-def test_overlap_install_second_block_colliding_with_existing_hold_rejected(tmp_path):
+def test_install_holds_only_its_own_window(tmp_path):
     conn, cfg, controller = _build(tmp_path)
     _book_ok(conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B09_11")
-    error = _book_err(
+    result = _book_ok(
         conn, controller, cfg, job_type_id=2, technician_id=1, first_block_code="B07_09"
     )
-    assert error["code"] == ErrorCode.STATE_ILLEGAL.value
-    assert error["details"]["reason"] == "overlap"
+    assert result["block_codes"] == ["B07_09"]
 
 
 def test_shift_coverage_non_on_call_technician_rejected_at_after_hours(tmp_path):
@@ -368,20 +363,19 @@ def test_booking_writes_correct_rows_in_all_five_tables(tmp_path):
     assert appt["status"] == "scheduled"
     assert appt["appointment_number"] == result["appointment_number"]
     start = clock.phoenix_instant(2026, 10, 1, 7, 0)
-    end = clock.phoenix_instant(2026, 10, 1, 11, 0)
-    first_block_end = clock.phoenix_instant(2026, 10, 1, 9, 0)
+    end = clock.phoenix_instant(2026, 10, 1, 9, 0)
     assert appt["scheduled_start"] == start
     assert appt["scheduled_end"] == end
     assert appt["arrival_window_start"] == start
-    assert appt["arrival_window_end"] == first_block_end
+    assert appt["arrival_window_end"] == end
 
     blocks = conn.execute(
         "SELECT ordinal, block_code, block_start, block_end FROM _appointment_blocks "
         "WHERE appointment_id = ? ORDER BY ordinal",
         (result["appointment_id"],),
     ).fetchall()
-    assert [b["ordinal"] for b in blocks] == [1, 2]
-    assert [b["block_code"] for b in blocks] == ["B07_09", "B09_11"]
+    assert [b["ordinal"] for b in blocks] == [1]
+    assert [b["block_code"] for b in blocks] == ["B07_09"]
 
     assignments = conn.execute(
         "SELECT * FROM _appointment_assignments WHERE appointment_id = ?",
@@ -392,13 +386,12 @@ def test_booking_writes_correct_rows_in_all_five_tables(tmp_path):
     assert assignments[0]["assigned_by"] == "agent"
     assert assignments[0]["technician_id"] == 1
 
-    second_block_start = clock.phoenix_instant(2026, 10, 1, 9, 0)
     holds = conn.execute(
         "SELECT technician_id, block_start, hold_kind, appointment_id "
         "FROM _technician_block_holds WHERE appointment_id = ? ORDER BY block_start",
         (result["appointment_id"],),
     ).fetchall()
-    assert [h["block_start"] for h in holds] == [start, second_block_start]
+    assert [h["block_start"] for h in holds] == [start]
     assert all(h["technician_id"] == 1 and h["hold_kind"] == "job" for h in holds)
 
 
@@ -447,7 +440,8 @@ def test_failed_booking_rolls_back_completely_and_consumes_no_draws(tmp_path):
     before = _counts()
     audit_before = audit_count(conn)
     error = _book_err(
-        conn, controller, cfg, job_type_id=1, technician_id=1, first_block_code="B09_11"
+        conn, controller, cfg,
+        job_type_id=1, technician_id=_NON_ON_CALL_TECHNICIAN_ID, first_block_code="B17_19",
     )
     assert error["code"] == ErrorCode.STATE_ILLEGAL.value
     assert _counts() == before
@@ -674,17 +668,17 @@ def test_off_hours_mark_weekend_standard_job_schedules_at_its_block_start(tmp_pa
     assert payload == {"appointment_id": booked["appointment_id"], "block_hours": 2}
 
 
-def test_off_hours_mark_weekend_installation_schedules_at_first_block_with_four_hours(tmp_path):
+def test_off_hours_mark_weekend_service_job_schedules_at_its_window_with_two_hours(tmp_path):
     conn, cfg, controller = _build(tmp_path)
     booked = _book_ok(
         conn, controller, cfg,
-        job_type_id=2, technician_id=1, first_block_code="B09_11", service_date=WEEKEND,
+        job_type_id=1, technician_id=1, first_block_code="B09_11", service_date=WEEKEND,
     )
     marks = _off_hours_marks(conn, booked["appointment_id"])
     assert len(marks) == 1
     scheduled_at_ms, entity_type, payload = marks[0]
     assert scheduled_at_ms == clock.phoenix_instant(2026, 10, 3, 9, 0)
-    assert payload == {"appointment_id": booked["appointment_id"], "block_hours": 4}
+    assert payload == {"appointment_id": booked["appointment_id"], "block_hours": 2}
 
 
 def test_off_hours_mark_is_never_cancelled_by_reassignment(tmp_path):

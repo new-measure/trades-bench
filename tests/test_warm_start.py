@@ -55,7 +55,7 @@ def test_ws02_roster_and_coverage(tmp_path):
             assert t["joined_on"] < "2026-04-01"
     assert [t["employment_status"] for t in techs] == ["active"] * 4
     assert [t["availability_status"] for t in techs] == ["available"] * 4
-    assert [t["hourly_wage_cents"] for t in techs] == [5000, 5500, 4800, 5200]
+    assert [t["hourly_wage_cents"] for t in techs] == [3600, 4000, 3700, 3900]
     quals: dict[int, list[str]] = {}
     for row in conn.execute(
         "SELECT technician_id, skill_code FROM _technician_skills ORDER BY id"
@@ -71,9 +71,9 @@ def test_ws02_roster_and_coverage(tmp_path):
         "SELECT id, business_unit_id, technician_id, status, effective_start_date, "
         "vacated_at FROM _on_call_rotations ORDER BY id"
     ).fetchall()
-    assert len(rotations) == 3
-    assert [r["status"] for r in rotations] == ["active"] * 3
-    assert [r["effective_start_date"] for r in rotations] == ["2026-04-01"] * 3
+    assert [(r["business_unit_id"], r["technician_id"]) for r in rotations] == [(1, 1), (2, 3)]
+    assert [r["status"] for r in rotations] == ["active"] * 2
+    assert [r["effective_start_date"] for r in rotations] == ["2026-04-01"] * 2
     assert all(r["vacated_at"] is None for r in rotations)
     bu_skill = {1: "hvac_service", 2: "plumbing", 3: "electrical"}
     holder_skills = {t: set(qs) for t, qs in quals.items()}
@@ -99,7 +99,6 @@ def test_ws02_roster_and_coverage(tmp_path):
     assert {(r["technician_id"], r["on_call_rotation_id"]) for r in after} == {
         (1, 1),
         (3, 2),
-        (4, 3),
     }
     wknd = conn.execute(
         "SELECT technician_id, on_call_rotation_id FROM _technician_shifts "
@@ -109,7 +108,6 @@ def test_ws02_roster_and_coverage(tmp_path):
     assert {(r["technician_id"], r["on_call_rotation_id"]) for r in wknd} == {
         (1, 1),
         (3, 2),
-        (4, 3),
     }
     assert (
         conn.execute(
@@ -211,7 +209,7 @@ def test_ws08_private_state_exists_and_is_hidden(tmp_path):
 def test_ws09_fixture_form_views(tmp_path):
     conn, _, _, _ = _build(tmp_path)
     assert conn.execute("SELECT COUNT(*) c FROM hiring_requests").fetchone()["c"] == 1
-    assert conn.execute("SELECT COUNT(*) c FROM on_call_rotations").fetchone()["c"] == 3
+    assert conn.execute("SELECT COUNT(*) c FROM on_call_rotations").fetchone()["c"] == 2
     assert conn.execute("SELECT COUNT(*) c FROM ledger_entries").fetchone()["c"] == 2
     assert conn.execute("SELECT COUNT(*) c FROM reviews").fetchone()["c"] == 0
     assert conn.execute("SELECT COUNT(*) c FROM training_rates").fetchone()["c"] == 0
@@ -234,8 +232,8 @@ def test_ws09_fixture_form_views(tmp_path):
     assert hr["minimum_experience_years"] == 3
     assert hr["preferred_home_zone_id"] == 4
     assert hr["committed_start_date"] == "2026-08-03"
-    assert hr["committed_hourly_wage_cents"] == 5500
-    assert hr["recruiting_cost_cents"] == 55000
+    assert hr["committed_hourly_wage_cents"] == 4000
+    assert hr["recruiting_cost_cents"] == 40000
     assert hr["technician_id"] == 2
     assert hr["requested_at"] == clock.phoenix_instant(2026, 7, 1, 9, 0)
 
@@ -287,9 +285,9 @@ def test_shift_counts_across_run_calendar(tmp_path):
     after = [r for r in rows if r["shift_type"] == "after_hours"]
     weekend = [r for r in rows if r["shift_type"] == "weekend"]
     assert len(office) == 4 * weekdays
-    assert len(after) == 3 * weekdays
-    assert len(weekend) == 3 * weekends
-    assert len(rows) == 4 * weekdays + 3 * weekdays + 3 * weekends
+    assert len(after) == 2 * weekdays
+    assert len(weekend) == 2 * weekends
+    assert len(rows) == 4 * weekdays + 2 * weekdays + 2 * weekends
     for r in office:
         dt = clock.phoenix_local(r["start_at"])
         assert (dt.hour, dt.minute) == (7, 0) and dt.weekday() < 5
@@ -353,7 +351,7 @@ def test_scenario_set_run_window_builds_the_whole_run_around_it(tmp_path):
             weekends += 1
         d += timedelta(days=1)
     total = conn.execute("SELECT COUNT(*) c FROM _technician_shifts").fetchone()["c"]
-    assert total == 4 * weekdays + 3 * weekdays + 3 * weekends
+    assert total == 4 * weekdays + 2 * weekdays + 2 * weekends
 
 
 def test_warm_start_refuses_non_initializing_status(tmp_path):

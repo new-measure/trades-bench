@@ -7,12 +7,7 @@ import pytest
 
 from trades_bench.harness import prompts
 
-MEMORY_PARAGRAPH = (
-    "MEMORY.md in your workspace is your own notes file, persisted across days. "
-    "Read it at the start of each day and keep it updated. Nothing is read back to "
-    "you automatically; every file, MEMORY.md included, enters your context only "
-    "when you read it."
-)
+MEMORY_PARAGRAPH = "MEMORY.md in your workspace is your own notes file, persisted across days."
 
 
 FORBIDDEN_SUBSTRINGS = (
@@ -333,7 +328,6 @@ def test_har03_closing_render_is_byte_exact():
         "[2026-10-01 19:42 America/Phoenix]\n"
         "\n"
         "The last job of the day has finished and the office is closed.\n"
-        "Only future-facing actions remain available; nothing from today can be changed.\n"
         "Before you finish, you may review the day and update MEMORY.md."
     )
 
@@ -378,7 +372,6 @@ def test_har01_system_prompt_states_every_mandated_item():
         "public views",
         "workspace",
         "MEMORY.md",
-        "cannot advance time",
     ):
         assert needle in text, needle
 

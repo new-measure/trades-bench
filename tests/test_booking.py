@@ -366,16 +366,19 @@ def test_offer_validation_failures_leave_world_unchanged_then_offer_is_consumed(
     assert unreg_err["details"]["reason"] == "registration_incomplete"
     assert _world_snapshot(conn) == before_unreg_world
 
-    occupant_catalog = _usable_catalog_rows(conn, 2)[1]
-    occupant_id, occupant_customer_id, occupant_location_id = _fresh_registered_call(
-        conn, controller, occupant_catalog,
+    training_start = clock.phoenix_instant(2026, 10, 1, 11, 0)
+    training = conn.execute(
+        "INSERT INTO _non_job_appointments (technician_id, kind, name, start_at, end_at, "
+        "block_code, status, created_at) VALUES (1, 'training', 'course', ?, ?, 'B11_13', "
+        "'scheduled', ?)",
+        (training_start, training_start + 7_200_000, now),
     )
-    _, occupant_body = _book(
-        controller, cfg,
-        call_id=occupant_id, customer_id=occupant_customer_id, location_id=occupant_location_id,
-        job_type_id=1, service_date=START_DATE, block_start="11:00", technician_id=1,
+    conn.execute(
+        "INSERT INTO _technician_block_holds (technician_id, block_start, hold_kind, "
+        "appointment_id, non_job_appointment_id, created_at) VALUES (1, ?, 'training', "
+        "NULL, ?, ?)",
+        (training_start, int(training.lastrowid), now),
     )
-    _ok(occupant_body)
 
     customer_id = _insert_customer(conn, now)
     location_id = _insert_location(conn, now, customer_id, catalog)
@@ -409,7 +412,7 @@ def test_offer_validation_failures_leave_world_unchanged_then_offer_is_consumed(
     _assert_rejected(None, ErrorCode.ENTITY_NOT_FOUND.value, technician_id=999999)
     _assert_rejected(None, ErrorCode.ENTITY_NOT_FOUND.value, job_type_id=999999)
     _assert_rejected(
-        "grid_violation", ErrorCode.STATE_ILLEGAL.value, job_type_id=2, block_start="15:00",
+        "shift_coverage", ErrorCode.STATE_ILLEGAL.value, technician_id=2, block_start="17:00",
     )
     _assert_rejected("overlap", ErrorCode.STATE_ILLEGAL.value, block_start="11:00")
 
@@ -482,9 +485,9 @@ def test_accepted_booking_writes_all_tables_atomically(tmp_path):
 
     assert after["_jobs"] == before["_jobs"] + 1
     assert after["_appointments"] == before["_appointments"] + 1
-    assert after["_appointment_blocks"] == before["_appointment_blocks"] + 2
+    assert after["_appointment_blocks"] == before["_appointment_blocks"] + 1
     assert after["_appointment_assignments"] == before["_appointment_assignments"] + 1
-    assert after["_technician_block_holds"] == before["_technician_block_holds"] + 2
+    assert after["_technician_block_holds"] == before["_technician_block_holds"] + 1
     assert after["_job_outcomes"] == before["_job_outcomes"] + 1
     assert after["_cancellation_schedule"] == before["_cancellation_schedule"] + 1
     assert after["_ledger_entries"] == before["_ledger_entries"]
@@ -512,10 +515,6 @@ def test_accepted_booking_writes_all_tables_atomically(tmp_path):
         {
             "start": clock.to_iso8601(clock.phoenix_instant(2026, 10, 1, 9, 0)),
             "end": clock.to_iso8601(clock.phoenix_instant(2026, 10, 1, 11, 0)),
-        },
-        {
-            "start": clock.to_iso8601(clock.phoenix_instant(2026, 10, 1, 11, 0)),
-            "end": clock.to_iso8601(clock.phoenix_instant(2026, 10, 1, 13, 0)),
         },
     ]
 
@@ -555,10 +554,7 @@ def test_declined_booking_writes_nothing(tmp_path):
 
 
 def _decline_via(tmp_path, name, *, via_booking):
-    config = _config(
-        **_DECLINE_ALWAYS,
-        **{"competitors.attempt_probability": 1.0, "competitors.served_well_probability": 1.0},
-    )
+    config = _config(**_DECLINE_ALWAYS)
     conn, cfg, controller = _build(tmp_path, config=config, name=name)
     now = _now_ms(conn)
     catalog = _usable_catalog_rows(conn, 1)[0]
@@ -603,8 +599,7 @@ def test_decline_via_booking_equals_decline_via_reject(tmp_path):
     )
 
     assert origin_booking == origin_reject
-    assert comp_booking == comp_reject
-    assert len(comp_booking) == 2
+    assert comp_booking == comp_reject == []
     assert accept_reject == []
     assert accept_booking == [
         ("acceptance", "call_origin", 1, origin_booking, "offer_acceptance", 0),
@@ -743,6 +738,138 @@ def test_acceptance_declines_at_long_lead_and_accepts_at_short_lead_under_fixed_
     assert long_result["outcome"] == "customer_declined"
 
 
+def test_off_hours_acceptance_multiplier_leaves_standard_and_urgent_unchanged_by_default():
+    multipliers = _config().resolved["acceptance.off_hours_multiplier_by_urgency"]
+    p_accept = Decimal("0.9")
+    standard = booking.offer_acceptance_probability(
+        p_accept, off_hours=True, off_hours_multiplier=multipliers["standard"]
+    )
+    urgent = booking.offer_acceptance_probability(
+        p_accept, off_hours=True, off_hours_multiplier=multipliers["urgent"]
+    )
+    daytime = booking.offer_acceptance_probability(
+        p_accept, off_hours=False, off_hours_multiplier=multipliers["standard"]
+    )
+    assert standard == p_accept
+    assert urgent == p_accept
+    assert daytime == p_accept
+    floored = booking._acceptance_probability(
+        Decimal("0.9"), Decimal("0.15"), Decimal("1000"), Decimal("0.25")
+    )
+    assert booking.offer_acceptance_probability(
+        floored, off_hours=True, off_hours_multiplier=Decimal("0.4")
+    ) == Decimal("0.100")
+
+
+@pytest.mark.parametrize(
+    ("urgent", "service_date", "block_start", "expected"),
+    [
+        (0, "2026-10-01", "17:00", "customer_declined"),
+        (0, "2026-10-03", "09:00", "customer_declined"),
+        (0, "2026-10-01", "09:00", "accepted"),
+        (1, "2026-10-01", "17:00", "accepted"),
+    ],
+)
+def test_off_hours_offers_apply_the_urgency_multiplier_to_acceptance(
+    tmp_path, urgent, service_date, block_start, expected
+):
+    config = _config(**{
+        "run.end_date": "2026-10-03",
+        "acceptance.base_probability_by_urgency": {"standard": 1.0, "urgent": 1.0},
+        "acceptance.lead_time_decay_by_urgency": {"standard": 0.0, "urgent": 0.0},
+        "acceptance.floor_probability_by_urgency": {"standard": 0.0, "urgent": 0.0},
+        "acceptance.off_hours_multiplier_by_urgency": {"standard": 0.0, "urgent": 1.0},
+    })
+    conn, cfg, controller = _build(tmp_path, config=config, name="off_hours_accept.db")
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id, customer_id, location_id = _call_with_fixed_lead(
+        conn, controller, catalog, clock.phoenix_instant(2026, 10, 1, 8, 59), urgent=urgent,
+    )
+    _, body = _book(
+        controller, cfg,
+        call_id=call_id, customer_id=customer_id, location_id=location_id,
+        job_type_id=1, service_date=service_date, block_start=block_start, technician_id=1,
+    )
+    assert _ok(body)["outcome"] == expected
+
+
+def test_urgent_acceptance_is_certain_same_day_then_drops_by_calendar_day():
+    config = _config()
+    assert [booking.urgent_acceptance_probability(config, lead) for lead in (0, 1, 2, 9)] == [
+        Decimal("1"), Decimal("0.15"), Decimal("0.05"), Decimal("0.05"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("by_lead_day", "service_date", "block_start", "expected"),
+    [
+        ([1, 0, 0], "2026-10-01", "17:00", "accepted"),
+        ([1, 0, 0], "2026-10-02", "07:00", "customer_declined"),
+        ([0, 1, 0], "2026-10-02", "07:00", "accepted"),
+        ([0, 0, 1], "2026-10-03", "09:00", "accepted"),
+        ([1, 1, 0], "2026-10-03", "09:00", "customer_declined"),
+    ],
+)
+def test_urgent_offers_use_the_calendar_day_lead_probability(
+    tmp_path, by_lead_day, service_date, block_start, expected
+):
+    config = _config(**{
+        "run.end_date": "2026-10-03",
+        "acceptance.urgent_probability_by_lead_day": by_lead_day,
+    })
+    conn, cfg, controller = _build(tmp_path, config=config, name="urgent_accept.db")
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id, customer_id, location_id = _call_with_fixed_lead(
+        conn, controller, catalog, clock.phoenix_instant(2026, 10, 1, 8, 59), urgent=1,
+    )
+    _, body = _book(
+        controller, cfg,
+        call_id=call_id, customer_id=customer_id, location_id=location_id,
+        job_type_id=1, service_date=service_date, block_start=block_start, technician_id=1,
+    )
+    assert _ok(body)["outcome"] == expected
+
+
+def test_install_late_window_multiplier_applies_only_to_installs_from_three_pm():
+    config = _config()
+    p_accept = Decimal("0.9")
+
+    def adjusted(job_type_code, block_code):
+        return booking.install_window_acceptance_probability(
+            config, p_accept, job_type_code=job_type_code, first_block_code=block_code
+        )
+
+    assert adjusted("hvac_installation", "B15_17") == Decimal("0.45")
+    assert adjusted("hvac_installation", "B13_15") == p_accept
+    assert adjusted("hvac_service", "B15_17") == p_accept
+
+
+@pytest.mark.parametrize(
+    ("block_start", "expected"), [("13:00", "accepted"), ("15:00", "customer_declined")]
+)
+def test_install_offers_from_three_pm_are_declined_under_a_zero_multiplier(
+    tmp_path, block_start, expected
+):
+    config = _config(**_ACCEPT_ALWAYS, **{"acceptance.install_late_window_multiplier": 0})
+    conn, cfg, controller = _build(tmp_path, config=config, name="install_late.db")
+    now = _now_ms(conn)
+    catalog = _usable_catalog_rows(conn, 1)[0]
+    _open_invocation(conn, now)
+    call_id, customer_id, location_id = _call_with_fixed_lead(
+        conn, controller, catalog, clock.phoenix_instant(2026, 10, 1, 8, 59),
+    )
+    _, body = _book(
+        controller, cfg,
+        call_id=call_id, customer_id=customer_id, location_id=location_id,
+        job_type_id=2, service_date=START_DATE, block_start=block_start, technician_id=1,
+    )
+    assert _ok(body)["outcome"] == expected
+
+
 def test_acceptance_probability_formula_is_monotone_nonincreasing_and_floor_is_respected():
     base = Decimal("1")
     floor = Decimal("0")
@@ -849,7 +976,7 @@ def test_cancellation_arrival_window_multi_day_index_mapping():
 
 DET04_SERVICE_DATE = "2026-10-02"
 DET04_DAY_ONE = "2026-10-01"
-DET04_SEED = 28
+DET04_SEED = 20
 DET04_TECHNICIAN_BY_SERVICE = {
     "hvac service": (1, 1),
     "hvac installation": (2, 2),
@@ -865,14 +992,15 @@ DET04_CANCELLATION = {
     "cancellations.urgent_multiplier": 1,
 }
 DET04_D_BLOCKS = ("13:00", "11:00", "15:00")
+DET04_UNCOVERED_BLOCK = "17:00"
+DET04_NON_ON_CALL_TECHNICIAN_ID = 2
 DET04_B_DRAW_KINDS = (
     "offer_acceptance", "complexity", "cancellation_exists", "travel_noise",
-    "start_variation", "duration_variation", "invoice_amount", "material_percentage",
-    "repeat_call",
+    "start_variation", "work_duration", "invoice_amount", "material_percentage",
 )
 DET04_CONFIG = {
     **DET04_CANCELLATION,
-    "demand.base_new_caller_rate_per_day": 20,
+    "demand.level_start": 20,
     "finance.starting_cash": 50_000_000,
     "run.end_date": DET04_SERVICE_DATE,
 }
@@ -1054,14 +1182,14 @@ class _Det04Adapter(ScriptedNoOpAdapter):
         self.interleavings["read_rows"] = len(ops_read.execute_view_list(
             conn, controller.config, spec, ops_read.validate_operation_args(spec, {}),
         )[0])
-        technician_id, date_, block = self.c_slot
-        _, occupied = _book(
-            controller, controller.config, request_id=f"occupied-{call_id}", call_id=call_id,
+        _technician_id, date_, _block = self.c_slot
+        _, uncovered = _book(
+            controller, controller.config, request_id=f"uncovered-{call_id}", call_id=call_id,
             customer_id=customer_id, location_id=location_id, job_type_id=4,
-            service_date=date_, block_start=block, technician_id=technician_id,
-            artifact=ARTIFACT,
+            service_date=date_, block_start=DET04_UNCOVERED_BLOCK,
+            technician_id=DET04_NON_ON_CALL_TECHNICIAN_ID, artifact=ARTIFACT,
         )
-        self.interleavings["occupied"] = (occupied.get("error") or {"code": "booked"})["code"]
+        self.interleavings["uncovered"] = (uncovered.get("error") or {"code": "booked"})["code"]
         self.interleavings["audit_delta"] = audit_count(conn) - audit_before
 
     def _book_b(self, call_id, payload, service):
@@ -1154,9 +1282,9 @@ def _det04_precondition_failures(status, adapter):
         ),
         (
             adapter.handle_a != "creates_entities"
-            or adapter.interleavings.get("occupied") == "state_illegal",
-            "booking B into call C's held block fails as occupied "
-            f"(got {adapter.interleavings.get('occupied')})",
+            or adapter.interleavings.get("uncovered") == "state_illegal",
+            "booking B into an off-hours window its technician does not cover fails "
+            f"(got {adapter.interleavings.get('uncovered')})",
         ),
         (
             adapter.d is not None and adapter.d.get("outcome") == "accepted",
@@ -1246,7 +1374,7 @@ def det04_runs(tmp_path_factory):
     }
 
 
-def test_det04_entities_created_for_a_shift_no_competitor_draw_of_a_rejected_b(tmp_path):
+def test_det04_entities_created_for_a_shift_no_draw_of_a_rejected_b(tmp_path):
     created = _det04_rejected_b_run(tmp_path, "b_rejected_created.db", "creates_entities")
     untouched = _det04_rejected_b_run(
         tmp_path, "b_rejected_untouched.db", "untouched", created["origin"],
@@ -1255,8 +1383,7 @@ def test_det04_entities_created_for_a_shift_no_competitor_draw_of_a_rejected_b(t
     assert created["cancellation_seen"]
     assert untouched["origin"] == created["origin"]
     assert created["call_id"] > untouched["call_id"]
-    assert [row[4] for row in created["audit"]][:1] == ["competitor_attempt"]
-    assert created["audit"] == untouched["audit"]
+    assert created["audit"] == untouched["audit"] == []
 
 
 def test_det04_scenario_preconditions_hold_in_every_world(det04_runs):
@@ -1296,7 +1423,7 @@ def test_det04_interleavings_change_nothing_and_a_replay_returns_stored_bytes(de
 
     assert interleavings["sql_rows"] > 0
     assert interleavings["read_rows"] > 0
-    assert interleavings["occupied"] == "state_illegal"
+    assert interleavings["uncovered"] == "state_illegal"
     assert interleavings["malformed"] == "invalid_argument"
     assert interleavings["audit_delta"] == 0
     assert interleavings["replay_identical"] is True

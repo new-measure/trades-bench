@@ -22,6 +22,7 @@ from test_execution import (
     _build_run,
 )
 from trades_bench import clock, constants
+from trades_bench import config as config_module
 from trades_bench.adapter import AdapterResponse
 from trades_bench.config import load_run_config
 from trades_bench.controller import Controller
@@ -257,7 +258,7 @@ def test_sm_orch_08_demand_reads_the_current_days_realized_weather(tmp_path):
         **{
             "run.end_date": START,
             "demand.zone_weights": [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
-            "demand.base_new_caller_rate_per_day": 50,
+            "demand.level_start": 30,
         }
     )
     source = tmp_path / "source.db"
@@ -308,13 +309,25 @@ def test_sm_orch_09_deferred_clock_never_decreases(tmp_path):
         conn.close()
 
 
-def test_sm_orch_09_previous_day_cascade_defers_the_next_day_without_reordering(tmp_path):
+def test_sm_orch_09_previous_day_cascade_defers_the_next_day_without_reordering(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(
+        config_module,
+        "_CROSS_FIELD_VALIDATORS",
+        tuple(
+            entry
+            for entry in config_module._CROSS_FIELD_VALIDATORS
+            if entry[1] is not config_module._validate_work_ends_before_next_opening
+        ),
+    )
     conn, cfg, controller, _ = _build_run(
         tmp_path,
         end_date=SECOND_WEEKDAY,
         **{
             "appointments.min_actual_duration_minutes": 900,
-            "demand.base_new_caller_rate_per_day": 50,
+            "demand.level_start": 30,
+            "demand.arrival_time_of_day_weights": [1] + [0] * 11,
         },
     )
     booked = _book_execution(
@@ -384,7 +397,9 @@ def test_sm_orch_10_settlement_occurred_at_id_and_balance_after_order(ordinary_r
         ).fetchall()
         assert rows[-1]["entry_type"] == "operating_overhead"
         if date.fromisoformat(service_date).weekday() < 5:
-            assert all(row["entry_type"] == "payroll_base" for row in rows[:-1])
+            assert [row["entry_type"] for row in rows[:-1]] == (
+                ["payroll_off_hours"] * 2 + ["payroll_base"] * (len(rows) - 3)
+            )
         for row in rows:
             total = conn.execute(
                 "SELECT SUM(amount_cents) value FROM _ledger_entries WHERE id <= ?", (row["id"],)

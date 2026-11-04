@@ -16,10 +16,11 @@ from _helpers import (
     geo_artifact_sha256,
 )
 from policies import oracle
+from policies.runner import run_policy
 from test_http_engine import _build_engine, _request
 from trades_bench.config import load_run_config
 from trades_bench.errors import EngineError, ErrorCode
-from trades_bench.harness.runner import TRACK, initialize_controlled_run
+from trades_bench.harness.runner import initialize_controlled_run
 from trades_bench.http_engine import ORACLE_BYPASS_ENV_NAMES, SUNRIDGE_ORACLE_MODE_ENV
 
 SEED = 5
@@ -140,22 +141,23 @@ def test_an_empty_oracle_bypass_flag_does_not_refuse_a_scored_run(
     assert run_id
 
 
-def test_the_oracle_policy_runs_while_the_bypass_flag_is_set(
+def test_the_oracle_reference_policy_is_refused_like_any_scored_run_while_the_flag_is_set(
     tmp_path, monkeypatch, one_day_config
 ):
     monkeypatch.setenv(SUNRIDGE_ORACLE_MODE_ENV, "1")
 
-    result = oracle.run_oracle(
-        config=one_day_config,
-        master_seed=SEED,
-        run_dir=tmp_path / "oracle",
-        geo_dir=GEO_ARTIFACT_DIR,
-        horizon_days=ONE_DAY_HORIZON_DAYS,
-    )
+    with pytest.raises(EngineError) as raised:
+        run_policy(
+            oracle.OraclePolicy(),
+            config=one_day_config,
+            master_seed=SEED,
+            run_dir=tmp_path / "oracle",
+            geo_dir=GEO_ARTIFACT_DIR,
+            horizon_days=ONE_DAY_HORIZON_DAYS,
+        )
 
-    assert result.run_status == "completed"
-    assert result.report["policy"] == oracle.POLICY_NAME
-    assert oracle.TRACK != TRACK
+    assert raised.value.code is ErrorCode.INVARIANT_VIOLATED
+    assert SUNRIDGE_ORACLE_MODE_ENV in raised.value.message
 
 
 @pytest.mark.parametrize(("inspection_path", "absent_path", "principal"), INSPECTION_PATH_PAIRS)

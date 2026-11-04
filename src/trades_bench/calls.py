@@ -4,7 +4,7 @@ import sqlite3
 
 from . import clock, demand, origin_keys, surface
 from .config import RunConfig
-from .enums import EntityType, InvocationType, KeyedStreamName, OriginEntity
+from .enums import EntityType, InvocationType
 from .errors import EngineError, ErrorCode
 from .txn import Services, TxnContext, command
 
@@ -436,69 +436,6 @@ def ordinary_rejection(
         "UPDATE _calls SET status = ?, terminal_reason = ?, terminal_at = ? WHERE id = ?",
         (status, terminal_reason, now, call_id),
     )
-
-    customer_id = call["customer_id"]
-    prospect_id: int | None = None
-
-    hidden = conn.execute(
-        "SELECT true_segment, prospect_id FROM _call_hidden WHERE call_id = ?", (call_id,)
-    ).fetchone()
-    if hidden is None:
-        raise EngineError(
-            ErrorCode.INVARIANT_VIOLATED, f"call {call_id} has no _call_hidden row"
-        )
-
-    if customer_id is None and hidden["prospect_id"] is not None:
-        registered = conn.execute(
-            "SELECT registered_customer_id FROM _prospect_state WHERE id = ?",
-            (hidden["prospect_id"],),
-        ).fetchone()
-        if registered is not None and registered["registered_customer_id"] is not None:
-            customer_id = registered["registered_customer_id"]
-
-    if customer_id is not None:
-        demand.apply_rejection_consequence(conn, config, now_ms=now, customer_id=customer_id)
-    else:
-        if call["address_catalog_id"] is None:
-            raise EngineError(
-                ErrorCode.INVARIANT_VIOLATED, f"call {call_id} has no address_catalog_id"
-            )
-        catalog = conn.execute(
-            "SELECT effective_zone_id FROM _address_catalog WHERE id = ?",
-            (call["address_catalog_id"],),
-        ).fetchone()
-        if catalog is None:
-            raise EngineError(
-                ErrorCode.ENTITY_NOT_FOUND,
-                f"catalog address {call['address_catalog_id']} not found",
-            )
-        prospect = {
-            "caller_name": call["caller_name"],
-            "caller_phone": call["caller_phone"],
-            "segment": hidden["true_segment"],
-            "home_zone_id": int(catalog["effective_zone_id"]),
-        }
-        prospect_id = demand.apply_rejection_consequence(
-            conn, config, now_ms=now, prospect=prospect
-        )
-
-    call_origin = origin_keys.of_call(conn, call_id)
-    attempt = ctx.rng.chance(
-        KeyedStreamName.COMPETITOR_LEAK.value, OriginEntity.CALL.value, origin_keys.ENTITY_ID,
-        call_origin, "competitor_attempt",
-        config.get_prob_threshold("competitors.attempt_probability"), draw_index=0,
-    )
-    if attempt:
-        served = ctx.rng.chance(
-            KeyedStreamName.COMPETITOR_LEAK.value, OriginEntity.CALL.value, origin_keys.ENTITY_ID,
-            call_origin, "competitor_served_well",
-            config.get_prob_threshold("competitors.served_well_probability"), draw_index=1,
-        )
-        if served:
-            if customer_id is not None:
-                demand.apply_competitor_capture(conn, config, now_ms=now, customer_id=customer_id)
-            else:
-                demand.apply_competitor_capture(conn, config, now_ms=now, prospect_id=prospect_id)
 
 
 def record_resolved_attempt(ctx: TxnContext, call_id: int) -> None:

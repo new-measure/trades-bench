@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal
 from itertools import count
 
 import pytest
@@ -16,7 +15,7 @@ from _helpers import (
     next_test_origin,
     register_conn,
 )
-from trades_bench import SPEC_VERSION, calls, clock, db, demand, origin_keys
+from trades_bench import SPEC_VERSION, calls, clock, db
 from trades_bench.config import load_run_config
 from trades_bench.controller import Controller
 from trades_bench.db import connect
@@ -468,20 +467,6 @@ def _insert_customer_repeat_state(conn, customer_id, propensity_micros, now, las
     )
 
 
-def _insert_prospect_state(
-    conn, now, *, propensity_micros, last_outcome=None, segment="residential",
-    caller_name="Fixture Caller", caller_phone="4805551234",
-):
-    identity_key = f"{caller_phone}|{caller_name}"
-    cur = conn.execute(
-        "INSERT INTO _prospect_state (identity_key, caller_name, caller_phone, segment, "
-        "home_zone_id, propensity_micros, last_outcome, competitor_captured_at, created_at, "
-        "updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?)",
-        (identity_key, caller_name, caller_phone, segment, propensity_micros, last_outcome, now, now),
-    )
-    return int(cur.lastrowid)
-
-
 def _reject(controller, cfg, *, call_id, request_id=None):
     rid = request_id if request_id is not None else _next_request_id("reject")
     response = calls.reject_command(controller.services, rid, cfg, call_id=call_id)
@@ -501,22 +486,6 @@ def _err(body: dict) -> dict:
 def _competitor_state(conn):
     return conn.execute(
         "SELECT share_micros, capture_count FROM _competitor_state WHERE singleton = 1"
-    ).fetchone()
-
-
-def _competitor_leak_rows(conn, call_id):
-    return conn.execute(
-        "SELECT stream_name, entity_type, entity_id, scope, event_kind, draw_index "
-        "FROM _random_audit WHERE stream_name = 'competitor_leak' "
-        "AND scope = (SELECT origin_key FROM _call_hidden WHERE call_id = ?) ORDER BY seq",
-        (call_id,),
-    ).fetchall()
-
-
-def _prospect_state_by_identity(conn, *, caller_phone="4805551234", caller_name="Fixture Caller"):
-    identity_key = f"{caller_phone}|{caller_name}"
-    return conn.execute(
-        "SELECT * FROM _prospect_state WHERE identity_key = ?", (identity_key,)
     ).fetchone()
 
 
@@ -555,284 +524,41 @@ def _world_snapshot(conn):
     )
 
 
+def _demand_state(conn):
+    return tuple(
+        tuple(tuple(row) for row in conn.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall())
+        for table in ("_customer_repeat_state", "_prospect_state", "_competitor_state")
+    )
+
+
+def test_rejection_leaves_demand_state_untouched_and_draws_nothing(tmp_path):
+    conn, cfg, controller = _build(tmp_path)
+    now = _now_ms(conn)
+    catalog_a, catalog_b = _usable_catalog_rows(conn, 2)
+    customer_id = _insert_customer(conn, now)
+    _insert_customer_repeat_state(conn, customer_id, 2_000_000, now)
+    _open_invocation(conn, now)
+    for make_call in (
+        lambda: _registered_customer_call(
+            conn, controller, customer_id=customer_id, catalog=catalog_a
+        ),
+        lambda: _new_caller_call(conn, controller, catalog=catalog_b),
+    ):
+        call_id = make_call()
+        state_before = _demand_state(conn)
+        audit_before = audit_count(conn)
+        _, body = _reject(controller, cfg, call_id=call_id)
+        _ok(body)
+        assert _demand_state(conn) == state_before
+        assert audit_count(conn) == audit_before
+        assert _call_terminal_snapshot(conn, call_id)[0] == "rejected"
+
+
 def _call_terminal_snapshot(conn, call_id):
     row = conn.execute(
         "SELECT status, terminal_reason, terminal_at FROM _calls WHERE id = ?", (call_id,)
     ).fetchone()
     return (row["status"], row["terminal_reason"], row["terminal_at"])
-
-
-def _clamped_multiplied(value_micros: int, multiplier: Decimal, floor: Decimal, ceiling: Decimal) -> int:
-    return demand._clamp_micros(demand._multiply_micros(value_micros, multiplier), floor, ceiling)
-
-
-def test_reject_new_caller_creates_rejected_prospect(tmp_path):
-    conn, cfg, controller = _build(tmp_path)
-    now = _now_ms(conn)
-    catalog = _usable_catalog_rows(conn, 1)[0]
-    _open_invocation(conn, now)
-    call_id = _new_caller_call(conn, controller, catalog=catalog)
-
-    ledger_before = _ledger_count(conn)
-    response, body = _reject(controller, cfg, call_id=call_id)
-    result = _ok(body)
-    assert result == {"call_id": call_id, "outcome": "rejected", "message": "Call rejected."}
-
-    call = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
-    assert call["status"] == "rejected"
-    assert call["terminal_reason"] == "agent_rejected"
-    assert call["terminal_at"] is not None
-
-    initial = cfg.resolved["demand.repeat_propensity_initial_by_segment"]["residential"]
-    multiplier = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
-    floor = cfg.get_decimal("customers.repeat_propensity_floor")
-    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
-    expected = _clamped_multiplied(demand._to_micros(initial), multiplier, floor, ceiling)
-
-    prospect = _prospect_state_by_identity(conn)
-    assert prospect is not None
-    assert prospect["propensity_micros"] == expected
-    assert prospect["last_outcome"] == "rejected"
-
-    assert _ledger_count(conn) == ledger_before
-
-    parsed = json.loads(response)
-    assert parsed == body
-
-
-def test_reject_registered_customer_updates_repeat_state_no_prospect(tmp_path):
-    conn, cfg, controller = _build(tmp_path)
-    now = _now_ms(conn)
-    catalog = _usable_catalog_rows(conn, 1)[0]
-    customer_id = _insert_customer(conn, now)
-    _insert_customer_repeat_state(conn, customer_id, 2_000_000, now)
-    _open_invocation(conn, now)
-    call_id = _registered_customer_call(conn, controller, customer_id=customer_id, catalog=catalog)
-
-    prospect_before = _prospect_count(conn)
-    _, body = _reject(controller, cfg, call_id=call_id)
-    _ok(body)
-
-    multiplier = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
-    floor = cfg.get_decimal("customers.repeat_propensity_floor")
-    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
-    expected = _clamped_multiplied(2_000_000, multiplier, floor, ceiling)
-
-    row = _customer_repeat_row(conn, customer_id)
-    assert row["propensity_micros"] == expected
-    assert row["last_outcome"] == "rejected"
-    assert _prospect_count(conn) == prospect_before
-
-
-def test_competitor_leakage_registered_customer_applies_both_multipliers(tmp_path):
-    config = _config(**{
-        "competitors.attempt_probability": 1.0,
-        "competitors.served_well_probability": 1.0,
-    })
-    conn, cfg, controller = _build(tmp_path, config=config)
-    now = _now_ms(conn)
-    catalog = _usable_catalog_rows(conn, 1)[0]
-    customer_id = _insert_customer(conn, now)
-    _insert_customer_repeat_state(conn, customer_id, 2_000_000, now)
-    _open_invocation(conn, now)
-    call_id = _registered_customer_call(conn, controller, customer_id=customer_id, catalog=catalog)
-
-    comp_before = _competitor_state(conn)
-    prospect_before = _prospect_count(conn)
-    _, body = _reject(controller, cfg, call_id=call_id)
-    _ok(body)
-
-    rejection_mult = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
-    served_mult = cfg.get_decimal("competitors.served_well_repeat_multiplier")
-    floor = cfg.get_decimal("customers.repeat_propensity_floor")
-    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
-    after_rejection = _clamped_multiplied(2_000_000, rejection_mult, floor, ceiling)
-    expected = _clamped_multiplied(after_rejection, served_mult, floor, ceiling)
-
-    row = _customer_repeat_row(conn, customer_id)
-    assert row["propensity_micros"] == expected
-    assert row["competitor_captured_at"] is not None
-    assert _prospect_count(conn) == prospect_before
-
-    comp_after = _competitor_state(conn)
-    gain = demand._to_micros(cfg.get_decimal("competitors.share_gain_per_capture"))
-    assert comp_after["share_micros"] == min(comp_before["share_micros"] + gain, 1_000_000)
-    assert comp_after["capture_count"] == comp_before["capture_count"] + 1
-
-    rows = _competitor_leak_rows(conn, call_id)
-    assert len(rows) == 2
-    for row in rows:
-        assert row["stream_name"] == "competitor_leak"
-        assert row["entity_type"] == "call_origin"
-        assert row["entity_id"] == 1
-        assert row["scope"] == origin_keys.of_call(conn, call_id)
-    assert rows[0]["event_kind"] == "competitor_attempt"
-    assert rows[0]["draw_index"] == 0
-    assert rows[1]["event_kind"] == "competitor_served_well"
-    assert rows[1]["draw_index"] == 1
-
-
-def test_reject_returning_prospect_updates_same_row(tmp_path):
-    conn, cfg, controller = _build(tmp_path)
-    now = _now_ms(conn)
-    catalog = _usable_catalog_rows(conn, 1)[0]
-    prospect_id = _insert_prospect_state(conn, now, propensity_micros=2_000_000)
-    _open_invocation(conn, now)
-    call_id = _new_caller_call(conn, controller, catalog=catalog, prospect_id=prospect_id)
-
-    _, body = _reject(controller, cfg, call_id=call_id)
-    _ok(body)
-
-    multiplier = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
-    floor = cfg.get_decimal("customers.repeat_propensity_floor")
-    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
-    expected = _clamped_multiplied(2_000_000, multiplier, floor, ceiling)
-
-    assert _prospect_count(conn) == 1
-    row = conn.execute("SELECT * FROM _prospect_state WHERE id = ?", (prospect_id,)).fetchone()
-    assert row["propensity_micros"] == expected
-    assert row["last_outcome"] == "rejected"
-
-
-def test_reject_second_call_from_already_registered_prospect_updates_customer(tmp_path):
-    config = _config(**{"competitors.attempt_probability": 0.0})
-    conn, cfg, controller = _build(tmp_path, config=config)
-    now = _now_ms(conn)
-    catalog = _usable_catalog_rows(conn, 1)[0]
-    prospect_id = _insert_prospect_state(conn, now, propensity_micros=2_000_000)
-    _open_invocation(conn, now)
-
-    call_id_a = _new_caller_call(conn, controller, catalog=catalog, prospect_id=prospect_id)
-    call_id_b = _new_caller_call(conn, controller, catalog=catalog, prospect_id=prospect_id)
-
-    db.begin(conn)
-    customer_id = _insert_customer(conn, now)
-    demand.transfer_prospect_to_customer(
-        conn, prospect_id=prospect_id, customer_id=customer_id,
-        origin_key=f"t:customer:{customer_id}", now_ms=now,
-    )
-    db.commit(conn)
-
-    prospect_before = _prospect_count(conn)
-    _, body = _reject(controller, cfg, call_id=call_id_b)
-    _ok(body)
-
-    multiplier = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
-    floor = cfg.get_decimal("customers.repeat_propensity_floor")
-    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
-    expected = _clamped_multiplied(2_000_000, multiplier, floor, ceiling)
-
-    customer_row = _customer_repeat_row(conn, customer_id)
-    assert customer_row["propensity_micros"] == expected
-    assert customer_row["last_outcome"] == "rejected"
-
-    prospect_row = conn.execute(
-        "SELECT * FROM _prospect_state WHERE id = ?", (prospect_id,)
-    ).fetchone()
-    assert prospect_row["propensity_micros"] == 2_000_000
-    assert prospect_row["last_outcome"] is None
-    assert _prospect_count(conn) == prospect_before
-
-    call_a = conn.execute(
-        "SELECT status FROM _calls WHERE id = ?", (call_id_a,)
-    ).fetchone()
-    assert call_a["status"] == "active"
-
-
-def test_competitor_leakage_attempt_and_served_applies_both_multipliers(tmp_path):
-    config = _config(**{
-        "competitors.attempt_probability": 1.0,
-        "competitors.served_well_probability": 1.0,
-    })
-    conn, cfg, controller = _build(tmp_path, config=config)
-    now = _now_ms(conn)
-    catalog = _usable_catalog_rows(conn, 1)[0]
-    _open_invocation(conn, now)
-    call_id = _new_caller_call(conn, controller, catalog=catalog)
-
-    comp_before = _competitor_state(conn)
-    _, body = _reject(controller, cfg, call_id=call_id)
-    _ok(body)
-
-    initial = cfg.resolved["demand.repeat_propensity_initial_by_segment"]["residential"]
-    rejection_mult = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
-    served_mult = cfg.get_decimal("competitors.served_well_repeat_multiplier")
-    floor = cfg.get_decimal("customers.repeat_propensity_floor")
-    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
-    after_rejection = _clamped_multiplied(demand._to_micros(initial), rejection_mult, floor, ceiling)
-    expected = _clamped_multiplied(after_rejection, served_mult, floor, ceiling)
-
-    prospect = _prospect_state_by_identity(conn)
-    assert prospect["propensity_micros"] == expected
-    assert prospect["competitor_captured_at"] is not None
-
-    comp_after = _competitor_state(conn)
-    gain = demand._to_micros(cfg.get_decimal("competitors.share_gain_per_capture"))
-    assert comp_after["share_micros"] == min(comp_before["share_micros"] + gain, 1_000_000)
-    assert comp_after["capture_count"] == comp_before["capture_count"] + 1
-
-    rows = _competitor_leak_rows(conn, call_id)
-    assert len(rows) == 2
-    for row in rows:
-        assert row["stream_name"] == "competitor_leak"
-        assert row["entity_type"] == "call_origin"
-        assert row["entity_id"] == 1
-        assert row["scope"] == origin_keys.of_call(conn, call_id)
-    assert rows[0]["event_kind"] == "competitor_attempt"
-    assert rows[0]["draw_index"] == 0
-    assert rows[1]["event_kind"] == "competitor_served_well"
-    assert rows[1]["draw_index"] == 1
-
-
-def test_competitor_leakage_no_attempt_takes_one_draw(tmp_path):
-    config = _config(**{"competitors.attempt_probability": 0.0})
-    conn, cfg, controller = _build(tmp_path, config=config)
-    now = _now_ms(conn)
-    catalog = _usable_catalog_rows(conn, 1)[0]
-    _open_invocation(conn, now)
-    call_id = _new_caller_call(conn, controller, catalog=catalog)
-
-    comp_before = _competitor_state(conn)
-    _, body = _reject(controller, cfg, call_id=call_id)
-    _ok(body)
-
-    rows = _competitor_leak_rows(conn, call_id)
-    assert len(rows) == 1
-    assert rows[0]["event_kind"] == "competitor_attempt"
-    assert rows[0]["draw_index"] == 0
-
-    prospect = _prospect_state_by_identity(conn)
-    assert prospect["competitor_captured_at"] is None
-    comp_after = _competitor_state(conn)
-    assert comp_after["share_micros"] == comp_before["share_micros"]
-    assert comp_after["capture_count"] == comp_before["capture_count"]
-
-
-def test_competitor_leakage_attempt_but_not_served_takes_two_draws_no_capture(tmp_path):
-    config = _config(**{
-        "competitors.attempt_probability": 1.0,
-        "competitors.served_well_probability": 0.0,
-    })
-    conn, cfg, controller = _build(tmp_path, config=config)
-    now = _now_ms(conn)
-    catalog = _usable_catalog_rows(conn, 1)[0]
-    _open_invocation(conn, now)
-    call_id = _new_caller_call(conn, controller, catalog=catalog)
-
-    comp_before = _competitor_state(conn)
-    _, body = _reject(controller, cfg, call_id=call_id)
-    _ok(body)
-
-    rows = _competitor_leak_rows(conn, call_id)
-    assert len(rows) == 2
-    assert rows[0]["event_kind"] == "competitor_attempt"
-    assert rows[1]["event_kind"] == "competitor_served_well"
-
-    prospect = _prospect_state_by_identity(conn)
-    assert prospect["competitor_captured_at"] is None
-    comp_after = _competitor_state(conn)
-    assert comp_after["share_micros"] == comp_before["share_micros"]
-    assert comp_after["capture_count"] == comp_before["capture_count"]
 
 
 def test_rejection_equivalence_across_terminal_reasons(tmp_path):
@@ -863,16 +589,9 @@ def test_rejection_equivalence_across_terminal_reasons(tmp_path):
         body = json.loads(response)
         assert body["ok"] is True, body
 
-        prospect = _prospect_state_by_identity(conn)
-        comp = _competitor_state(conn)
-        rows = _competitor_leak_rows(conn, call_id)
         call = conn.execute("SELECT * FROM _calls WHERE id = ?", (call_id,)).fetchone()
         snapshots[reason] = {
-            "prospect_propensity": prospect["propensity_micros"],
-            "prospect_last_outcome": prospect["last_outcome"],
-            "prospect_competitor_captured_at": prospect["competitor_captured_at"],
-            "competitor_state": (comp["share_micros"], comp["capture_count"]),
-            "audit_rows": [tuple(r) for r in rows],
+            "demand_state": _demand_state(conn),
             "ledger_count": _ledger_count(conn),
             "status": call["status"],
             "terminal_reason": call["terminal_reason"],
@@ -885,11 +604,7 @@ def test_rejection_equivalence_across_terminal_reasons(tmp_path):
     baseline = snapshots["agent_rejected"]
     for reason in ("customer_declined", "unanswered"):
         other = snapshots[reason]
-        assert other["prospect_propensity"] == baseline["prospect_propensity"]
-        assert other["prospect_last_outcome"] == baseline["prospect_last_outcome"]
-        assert other["prospect_competitor_captured_at"] == baseline["prospect_competitor_captured_at"]
-        assert other["competitor_state"] == baseline["competitor_state"]
-        assert other["audit_rows"] == baseline["audit_rows"]
+        assert other["demand_state"] == baseline["demand_state"]
         assert other["ledger_count"] == baseline["ledger_count"]
         assert other["terminal_at"] == baseline["terminal_at"]
 
@@ -955,34 +670,6 @@ def test_ordinary_rejection_guards_non_active_call_directly(tmp_path):
     assert err["details"]["reason"] == "call_not_active"
     assert _world_snapshot(conn) == before
     assert _call_terminal_snapshot(conn, call_id) == terminal_before
-
-
-def test_propensity_never_permanently_lost_under_alternating_consequences(tmp_path):
-    import random
-
-    config = _config(**{
-        "demand.rejection_repeat_propensity_multiplier": 0.01,
-        "competitors.served_well_repeat_multiplier": 0.01,
-    })
-    conn, cfg, controller = _build(tmp_path, config=config)
-    now = _now_ms(conn)
-    customer_id = _insert_customer(conn, now)
-    _insert_customer_repeat_state(conn, customer_id, 1_500_000, now)
-
-    floor_micros = demand._to_micros(cfg.get_decimal("customers.repeat_propensity_floor"))
-    rand = random.Random(0)
-    prior = 1_500_000
-    for _ in range(120):
-        if rand.random() < 0.5:
-            demand.apply_rejection_consequence(conn, cfg, now_ms=now, customer_id=customer_id)
-        else:
-            demand.apply_competitor_capture(conn, cfg, now_ms=now, customer_id=customer_id)
-        propensity = _customer_repeat_row(conn, customer_id)["propensity_micros"]
-        assert propensity > 0
-        assert propensity <= prior
-        prior = propensity
-
-    assert prior == floor_micros
 
 
 def test_reject_unknown_call_id_fails_entity_not_found(tmp_path):
@@ -1142,65 +829,15 @@ def test_reject_idempotent_retry_returns_stored_response(tmp_path):
     first_response, first_body = _reject(controller, cfg, call_id=call_id, request_id=request_id)
     _ok(first_body)
 
-    prospect_after_first = _prospect_state_by_identity(conn)["propensity_micros"]
+    state_after_first = _demand_state(conn)
     audit_after_first = audit_count(conn)
 
     second_response, second_body = _reject(controller, cfg, call_id=call_id, request_id=request_id)
     assert second_response == first_response
 
-    prospect_after_second = _prospect_state_by_identity(conn)["propensity_micros"]
+    assert _demand_state(conn) == state_after_first
     audit_after_second = audit_count(conn)
-    assert prospect_after_second == prospect_after_first
     assert audit_after_second == audit_after_first
-
-
-def test_reject_independence_call_a_rejection_does_not_shift_call_b(tmp_path):
-    config = _config()
-
-    conn_a, cfg_a, controller_a = _build(tmp_path, config=config, name="world_a.db")
-    now_a = _now_ms(conn_a)
-    catalog_a1, catalog_a2 = _usable_catalog_rows(conn_a, 2)
-    _open_invocation(conn_a, now_a)
-    call_a_id = _new_caller_call(
-        conn_a, controller_a, catalog=catalog_a1, caller_name="Caller A", caller_phone="4805550001"
-    )
-    call_b_in_a = _new_caller_call(
-        conn_a, controller_a, catalog=catalog_a2, caller_name="Caller B", caller_phone="4805550002"
-    )
-    _, body_b_only = _reject(controller_a, cfg_a, call_id=call_b_in_a)
-    _ok(body_b_only)
-    prospect_b_only = _prospect_state_by_identity(
-        conn_a, caller_phone="4805550002", caller_name="Caller B"
-    )
-
-    conn_b, cfg_b, controller_b = _build(tmp_path, config=config, name="world_b.db")
-    now_b = _now_ms(conn_b)
-    catalog_b1, catalog_b2 = _usable_catalog_rows(conn_b, 2)
-    _open_invocation(conn_b, now_b)
-    call_a_id_2 = _new_caller_call(
-        conn_b, controller_b, catalog=catalog_b1, caller_name="Caller A", caller_phone="4805550001"
-    )
-    assert call_a_id_2 == call_a_id
-
-    _, body_a_first = _reject(controller_b, cfg_b, call_id=call_a_id_2)
-    _ok(body_a_first)
-
-    call_b_id_2 = _new_caller_call(
-        conn_b, controller_b, catalog=catalog_b2, caller_name="Caller B", caller_phone="4805550002"
-    )
-    assert call_b_id_2 == call_b_in_a
-
-    _, body_b_after = _reject(controller_b, cfg_b, call_id=call_b_id_2)
-    _ok(body_b_after)
-    prospect_b_after_a = _prospect_state_by_identity(
-        conn_b, caller_phone="4805550002", caller_name="Caller B"
-    )
-
-    assert prospect_b_after_a["propensity_micros"] == prospect_b_only["propensity_micros"]
-    assert prospect_b_after_a["last_outcome"] == prospect_b_only["last_outcome"]
-    assert (prospect_b_after_a["competitor_captured_at"] is None) == (
-        prospect_b_only["competitor_captured_at"] is None
-    )
 
 
 def test_reject_replayed_request_id_for_different_call_conflicts(tmp_path):
@@ -1239,8 +876,7 @@ def test_reject_replayed_request_id_for_different_call_conflicts(tmp_path):
 
 
 def test_reject_callback_call_takes_ordinary_path_without_notifications(tmp_path):
-    config = _config(**{"competitors.attempt_probability": 0.0})
-    conn, cfg, controller = _build(tmp_path, config=config)
+    conn, cfg, controller = _build(tmp_path)
     now = _now_ms(conn)
     completed_at = clock.phoenix_instant(2026, 9, 20, 15, 0)
     catalog = _usable_catalog_rows(conn, 1)[0]
@@ -1280,13 +916,9 @@ def test_reject_callback_call_takes_ordinary_path_without_notifications(tmp_path
     assert call["terminal_reason"] == "agent_rejected"
     assert call["related_job_id"] == job_id
 
-    multiplier = cfg.get_decimal("demand.rejection_repeat_propensity_multiplier")
-    floor = cfg.get_decimal("customers.repeat_propensity_floor")
-    ceiling = cfg.get_decimal("customers.repeat_propensity_max")
-    expected = _clamped_multiplied(2_000_000, multiplier, floor, ceiling)
     row = _customer_repeat_row(conn, customer_id)
-    assert row["propensity_micros"] == expected
-    assert row["last_outcome"] == "rejected"
+    assert row["propensity_micros"] == 2_000_000
+    assert row["last_outcome"] is None
 
     assert _ledger_count(conn) == ledger_before
     assert _notification_count(conn) == 0

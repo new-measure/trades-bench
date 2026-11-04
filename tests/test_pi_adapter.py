@@ -19,6 +19,7 @@ import pytest
 
 from policies.pi_run import CATALOG_CHANGED_FLAG, TIMEOUT_FLAG, agent_label, usage_summary
 from trades_bench.adapter import AdapterIntegrityError
+from trades_bench.config import load_run_config
 from trades_bench.harness import prompts, workspace
 from trades_bench.harness.pi_adapter import (
     PI_AGENT_DIR_ENV,
@@ -102,13 +103,29 @@ usage = {"input": 970, "output": 36, "cacheRead": 512, "cacheWrite": 64, "reason
                                        "cacheWrite": 0, "total": 0.012}}
 assistant = {"role": "assistant", "content": [{"type": "text", "text": "done"}],
              "usage": usage, "stopReason": "stop", "thinkingLevel": applied}
+failed = {"role": "assistant", "content": [], "usage": usage, "stopReason": "error"}
+retry = (
+    (
+        {"type": "message_end", "message": failed},
+        {"type": "agent_end", "messages": [*opening, {"role": "user", "content": prompt}, failed]},
+        {"type": "auto_retry_start"},
+        {"type": "agent_start"},
+        {"type": "message_end", "message": assistant},
+        {"type": "agent_end", "messages": [assistant]},
+        {"type": "auto_retry_end"},
+    )
+    if os.environ.get("FAKE_PI_AUTO_RETRY")
+    else (
+        {"type": "message_end", "message": assistant},
+        {"type": "agent_end", "messages": [*opening, {"role": "user", "content": prompt}, assistant]},
+    )
+)
 for event in (
     {"type": "session", "version": 3, "id": session_id, "cwd": cwd},
     {"type": "agent_start"},
     *({"type": "message_end", "message": message} for message in opening),
     {"type": "message_end", "message": {"role": "user", "content": prompt}},
-    {"type": "message_end", "message": assistant},
-    {"type": "agent_end", "messages": [*opening, {"role": "user", "content": prompt}, assistant]},
+    *retry,
 ):
     print(json.dumps(event), flush=True)
 if os.environ.get("FAKE_PI_FORGE_STDOUT"):
@@ -315,6 +332,17 @@ def test_a_completed_day_whose_stdout_carried_no_system_message_fails_the_day_en
         adapter.end_day(SERVICE_DATE)
 
 
+def test_a_turn_that_pi_auto_retried_keeps_its_system_message_and_both_usages(tmp_path):
+    adapter = _adapter(tmp_path, extra_env={"FAKE_PI_AUTO_RETRY": "1"})
+    adapter.start_day(SERVICE_DATE)
+    adapter.send("[opening]", "opening", 30.0)
+
+    adapter.end_day(SERVICE_DATE)
+
+    assert adapter.days[0].system_sha256 == _expected_system_sha256(tmp_path / "workspace")
+    assert adapter.turns[0].input_tokens == 2 * 970
+
+
 def test_a_timed_out_turn_is_flagged_in_the_usage_summary(tmp_path):
     adapter = _adapter(tmp_path, extra_env={"FAKE_PI_SLEEP": "5"}, terminate_grace_s=1.0)
     adapter.start_day(SERVICE_DATE)
@@ -449,7 +477,7 @@ def test_a_sandboxed_pi_turn_runs_as_the_sandbox_user_and_is_archived():
         os.chmod(executable.parent, SHARED_DIR_MODE)
         run_dir = base / "run"
         secure_private_dir(run_dir)
-        root = workspace.create(base / "workspace")
+        root = workspace.create(base / "workspace", load_run_config())
         hand_over_workspace(
             root, user, read_only=workspace.docs_path(root), writable=(workspace.memory_path(root),)
         )
@@ -647,7 +675,7 @@ def test_a_sandboxed_turn_leaves_no_background_process_behind():
         os.chmod(executable.parent, SHARED_DIR_MODE)
         run_dir = base / "run"
         secure_private_dir(run_dir)
-        root = workspace.create(base / "workspace")
+        root = workspace.create(base / "workspace", load_run_config())
         hand_over_workspace(
             root, user, read_only=workspace.docs_path(root), writable=(workspace.memory_path(root),)
         )
@@ -691,7 +719,7 @@ def test_a_sandboxed_pi_cannot_reopen_its_own_output_to_forge_it():
         os.chmod(executable.parent, SHARED_DIR_MODE)
         run_dir = base / "run"
         secure_private_dir(run_dir)
-        root = workspace.create(base / "workspace")
+        root = workspace.create(base / "workspace", load_run_config())
         hand_over_workspace(
             root, user, read_only=workspace.docs_path(root), writable=(workspace.memory_path(root),)
         )

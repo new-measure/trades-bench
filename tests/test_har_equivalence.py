@@ -200,7 +200,7 @@ def controlled_run(
     seed: int = SEED,
     resume_day: str | None = None,
 ) -> str:
-    workspace.create(paths["workspace"])
+    workspace.create(paths["workspace"], config)
     db_path = paths["db_path"]
     if resume_day is None:
         run_id = initialize_controlled_run(

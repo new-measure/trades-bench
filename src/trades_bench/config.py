@@ -5,7 +5,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from decimal import ROUND_FLOOR, Decimal, InvalidOperation, localcontext
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation, localcontext
 from typing import Any
 
 from .constants import CONSTANT_ENTRIES, JOB_TYPE_CODES, SUPPORTED_CATEGORIES
@@ -13,7 +13,7 @@ from .enums import ConditionCode
 from .errors import EngineError, ErrorCode
 from .money import BASIS_POINTS_SCALE, basis_point_amount
 
-DEFAULT_CONFIG_VERSION: str = "1.0.2"
+DEFAULT_CONFIG_VERSION: str = "1.0.5"
 
 U64_MOD: int = 1 << 64
 
@@ -58,7 +58,7 @@ _DOMAIN_ENTRIES: list[Any] = [
     (
         "finance.starting_cash",
         "cost",
-        2_950_000,
+        2_500_000,
         {
             "deferred": "calibrated",
             "description": "Starting cash (integer cents) the warm-start opening adjustment pins "
@@ -68,7 +68,7 @@ _DOMAIN_ENTRIES: list[Any] = [
     (
         "finance.daily_operating_overhead",
         "cost",
-        180_000,
+        125_000,
         {
             "deferred": "calibrated",
             "description": "Aggregate daily operating overhead (integer cents) posted by every "
@@ -80,24 +80,24 @@ _DOMAIN_ENTRIES: list[Any] = [
         "cents_triple_map_map",
         {
             "hvac_service": {
-                "residential": {"min_cents": 15000, "mode_cents": 30000, "max_cents": 166000},
-                "apartment": {"min_cents": 15000, "mode_cents": 31000, "max_cents": 140000},
-                "commercial": {"min_cents": 15000, "mode_cents": 32000, "max_cents": 114000},
+                "residential": {"min_cents": 15000, "mode_cents": 30000, "max_cents": 50000},
+                "apartment": {"min_cents": 15000, "mode_cents": 31000, "max_cents": 50000},
+                "commercial": {"min_cents": 15000, "mode_cents": 33000, "max_cents": 50000},
             },
             "hvac_installation": {
-                "residential": {"min_cents": 230000, "mode_cents": 675000, "max_cents": 1600000},
-                "apartment": {"min_cents": 250000, "mode_cents": 780000, "max_cents": 1470000},
-                "commercial": {"min_cents": 274000, "mode_cents": 885000, "max_cents": 1340000},
+                "residential": {"min_cents": 450000, "mode_cents": 800000, "max_cents": 1400000},
+                "apartment": {"min_cents": 450000, "mode_cents": 820000, "max_cents": 1300000},
+                "commercial": {"min_cents": 500000, "mode_cents": 900000, "max_cents": 1500000},
             },
             "plumbing": {
-                "residential": {"min_cents": 15000, "mode_cents": 40000, "max_cents": 183000},
-                "apartment": {"min_cents": 12000, "mode_cents": 41000, "max_cents": 175000},
-                "commercial": {"min_cents": 6250, "mode_cents": 42000, "max_cents": 167000},
+                "residential": {"min_cents": 15000, "mode_cents": 30000, "max_cents": 50000},
+                "apartment": {"min_cents": 15000, "mode_cents": 31000, "max_cents": 50000},
+                "commercial": {"min_cents": 15000, "mode_cents": 33000, "max_cents": 50000},
             },
             "electrical": {
-                "residential": {"min_cents": 15000, "mode_cents": 34000, "max_cents": 228000},
-                "apartment": {"min_cents": 15000, "mode_cents": 35000, "max_cents": 227000},
-                "commercial": {"min_cents": 15000, "mode_cents": 36000, "max_cents": 227000},
+                "residential": {"min_cents": 15000, "mode_cents": 30000, "max_cents": 50000},
+                "apartment": {"min_cents": 15000, "mode_cents": 31000, "max_cents": 50000},
+                "commercial": {"min_cents": 15000, "mode_cents": 33000, "max_cents": 50000},
             },
         },
         {
@@ -110,10 +110,10 @@ _DOMAIN_ENTRIES: list[Any] = [
         "materials.percent_range",
         "basis_points_range_map",
         {
-            "hvac_service": {"min_basis_points": 2500, "max_basis_points": 4000},
-            "hvac_installation": {"min_basis_points": 3500, "max_basis_points": 5000},
-            "plumbing": {"min_basis_points": 2000, "max_basis_points": 3500},
-            "electrical": {"min_basis_points": 1800, "max_basis_points": 3200},
+            "hvac_service": {"min_basis_points": 1500, "max_basis_points": 2500},
+            "hvac_installation": {"min_basis_points": 6000, "max_basis_points": 7500},
+            "plumbing": {"min_basis_points": 1000, "max_basis_points": 2000},
+            "electrical": {"min_basis_points": 1000, "max_basis_points": 1800},
         },
         {
             "deferred": "calibrated",
@@ -134,20 +134,48 @@ _DOMAIN_ENTRIES: list[Any] = [
     (
         "hiring.base_hourly_wage_by_trade",
         "cost_map",
-        {"hvac_service": 5000, "hvac_install": 5500, "plumbing": 4800, "electrical": 5200},
+        {"hvac_service": 3600, "hvac_install": 4000, "plumbing": 3700, "electrical": 3900},
         {
             "deferred": "calibrated",
             "description": "Base hourly wage in cents/hour per qualification code.",
         },
     ),
     (
-        "payroll.off_hours_bonus_per_job",
-        "cost",
-        50_000,
+        "invoices.off_hours_premium_basis_points",
+        "int",
+        2500,
         {
-            "deferred": "calibrated",
-            "description": "Flat bonus in cents posted alongside off-hours wages for each "
-            "off-hours accrual mark that carries an assignee.",
+            "min": 0,
+            "max": 9999,
+            "deferred": "provisional",
+            "description": "After-hours premium in integer basis points of the drawn invoice "
+            "subtotal, added to the invoice total of a paid completion whose appointment is "
+            "off-hours (a weekend day or the B17_19 block).",
+        },
+    ),
+    (
+        "payroll.off_hours_share_basis_points",
+        "int",
+        2500,
+        {
+            "min": 0,
+            "max": 9999,
+            "deferred": "provisional",
+            "description": "Technician off-hours share in integer basis points of the drawn "
+            "invoice subtotal, paid instead of block wages for an off-hours appointment whose "
+            "job completed paid.",
+        },
+    ),
+    (
+        "payroll.overtime_cap_basis_points",
+        "int",
+        2000,
+        {
+            "min": 0,
+            "max": 9999,
+            "deferred": "provisional",
+            "description": "Cap on a worked visit's overtime pay in integer basis points of "
+            "its job's drawn invoice subtotal; applies only when the job has a paid invoice.",
         },
     ),
     (
@@ -404,6 +432,21 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "deferred": "provisional",
             "description": "Floor on the duration multiplier.",
+        },
+    ),
+    (
+        "execution.duration_minutes_by_job_type",
+        "minutes_triple_map",
+        {
+            "hvac_service": {"min": 45, "mode": 75, "max": 180},
+            "hvac_installation": {"min": 120, "mode": 300, "max": 480},
+            "plumbing": {"min": 45, "mode": 75, "max": 180},
+            "electrical": {"min": 45, "mode": 90, "max": 210},
+        },
+        {
+            "deferred": "provisional",
+            "description": "Triangular on-site work duration in whole minutes per true job type, "
+            "drawn once per appointment when work starts.",
         },
     ),
     (
@@ -738,12 +781,110 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
     ),
     (
-        "demand.base_new_caller_rate_per_day",
+        "demand.level_start",
         "decimal",
-        6,
+        18,
         {
-            "deferred": "calibrated",
-            "description": "Metro-wide base new-caller Poisson rate before multipliers.",
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Hidden demand level (total calls per day) on the first run day.",
+        },
+    ),
+    (
+        "demand.level_gain_per_on_time_visit",
+        "decimal",
+        Decimal("0.1"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Demand-level gain per run appointment completed on the previous "
+            "service date.",
+        },
+    ),
+    (
+        "demand.level_loss_per_bad_visit",
+        "decimal",
+        3,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Demand-level loss per run appointment on the previous service date "
+            "that ended no_show or failed.",
+        },
+    ),
+    (
+        "demand.level_max",
+        "decimal",
+        30,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Ceiling of the hidden demand level; the floor is zero.",
+        },
+    ),
+    (
+        "demand.weekend_level_multiplier",
+        "decimal",
+        Decimal("0.7"),
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Multiplier on the demand level for the Saturday and Sunday call "
+            "target.",
+        },
+    ),
+    (
+        "demand.weekend_level_floor",
+        "decimal",
+        10,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Weekend call-target floor applied when the demand level is at least "
+            "this value.",
+        },
+    ),
+    (
+        "demand.invalid_calls_min",
+        "int",
+        2,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Lower bound of the per-date uniform count of unsupported-category "
+            "calls.",
+        },
+    ),
+    (
+        "demand.invalid_calls_max",
+        "int",
+        5,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Upper bound of the per-date uniform count of unsupported-category "
+            "calls; Must be >= demand.invalid_calls_min.",
+        },
+    ),
+    (
+        "demand.install_calls_max",
+        "int",
+        2,
+        {
+            "min": 0,
+            "deferred": "provisional",
+            "description": "Upper bound of the per-date uniform count (from zero) of HVAC "
+            "installation calls.",
+        },
+    ),
+    (
+        "demand.existing_customer_call_share",
+        "probability",
+        Decimal("0.25"),
+        {
+            "deferred": "provisional",
+            "description": "Probability a service-call slot comes from an existing, not-lost "
+            "customer rather than a new caller.",
         },
     ),
     (
@@ -765,7 +906,7 @@ _DOMAIN_ENTRIES: list[Any] = [
             "length": 10,
             "min": 0,
             "deferred": "provisional",
-            "description": "Per-zone share of new-caller volume, one entry per "
+            "description": "Per-zone weight of a new caller's home zone, one entry per "
             "constants.zone_names ordinal.",
         },
     ),
@@ -787,7 +928,6 @@ _DOMAIN_ENTRIES: list[Any] = [
                 "HVAC service": Decimal("0.42"),
                 "Plumbing": Decimal("0.34"),
                 "Electrical": Decimal("0.19"),
-                "HVAC installation": Decimal("0.05"),
                 "Appliance repair": Decimal("0.35"),
                 "Garage-door repair": Decimal("0.15"),
                 "Roofing": Decimal("0.10"),
@@ -799,7 +939,6 @@ _DOMAIN_ENTRIES: list[Any] = [
                 "HVAC service": Decimal("0.46"),
                 "Plumbing": Decimal("0.29"),
                 "Electrical": Decimal("0.20"),
-                "HVAC installation": Decimal("0.05"),
                 "Appliance repair": Decimal("0.35"),
                 "Garage-door repair": Decimal("0.15"),
                 "Roofing": Decimal("0.10"),
@@ -811,7 +950,6 @@ _DOMAIN_ENTRIES: list[Any] = [
                 "HVAC service": Decimal("0.38"),
                 "Plumbing": Decimal("0.38"),
                 "Electrical": Decimal("0.19"),
-                "HVAC installation": Decimal("0.05"),
                 "Appliance repair": Decimal("0.35"),
                 "Garage-door repair": Decimal("0.15"),
                 "Roofing": Decimal("0.10"),
@@ -822,39 +960,9 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
         {
             "deferred": "calibrated",
-            "description": "Relative requested-category weight per segment, over the full catalog; "
-            "unsupported and supported are separate relative-weight groups split by "
-            "demand.unsupported_category_share.",
-        },
-    ),
-    (
-        "demand.unsupported_category_share",
-        "probability",
-        Decimal("0.15"),
-        {
-            "deferred": "calibrated",
-            "description": "Share of new-caller requests drawn from the unsupported category "
-            "group.",
-        },
-    ),
-    (
-        "demand.day_of_week_multipliers",
-        "decimal_list",
-        [
-            Decimal("1.35"),
-            Decimal("1.25"),
-            Decimal("1.20"),
-            Decimal("1.25"),
-            Decimal("1.15"),
-            Decimal("0.50"),
-            Decimal("0.30"),
-        ],
-        {
-            "length": 7,
-            "min": 0,
-            "deferred": "calibrated",
-            "description": "Day-of-week multiplier on new-caller and repeat-call volume, "
-            "Monday..Sunday.",
+            "description": "Relative requested-category weight per segment: the supported "
+            "service categories weight service calls and the unsupported categories weight "
+            "invalid calls; install calls are counted separately.",
         },
     ),
     (
@@ -984,61 +1092,6 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
     ),
     (
-        "demand.reputation_neutral_stars",
-        "decimal",
-        Decimal("4.2"),
-        {
-            "deferred": "provisional",
-            "description": "Star average at which M_reputation is 1.",
-        },
-    ),
-    (
-        "demand.reputation_sensitivity",
-        "decimal",
-        Decimal("0.25"),
-        {
-            "deferred": "provisional",
-            "description": "Coefficient of (public_star_average - neutral_stars) in M_reputation.",
-        },
-    ),
-    (
-        "demand.reputation_window_days",
-        "int",
-        90,
-        {
-            "min": 1,
-            "deferred": "provisional",
-            "description": "Trailing window over published reviews for public_star_average.",
-        },
-    ),
-    (
-        "demand.reputation_multiplier_min",
-        "decimal",
-        Decimal("0.6"),
-        {
-            "deferred": "provisional",
-            "description": "Clamp floor of M_reputation.",
-        },
-    ),
-    (
-        "demand.reputation_multiplier_max",
-        "decimal",
-        Decimal("1.15"),
-        {
-            "deferred": "provisional",
-            "description": "Clamp ceiling of M_reputation.",
-        },
-    ),
-    (
-        "demand.word_of_mouth_sensitivity",
-        "decimal",
-        Decimal("0.5"),
-        {
-            "deferred": "provisional",
-            "description": "Coefficient of the segment-weighted wom sum in M_word_of_mouth.",
-        },
-    ),
-    (
         "demand.word_of_mouth_decay",
         "probability",
         Decimal("0.1"),
@@ -1066,39 +1119,6 @@ _DOMAIN_ENTRIES: list[Any] = [
             "deferred": "provisional",
             "description": "Weight `w` applied when a terminal appointment's satisfaction delta δ "
             "< 0; Must be ≥ the positive weight.",
-        },
-    ),
-    (
-        "demand.word_of_mouth_segment_weights",
-        "decimal_map",
-        {
-            "apartment": Decimal("0.5"),
-            "commercial": Decimal("0.25"),
-            "residential": Decimal("0.25"),
-        },
-        {
-            "min": 0,
-            "deferred": "provisional",
-            "description": "Per-segment weight in the M_word_of_mouth sum; apartment Must carry "
-            "the largest weight.",
-        },
-    ),
-    (
-        "demand.word_of_mouth_multiplier_min",
-        "decimal",
-        Decimal("0.7"),
-        {
-            "deferred": "provisional",
-            "description": "Clamp floor of M_word_of_mouth.",
-        },
-    ),
-    (
-        "demand.word_of_mouth_multiplier_max",
-        "decimal",
-        Decimal("1.3"),
-        {
-            "deferred": "provisional",
-            "description": "Clamp ceiling of M_word_of_mouth.",
         },
     ),
     (
@@ -1141,16 +1161,6 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
     ),
     (
-        "demand.repeat_call_daily_base_probability",
-        "probability",
-        Decimal("0.004"),
-        {
-            "deferred": "provisional",
-            "description": "Per-customer daily Bernoulli base rate before propensity and "
-            "multipliers.",
-        },
-    ),
-    (
         "demand.repeat_propensity_initial_by_segment",
         "decimal_map",
         {
@@ -1165,13 +1175,16 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
     ),
     (
-        "demand.rejection_repeat_propensity_multiplier",
+        "demand.no_show_repeat_propensity_multiplier",
         "decimal",
-        Decimal("0.7"),
+        Decimal("0"),
         {
+            "min": 0,
+            "max": 1,
             "deferred": "provisional",
-            "description": "Multiplier applied to repeat propensity on every ordinary rejection; "
-            "Must lie strictly inside (0, 1).",
+            "description": "Multiplier applied to the customer's repeat propensity when the "
+            "company misses their appointment; no repeat-propensity floor applies, so zero "
+            "loses the customer.",
         },
     ),
     (
@@ -1209,16 +1222,6 @@ _DOMAIN_ENTRIES: list[Any] = [
         },
     ),
     (
-        "demand.returning_prospect_probability",
-        "probability",
-        Decimal("0.10"),
-        {
-            "deferred": "provisional",
-            "description": "Probability a new-caller slot is flagged a returning prospect, subject "
-            "to a matching prospect existing.",
-        },
-    ),
-    (
         "acceptance.base_probability_by_urgency",
         "probability_map",
         {"standard": Decimal("0.90"), "urgent": Decimal("0.95")},
@@ -1244,6 +1247,36 @@ _DOMAIN_ENTRIES: list[Any] = [
         {
             "deferred": "provisional",
             "description": "Floor of p_accept by urgency class; Must be ≤ base.",
+        },
+    ),
+    (
+        "acceptance.off_hours_multiplier_by_urgency",
+        "probability_map",
+        {"standard": Decimal("1.0"), "urgent": Decimal("1.0")},
+        {
+            "deferred": "provisional",
+            "description": "Multiplier applied to p_accept after the floor when the offered "
+            "slot is off-hours (a weekend day or the B17_19 block), by urgency class.",
+        },
+    ),
+    (
+        "acceptance.urgent_probability_by_lead_day",
+        "probability_list",
+        [Decimal("1"), Decimal("0.15"), Decimal("0.05")],
+        {
+            "deferred": "provisional",
+            "description": "Urgent-call p_accept by calendar-day lead from the call's local date "
+            "to the offered service date; the last entry applies to every later lead.",
+        },
+    ),
+    (
+        "acceptance.install_late_window_multiplier",
+        "probability",
+        Decimal("0.5"),
+        {
+            "deferred": "provisional",
+            "description": "Multiplier on p_accept for an hvac_installation offer whose window "
+            "starts at or after 15:00.",
         },
     ),
     (
@@ -1295,95 +1328,6 @@ _DOMAIN_ENTRIES: list[Any] = [
             "deferred": "provisional",
             "description": "Minutes before scheduled_start after which no cancellation arrival may "
             "be timestamped; Must be ≥ 15.",
-        },
-    ),
-    (
-        "competitors.attempt_probability",
-        "probability",
-        Decimal("0.5"),
-        {
-            "deferred": "provisional",
-            "description": "Per-rejection Bernoulli probability of a competitor attempt.",
-        },
-    ),
-    (
-        "competitors.served_well_probability",
-        "probability",
-        Decimal("0.65"),
-        {
-            "deferred": "provisional",
-            "description": "Given a competitor attempt, probability the customer is served well.",
-        },
-    ),
-    (
-        "competitors.served_well_repeat_multiplier",
-        "decimal",
-        Decimal("0.5"),
-        {
-            "deferred": "provisional",
-            "description": "Repeat-propensity multiplier when served well by a competitor; Must "
-            "lie strictly inside (0, 1).",
-        },
-    ),
-    (
-        "competitors.share_gain_per_capture",
-        "decimal",
-        Decimal("0.002"),
-        {
-            "min": 0,
-            "deferred": "provisional",
-            "description": "Additive competitor_share gain per successful capture.",
-        },
-    ),
-    (
-        "competitors.share_decay_per_day",
-        "decimal",
-        Decimal("0.005"),
-        {
-            "min": 0,
-            "deferred": "provisional",
-            "description": "Daily decay of competitor_share toward baseline when share recovery is "
-            "enabled.",
-        },
-    ),
-    (
-        "competitors.share_recovery_enabled",
-        "bool",
-        False,
-        {
-            "deferred": "provisional",
-            "description": "Whether competitor_share decays toward baseline; default off, "
-            "erode-only.",
-        },
-    ),
-    (
-        "competitors.demand_erosion_coefficient",
-        "decimal",
-        Decimal("0.5"),
-        {
-            "min": 0,
-            "deferred": "provisional",
-            "description": "Coefficient of competitor_share in the M_competitor demand erosion "
-            "term.",
-        },
-    ),
-    (
-        "competitors.demand_multiplier_min",
-        "decimal",
-        Decimal("0.7"),
-        {
-            "deferred": "provisional",
-            "description": "Clamp floor of M_competitor; Must lie in (0, 1].",
-        },
-    ),
-    (
-        "competitors.background_drift_sd",
-        "decimal",
-        Decimal("0.01"),
-        {
-            "min": 0,
-            "deferred": "provisional",
-            "description": "Standard deviation of the per-date competitor_background drift step.",
         },
     ),
     (
@@ -1763,6 +1707,29 @@ def _v_cents_triple_map_map(spec: KeySpec, value: Any) -> dict[str, dict[str, di
     return out
 
 
+_MINUTES_TRIPLE_KEYS = ("min", "mode", "max")
+
+
+def _v_minutes_triple_map(spec: KeySpec, value: Any) -> dict[str, dict[str, int]]:
+    if not isinstance(value, dict) or not value:
+        raise _bad(f"{spec.path}: expected a non-empty map, got {type(value).__name__}")
+    out: dict[str, dict[str, int]] = {}
+    for k, triple in value.items():
+        if not isinstance(k, str) or not k:
+            raise _bad(f"{spec.path}: map keys must be non-empty strings")
+        where = f"{spec.path}[{k!r}]"
+        if not isinstance(triple, dict) or set(triple.keys()) != set(_MINUTES_TRIPLE_KEYS):
+            raise _bad(f"{where}: keys must be exactly {list(_MINUTES_TRIPLE_KEYS)}, got {triple!r}")
+        triple_out = {name: _as_int(triple[name]) for name in _MINUTES_TRIPLE_KEYS}
+        if not (1 <= triple_out["min"] <= triple_out["mode"] <= triple_out["max"]):
+            raise _bad(
+                f"{where}: requires 1 <= min <= mode <= max, got {triple_out['min']}, "
+                f"{triple_out['mode']}, {triple_out['max']}"
+            )
+        out[k] = triple_out
+    return out
+
+
 def _v_basis_points_range_map(spec: KeySpec, value: Any) -> dict[str, dict[str, int]]:
     if not isinstance(value, dict) or not value:
         raise _bad(f"{spec.path}: expected a non-empty map, got {type(value).__name__}")
@@ -2116,6 +2083,7 @@ _VALIDATORS = {
     "int_range": _v_int_range,
     "cents_triple_map_map": _v_cents_triple_map_map,
     "basis_points_range_map": _v_basis_points_range_map,
+    "minutes_triple_map": _v_minutes_triple_map,
     "block_grid": _v_block_grid,
     "time_of_day_bands": _v_time_of_day_bands,
     "speed_by_time_band": _v_speed_by_time_band,
@@ -2181,6 +2149,8 @@ def _validate_run_window(base: dict[str, Any]) -> None:
 _SEGMENTS = frozenset({"residential", "commercial", "apartment"})
 _URGENCY_CLASSES = frozenset({"standard", "urgent"})
 _SUPPORTED_CATEGORY_SET = frozenset(SUPPORTED_CATEGORIES)
+_INSTALL_CATEGORY = "HVAC installation"
+_SERVICE_CATEGORY_SET = _SUPPORTED_CATEGORY_SET - {_INSTALL_CATEGORY}
 _JOB_TYPE_CODE_SET = frozenset(JOB_TYPE_CODES)
 _REVENUE_JOB_TYPE_CODES = tuple(code for code in JOB_TYPE_CODES if code != "other")
 _INSTALLATION_JOB_TYPE_CODE = "hvac_installation"
@@ -2198,6 +2168,17 @@ def _validate_demand_urgency_ordering(base: dict[str, Any]) -> None:
             f"demand.after_hours_urgent_probability {after} must be >= "
             f"demand.office_hours_urgent_probability {office}"
         )
+
+
+def _validate_demand_level_bounds(base: dict[str, Any]) -> None:
+    start = base["demand.level_start"]
+    ceiling = base["demand.level_max"]
+    if start > ceiling:
+        raise _bad(f"demand.level_start {start} must be <= demand.level_max {ceiling}")
+    lo = base["demand.invalid_calls_min"]
+    hi = base["demand.invalid_calls_max"]
+    if lo > hi:
+        raise _bad(f"demand.invalid_calls_min {lo} must be <= demand.invalid_calls_max {hi}")
 
 
 def _validate_repeat_propensity_bounds(base: dict[str, Any]) -> None:
@@ -2261,6 +2242,47 @@ def _validate_invoice_amount_map(base: dict[str, Any]) -> None:
                 )
 
 
+def _validate_duration_minutes_map(base: dict[str, Any]) -> None:
+    durations = base["execution.duration_minutes_by_job_type"]
+    expected_types = set(_REVENUE_JOB_TYPE_CODES)
+    if set(durations.keys()) != expected_types:
+        raise _bad(
+            "execution.duration_minutes_by_job_type must cover exactly the revenue-bearing job "
+            f"types {sorted(expected_types)}, got {sorted(durations.keys())}"
+        )
+
+
+_OVERNIGHT_TRAVEL_MARGIN_MINUTES = 90
+_MINUTES_PER_DAY = 24 * 60
+
+
+def _validate_work_ends_before_next_opening(base: dict[str, Any]) -> None:
+    latest_start = base["constants.block_grid"][-1][1]
+    multiplier = max(Decimal(1), base["appointments.min_duration_multiplier"])
+    longest_drawn = max(
+        triple["max"] for triple in base["execution.duration_minutes_by_job_type"].values()
+    )
+    longest = max(
+        int((Decimal(longest_drawn) * multiplier).to_integral_value(rounding=ROUND_CEILING)),
+        base["appointments.min_actual_duration_minutes"],
+        base["execution.failed_visit_minutes"],
+    )
+    next_opening = (
+        _MINUTES_PER_DAY
+        + base["constants.opening_hour"] * 60
+        + base["constants.opening_minute"]
+    )
+    if latest_start + longest + _OVERNIGHT_TRAVEL_MARGIN_MINUTES > next_opening:
+        raise _bad(
+            f"a visit starting at the last window end (minute {latest_start}) and lasting the "
+            f"longest possible {longest} minutes plus a {_OVERNIGHT_TRAVEL_MARGIN_MINUTES}-minute "
+            "drive home must finish before the next day's opening "
+            f"(minute {next_opening} from the previous midnight); shorten "
+            "execution.duration_minutes_by_job_type, appointments.min_actual_duration_minutes "
+            "or execution.failed_visit_minutes"
+        )
+
+
 def _validate_material_percent_ranges(base: dict[str, Any]) -> None:
     ranges = base["materials.percent_range"]
     expected_types = set(_REVENUE_JOB_TYPE_CODES)
@@ -2297,6 +2319,42 @@ def _validate_material_cost_is_always_positive(base: dict[str, Any]) -> None:
                     f"{amounts[code][segment]['min_cents']} yields a material cost of "
                     "0 cents; every paid completion must post a strictly negative "
                     "material_cost entry"
+                )
+
+
+_OFFICE_HOURS_ROUNDED_TERMS = 2
+_OFF_HOURS_ROUNDED_TERMS = 4
+
+
+def _validate_paid_jobs_never_lose_money(base: dict[str, Any]) -> None:
+    amounts = base["invoices.amount"]
+    ranges = base["materials.percent_range"]
+    premium = base["invoices.off_hours_premium_basis_points"]
+    share = base["payroll.off_hours_share_basis_points"]
+    cap = base["payroll.overtime_cap_basis_points"]
+    for code in _REVENUE_JOB_TYPE_CODES:
+        materials = ranges[code]["max_basis_points"]
+        office_margin = BASIS_POINTS_SCALE - materials - cap
+        off_hours_margin = BASIS_POINTS_SCALE + premium - materials - share - cap
+        for segment in _SEGMENT_MODE_ORDER:
+            smallest = amounts[code][segment]["min_cents"]
+            if smallest * office_margin * 2 <= BASIS_POINTS_SCALE * _OFFICE_HOURS_ROUNDED_TERMS:
+                raise _bad(
+                    f"invoices.amount[{code!r}][{segment!r}] min_cents {smallest} less "
+                    f"materials.percent_range max_basis_points {materials} and "
+                    f"payroll.overtime_cap_basis_points {cap}, each rounded to whole cents, "
+                    "must stay strictly positive so a paid weekday job never nets negative"
+                )
+            if code == _INSTALLATION_JOB_TYPE_CODE:
+                continue
+            if smallest * off_hours_margin * 2 <= BASIS_POINTS_SCALE * _OFF_HOURS_ROUNDED_TERMS:
+                raise _bad(
+                    f"invoices.amount[{code!r}][{segment!r}] min_cents {smallest} plus "
+                    f"invoices.off_hours_premium_basis_points {premium} less "
+                    f"materials.percent_range max_basis_points {materials}, "
+                    f"payroll.off_hours_share_basis_points {share} and "
+                    f"payroll.overtime_cap_basis_points {cap}, each rounded to whole cents, "
+                    "must stay strictly positive so a paid off-hours job never nets negative"
                 )
 
 
@@ -2371,6 +2429,9 @@ def _validate_acceptance_maps(base: dict[str, Any]) -> None:
         "acceptance.base_probability_by_urgency": base["acceptance.base_probability_by_urgency"],
         "acceptance.lead_time_decay_by_urgency": base["acceptance.lead_time_decay_by_urgency"],
         "acceptance.floor_probability_by_urgency": base["acceptance.floor_probability_by_urgency"],
+        "acceptance.off_hours_multiplier_by_urgency": base[
+            "acceptance.off_hours_multiplier_by_urgency"
+        ],
     }
     for path, m in maps.items():
         if set(m.keys()) != _URGENCY_CLASSES:
@@ -2389,11 +2450,7 @@ def _validate_acceptance_maps(base: dict[str, Any]) -> None:
 
 
 def _validate_unit_interval_strict_params(base: dict[str, Any]) -> None:
-    for path in (
-        "competitors.served_well_repeat_multiplier",
-        "demand.rejection_repeat_propensity_multiplier",
-        "reference_policies.reject_heavy.reject_probability",
-    ):
+    for path in ("reference_policies.reject_heavy.reject_probability",):
         v = base[path]
         if not (0 < v < 1):
             raise _bad(f"{path} {v} must lie strictly inside (0, 1)")
@@ -2416,14 +2473,14 @@ def _validate_category_and_segment_key_sets(base: dict[str, Any]) -> None:
             f"demand.category_weights outer keys must be exactly {sorted(_SEGMENTS)}, got "
             f"{sorted(category_weights.keys())}"
         )
-    expected_inner = _SUPPORTED_CATEGORY_SET | set(base["demand.unsupported_categories"])
+    expected_inner = _SERVICE_CATEGORY_SET | set(base["demand.unsupported_categories"])
     for seg, inner in category_weights.items():
         if set(inner.keys()) != expected_inner:
             missing = expected_inner - set(inner)
             extra = set(inner) - expected_inner
             raise _bad(
                 f"demand.category_weights[{seg}] keys must exactly match the supported "
-                f"categories plus demand.unsupported_categories; missing={sorted(missing)} "
+                f"service categories plus demand.unsupported_categories; missing={sorted(missing)} "
                 f"extra={sorted(extra)}"
             )
     for path in (
@@ -2431,7 +2488,6 @@ def _validate_category_and_segment_key_sets(base: dict[str, Any]) -> None:
         "cancellations.base_probability_by_segment",
         "demand.multi_location_probability_by_segment",
         "demand.repeat_propensity_initial_by_segment",
-        "demand.word_of_mouth_segment_weights",
     ):
         keys = set(base[path].keys())
         if keys != _SEGMENTS:
@@ -2502,28 +2558,12 @@ def _validate_min_max_pairs(base: dict[str, Any]) -> None:
             f"demand.weather_multiplier_min {lo} must be > 0 and <= "
             f"demand.weather_multiplier_max {hi}"
         )
-    lo, hi = base["demand.reputation_multiplier_min"], base["demand.reputation_multiplier_max"]
-    if lo > hi:
-        raise _bad(
-            f"demand.reputation_multiplier_min {lo} > demand.reputation_multiplier_max {hi}"
-        )
-    lo = base["demand.word_of_mouth_multiplier_min"]
-    hi = base["demand.word_of_mouth_multiplier_max"]
-    if lo > hi:
-        raise _bad(
-            f"demand.word_of_mouth_multiplier_min {lo} > "
-            f"demand.word_of_mouth_multiplier_max {hi}"
-        )
-    v = base["competitors.demand_multiplier_min"]
-    if not (0 < v <= 1):
-        raise _bad(f"competitors.demand_multiplier_min {v} must lie in (0, 1]")
 
 
 def _validate_weather_positive_scalars(base: dict[str, Any]) -> None:
     for path in (
         "weather.daily_noise_sd_f",
         "weather.diurnal_range_f",
-        "demand.base_new_caller_rate_per_day",
     ):
         v = base[path]
         if v <= 0:
@@ -2592,6 +2632,17 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
     (
         frozenset(
             {
+                "demand.level_start",
+                "demand.level_max",
+                "demand.invalid_calls_min",
+                "demand.invalid_calls_max",
+            }
+        ),
+        _validate_demand_level_bounds,
+    ),
+    (
+        frozenset(
+            {
                 "customers.repeat_propensity_floor",
                 "customers.repeat_propensity_max",
                 "demand.repeat_propensity_initial_by_segment",
@@ -2636,17 +2687,13 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
                 "acceptance.base_probability_by_urgency",
                 "acceptance.lead_time_decay_by_urgency",
                 "acceptance.floor_probability_by_urgency",
+                "acceptance.off_hours_multiplier_by_urgency",
             }
         ),
         _validate_acceptance_maps,
     ),
     (
-        frozenset(
-            {
-                "competitors.served_well_repeat_multiplier",
-                "demand.rejection_repeat_propensity_multiplier",
-            }
-        ),
+        frozenset({"reference_policies.reject_heavy.reject_probability"}),
         _validate_unit_interval_strict_params,
     ),
     (
@@ -2662,7 +2709,6 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
                 "cancellations.base_probability_by_segment",
                 "demand.multi_location_probability_by_segment",
                 "demand.repeat_propensity_initial_by_segment",
-                "demand.word_of_mouth_segment_weights",
             }
         ),
         _validate_category_and_segment_key_sets,
@@ -2700,11 +2746,6 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
             {
                 "demand.weather_multiplier_min",
                 "demand.weather_multiplier_max",
-                "demand.reputation_multiplier_min",
-                "demand.reputation_multiplier_max",
-                "demand.word_of_mouth_multiplier_min",
-                "demand.word_of_mouth_multiplier_max",
-                "competitors.demand_multiplier_min",
             }
         ),
         _validate_min_max_pairs,
@@ -2714,7 +2755,6 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
             {
                 "weather.daily_noise_sd_f",
                 "weather.diurnal_range_f",
-                "demand.base_new_caller_rate_per_day",
             }
         ),
         _validate_weather_positive_scalars,
@@ -2744,6 +2784,24 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
         _validate_invoice_amount_map,
     ),
     (
+        frozenset({"execution.duration_minutes_by_job_type"}),
+        _validate_duration_minutes_map,
+    ),
+    (
+        frozenset(
+            {
+                "constants.block_grid",
+                "constants.opening_hour",
+                "constants.opening_minute",
+                "execution.duration_minutes_by_job_type",
+                "appointments.min_duration_multiplier",
+                "appointments.min_actual_duration_minutes",
+                "execution.failed_visit_minutes",
+            }
+        ),
+        _validate_work_ends_before_next_opening,
+    ),
+    (
         frozenset({"materials.percent_range"}),
         _validate_material_percent_ranges,
     ),
@@ -2754,6 +2812,17 @@ _CROSS_FIELD_VALIDATORS: tuple[tuple[frozenset[str], Any], ...] = (
     (
         frozenset({"invoices.amount", "materials.percent_range"}),
         _validate_material_cost_is_always_positive,
+    ),
+    (
+        frozenset(
+            {
+                "materials.percent_range",
+                "invoices.off_hours_premium_basis_points",
+                "payroll.off_hours_share_basis_points",
+                "payroll.overtime_cap_basis_points",
+            }
+        ),
+        _validate_paid_jobs_never_lose_money,
     ),
 )
 
@@ -3066,9 +3135,22 @@ DEFERRED_ITEMS: list[dict[str, Any]] = [
         "status": "calibrated",
     },
     {
-        "name": "off_hours_bonus_per_job",
-        "key_paths": ["payroll.off_hours_bonus_per_job"],
-        "status": "calibrated",
+        "name": "off_hours_economics",
+        "key_paths": [
+            "invoices.off_hours_premium_basis_points",
+            "payroll.off_hours_share_basis_points",
+            "payroll.overtime_cap_basis_points",
+            "acceptance.off_hours_multiplier_by_urgency",
+        ],
+        "status": "provisional",
+    },
+    {
+        "name": "arrival_windows_and_job_durations",
+        "key_paths": [
+            "execution.duration_minutes_by_job_type",
+            "demand.no_show_repeat_propensity_multiplier",
+        ],
+        "status": "provisional",
     },
     {
         "name": "warm_start_record_count",
@@ -3077,19 +3159,28 @@ DEFERRED_ITEMS: list[dict[str, Any]] = [
     },
     {
         "name": "v1_demand_mix",
-        "key_paths": [
-            "demand.base_new_caller_rate_per_day",
-            "demand.segment_weights",
-            "demand.category_weights",
-            "demand.unsupported_category_share",
-            "demand.day_of_week_multipliers",
-        ],
+        "key_paths": ["demand.segment_weights", "demand.category_weights"],
         "status": "calibrated",
+    },
+    {
+        "name": "demand_level",
+        "key_paths": [
+            "demand.level_start",
+            "demand.level_gain_per_on_time_visit",
+            "demand.level_loss_per_bad_visit",
+            "demand.level_max",
+            "demand.weekend_level_multiplier",
+            "demand.weekend_level_floor",
+            "demand.invalid_calls_min",
+            "demand.invalid_calls_max",
+            "demand.install_calls_max",
+            "demand.existing_customer_call_share",
+        ],
+        "status": "provisional",
     },
     {"name": "acceptance_curves", "key_paths": ["acceptance.*"], "status": "provisional"},
     {"name": "cancellation_rates", "key_paths": ["cancellations.*"], "status": "provisional"},
     {"name": "callback_delays", "key_paths": ["callbacks.*"], "status": "provisional"},
-    {"name": "competitor_probabilities", "key_paths": ["competitors.*"], "status": "provisional"},
     {"name": "review_sampling", "key_paths": ["reviews.*"], "status": "provisional"},
     {"name": "weather_severity", "key_paths": ["weather.*"], "status": "provisional"},
     {"name": "invoice_distributions", "key_paths": ["invoices.amount"], "status": "calibrated"},

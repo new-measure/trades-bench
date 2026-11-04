@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+import sys
 from decimal import ROUND_HALF_UP, Decimal
 from fractions import Fraction
 from itertools import count
@@ -66,7 +67,7 @@ _TECHNICIAN_QUALIFIED_CATEGORY_ID = {
     4: 4,
 }
 
-EARLY_FINISH_ORIGIN = "t:chain:169"
+EARLY_FINISH_ORIGIN = "t:chain:28"
 
 _id_seq = count(9500)
 _request_seq = count(1)
@@ -282,6 +283,18 @@ def test_planned_travel_minutes_matches_a_hand_computed_literal(tmp_path):
     assert result == expected
 
 
+def _expected_duration_minutes(cfg, shadow, job_origin: str, true_code: str) -> int:
+    drawn = execution.work_duration_minutes(
+        shadow, job_origin,
+        cfg.resolved["execution.duration_minutes_by_job_type"][true_code],
+    )
+    scaled = Decimal(drawn) * execution.execution_duration_multiplier(cfg)
+    return max(
+        int(scaled.to_integral_value(rounding=ROUND_HALF_UP)),
+        cfg.get_int("appointments.min_actual_duration_minutes"),
+    )
+
+
 def _shadow_rng() -> Rng:
     rng = Rng(SEED, SPEC_VERSION)
     rng.enter_txn()
@@ -479,13 +492,12 @@ def test_happy_path_office_day_full_chain_and_settlement(tmp_path):
     expected_arrival = expected_departure + actual_travel * 60000
 
     start_variation = execution.start_variation_minutes(shadow, origin_keys.of_appointment(conn, appointment_id), WEEKDAY)
-    expected_work_started = max(expected_arrival, block_start + start_variation * 60000)
+    expected_work_started = max(
+        expected_arrival, block_start, block_start + start_variation * 60000
+    )
 
-    duration_variation = execution.duration_variation_minutes(shadow, origin_keys.of_appointment(conn, appointment_id), WEEKDAY)
-    multiplier = execution.execution_duration_multiplier(cfg)
-    base_minutes = int((Decimal(120) * multiplier).to_integral_value(rounding=ROUND_HALF_UP))
-    duration_minutes = max(
-        base_minutes + duration_variation, cfg.get_int("appointments.min_actual_duration_minutes")
+    duration_minutes = _expected_duration_minutes(
+        cfg, shadow, origin_keys.of_job(conn, booked["job_id"]), "hvac_service"
     )
     expected_completion = expected_work_started + duration_minutes * 60000
 
@@ -532,6 +544,7 @@ def test_happy_path_office_day_full_chain_and_settlement(tmp_path):
         - int(invoice["material_cost_cents"])
         - constants.WEEKDAY_PAY_MULTIPLIER * wage_total
         - overhead
+        - 2 * (_wage(conn, 1) + _wage(conn, 3))
     )
     assert controller.services.ledger.cash_balance() == expected_cash
 
@@ -546,10 +559,10 @@ HVAC_INSTALLATION_CATEGORY_ID = 1
 INSTALL_TECHNICIAN_ID = 2
 
 
-def _expected_work_window(conn, cfg, appointment_id, *, technician_id, true_blocks):
+def _expected_work_window(conn, cfg, appointment_id, *, technician_id, true_code):
     appointment_origin = origin_keys.of_appointment(conn, appointment_id)
     origin = execution.technician_home_point(conn, technician_id)
-    _job_id, location_id = execution._appointment_job_location_id(conn, appointment_id)
+    job_id, location_id = execution._appointment_job_location_id(conn, appointment_id)
     destination = execution.location_point(conn, location_id)
     block_start = clock.phoenix_instant(2026, 10, 1, 9, 0)
     planned = execution.planned_travel_minutes(
@@ -579,15 +592,12 @@ def _expected_work_window(conn, cfg, appointment_id, *, technician_id, true_bloc
     expected_arrival = expected_departure + actual_travel * 60000
 
     start_variation = execution.start_variation_minutes(shadow, appointment_origin, WEEKDAY)
-    expected_work_started = max(expected_arrival, block_start + start_variation * 60000)
-
-    duration_variation = execution.duration_variation_minutes(shadow, appointment_origin, WEEKDAY)
-    multiplier = execution.execution_duration_multiplier(cfg)
-    base_minutes = int(
-        (Decimal(120 * true_blocks) * multiplier).to_integral_value(rounding=ROUND_HALF_UP)
+    expected_work_started = max(
+        expected_arrival, block_start, block_start + start_variation * 60000
     )
-    duration_minutes = max(
-        base_minutes + duration_variation, cfg.get_int("appointments.min_actual_duration_minutes")
+
+    duration_minutes = _expected_duration_minutes(
+        cfg, shadow, origin_keys.of_job(conn, job_id), true_code
     )
     return expected_work_started, expected_work_started + duration_minutes * 60000
 
@@ -608,7 +618,7 @@ def _actual_window(conn, appointment_id):
     ).fetchone()
 
 
-def test_two_block_installation_duration_scales_with_the_true_job_type_block_count(tmp_path):
+def test_installation_books_one_window_and_works_the_installation_duration(tmp_path):
     conn, cfg, controller, _ = _build_run(tmp_path)
     booked = _book_execution(
         controller, cfg, technician_id=INSTALL_TECHNICIAN_ID, service_date=WEEKDAY,
@@ -616,9 +626,10 @@ def test_two_block_installation_duration_scales_with_the_true_job_type_block_cou
         requested_category_id=HVAC_INSTALLATION_CATEGORY_ID,
     )
     appointment_id = booked["appointment_id"]
-    assert _reserved_block_count(conn, appointment_id) == 2
+    assert _reserved_block_count(conn, appointment_id) == 1
     expected_start, expected_end = _expected_work_window(
-        conn, cfg, appointment_id, technician_id=INSTALL_TECHNICIAN_ID, true_blocks=2,
+        conn, cfg, appointment_id, technician_id=INSTALL_TECHNICIAN_ID,
+        true_code="hvac_installation",
     )
 
     assert str(controller.run()) == "completed"
@@ -626,7 +637,8 @@ def test_two_block_installation_duration_scales_with_the_true_job_type_block_cou
     appt = _actual_window(conn, appointment_id)
     assert appt["actual_start"] == expected_start
     assert appt["actual_end"] == expected_end
-    assert appt["actual_end"] - appt["actual_start"] >= 240 * 60000 - 15 * 60000
+    install = cfg.resolved["execution.duration_minutes_by_job_type"]["hvac_installation"]
+    assert appt["actual_end"] - appt["actual_start"] >= install["min"] * 60000
 
 
 def test_an_installation_booked_as_a_one_block_service_works_its_true_duration_and_overruns(
@@ -641,7 +653,8 @@ def test_an_installation_booked_as_a_one_block_service_works_its_true_duration_a
     appointment_id = booked["appointment_id"]
     assert _reserved_block_count(conn, appointment_id) == 1
     expected_start, expected_end = _expected_work_window(
-        conn, cfg, appointment_id, technician_id=INSTALL_TECHNICIAN_ID, true_blocks=2,
+        conn, cfg, appointment_id, technician_id=INSTALL_TECHNICIAN_ID,
+        true_code="hvac_installation",
     )
 
     assert str(controller.run()) == "completed"
@@ -649,7 +662,8 @@ def test_an_installation_booked_as_a_one_block_service_works_its_true_duration_a
     appt = _actual_window(conn, appointment_id)
     assert appt["actual_start"] == expected_start
     assert appt["actual_end"] == expected_end
-    assert appt["actual_end"] - appt["actual_start"] >= 240 * 60000 - 15 * 60000
+    install = cfg.resolved["execution.duration_minutes_by_job_type"]["hvac_installation"]
+    assert appt["actual_end"] - appt["actual_start"] >= install["min"] * 60000
     assert appt["actual_end"] > appt["scheduled_end"]
 
 
@@ -836,7 +850,7 @@ def test_reassigning_away_a_pending_dispatch_replans_the_technicians_remaining_d
     assert day["unresolved_execution_count"] == 0
 
 
-def test_idle_gap_returns_home_then_dispatches_post_idle(tmp_path):
+def test_idle_gap_drives_straight_to_the_next_job_and_returns_home_after_the_last(tmp_path):
     conn, cfg, controller, _ = _build_run(tmp_path)
     first = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
@@ -852,39 +866,24 @@ def test_idle_gap_returns_home_then_dispatches_post_idle(tmp_path):
     first_events = _appointment_event_rows(conn, first["appointment_id"])
     second_events = _appointment_event_rows(conn, second["appointment_id"])
     first_completed = next(e for e in first_events if e["event_type"] == "work_completed")
-
-    movement = conn.execute(
-        "SELECT * FROM _technician_movements WHERE technician_id = 1"
-    ).fetchone()
-    assert movement is not None
-    assert movement["movement_kind"] == "return_home"
-    assert movement["departed_at"] == first_completed["occurred_at"]
-
-    home = execution.technician_home_point(conn, 1)
-    assert movement["destination_latitude"] == home.latitude
-    assert movement["destination_longitude"] == home.longitude
-
-    home_arrival_event = conn.execute(
-        "SELECT scheduled_at_ms FROM _events WHERE kind = ? AND entity_id = 1 "
-        "AND scheduled_at_ms >= ?",
-        (EventKind.TECHNICIAN_HOME_ARRIVAL.value, first_completed["occurred_at"]),
-    ).fetchone()
-    assert home_arrival_event is not None
-    assert home_arrival_event["scheduled_at_ms"] == movement["arrives_at"]
-
     second_dispatched = next(e for e in second_events if e["event_type"] == "dispatched")
-    second_block_start = clock.phoenix_instant(2026, 10, 1, 13, 0)
-    destination = execution.location_point(
+    second_completed = next(e for e in second_events if e["event_type"] == "work_completed")
+    assert second_dispatched["occurred_at"] == first_completed["occurred_at"]
+
+    movements = conn.execute(
+        "SELECT * FROM _technician_movements WHERE technician_id = 1"
+    ).fetchall()
+    assert len(movements) == 1
+    assert movements[0]["movement_kind"] == "return_home"
+    assert movements[0]["departed_at"] == second_completed["occurred_at"]
+    second_point = execution.location_point(
         conn, execution._appointment_job_location_id(conn, second["appointment_id"])[1]
     )
-    planned_from_home = execution.planned_travel_minutes(
-        conn, ARTIFACT, cfg, origin=home, destination=destination,
-        service_date=WEEKDAY, minute_of_day=13 * 60,
-    )
-    expected_dispatch = max(
-        second_block_start - planned_from_home * 60000, movement["arrives_at"]
-    )
-    assert second_dispatched["occurred_at"] == expected_dispatch
+    assert movements[0]["origin_latitude"] == second_point.latitude
+
+    home = execution.technician_home_point(conn, 1)
+    assert movements[0]["destination_latitude"] == home.latitude
+    assert movements[0]["destination_longitude"] == home.longitude
 
 
 _SLOW_MIDDAY_LONG_RETURN_OVERRIDE = {
@@ -902,7 +901,9 @@ _FAR_ADDRESS_ID = 626
 _NEAR_ADDRESS_ID = 472
 
 
-def test_post_idle_dispatch_clamp_binds_when_home_arrival_is_the_later_bound(tmp_path):
+def test_post_idle_dispatch_clamp_binds_when_home_arrival_is_the_later_bound(
+    tmp_path, monkeypatch,
+):
     conn, cfg, controller, _ = _build_run(
         tmp_path, **{"travel.speed_by_time_band": _SLOW_MIDDAY_LONG_RETURN_OVERRIDE}
     )
@@ -910,9 +911,23 @@ def test_post_idle_dispatch_clamp_binds_when_home_arrival_is_the_later_bound(tmp
         controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
         address_catalog_id=_FAR_ADDRESS_ID,
     )
-    second = _book_execution(
-        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B13_15",
-        address_catalog_id=_NEAR_ADDRESS_ID,
+    _step_until(
+        controller,
+        lambda: _technician_location_row(conn, 1)["location_state"] == "traveling"
+        and conn.execute(
+            "SELECT 1 FROM _technician_movements WHERE technician_id = 1"
+        ).fetchone() is not None,
+    )
+    monkeypatch.setattr(sys.modules[__name__], "_id_seq", count(50_000_000))
+    location_id = _customer_location_call(
+        conn, clock.now(conn), WEEKDAY, address_catalog_id=_NEAR_ADDRESS_ID, config=cfg,
+    )
+    second = _book(
+        controller.services, cfg,
+        call_id=location_id, customer_id=location_id, location_id=location_id,
+        job_type_id=1, requested_service_name="HVAC service", priority="normal",
+        summary="x", technician_id=1, service_date=WEEKDAY, first_block_code="B13_15",
+        artifact=ARTIFACT,
     )
     status = controller.run()
     assert str(status) == "completed"
@@ -921,7 +936,7 @@ def test_post_idle_dispatch_clamp_binds_when_home_arrival_is_the_later_bound(tmp
     second_dispatched = next(e for e in second_events if e["event_type"] == "dispatched")
 
     movement = conn.execute(
-        "SELECT * FROM _technician_movements WHERE technician_id = 1"
+        "SELECT * FROM _technician_movements WHERE technician_id = 1 ORDER BY departed_at"
     ).fetchone()
     assert movement is not None
 
@@ -1076,55 +1091,84 @@ def _ledger_off_hours_entries(conn, service_date):
     return conn.execute(
         "SELECT entry_type, amount_cents, technician_id, job_id FROM _ledger_entries "
         "WHERE service_date = ? AND entry_type IN ('payroll_off_hours', 'payroll_off_hours_bonus') "
-        "AND description NOT LIKE 'overtime wages%' ORDER BY id",
+        "AND description NOT LIKE 'overtime wages%' AND description != 'on-call wages' "
+        "ORDER BY id",
         (service_date,),
     ).fetchall()
 
 
-def test_off_hours_settlement_weekend_standard_job(tmp_path):
+def _on_call_wage_entries(conn, service_date):
+    return [
+        (int(row["technician_id"]), int(row["amount_cents"]))
+        for row in conn.execute(
+            "SELECT technician_id, amount_cents FROM _ledger_entries "
+            "WHERE service_date = ? AND entry_type = 'payroll_off_hours' "
+            "AND description = 'on-call wages' ORDER BY id",
+            (service_date,),
+        )
+    ]
+
+
+def test_on_call_technicians_are_paid_every_on_call_hour_whether_or_not_they_work(tmp_path):
+    conn, _cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
+
+    status = controller.run()
+    assert str(status) == "completed"
+
+    assert _on_call_wage_entries(conn, WEEKDAY) == [
+        (1, -2 * _wage(conn, 1)), (3, -2 * _wage(conn, 3)),
+    ]
+    assert _on_call_wage_entries(conn, WEEKEND) == [
+        (1, -12 * _wage(conn, 1)), (3, -12 * _wage(conn, 3)),
+    ]
+
+
+def _off_hours_share_cents(conn, cfg, job_id):
+    return basis_point_amount(
+        int(_invoice_row(conn, job_id)["subtotal_cents"]),
+        cfg.get_int("payroll.off_hours_share_basis_points"),
+    )
+
+
+def test_a_paid_weekend_job_pays_the_off_hours_share_on_top_of_on_call_wages(tmp_path):
     conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
     booked = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
         job_type_id=1,
     )
-    wage = int(
-        conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 1").fetchone()[0]
-    )
-    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
 
     status = controller.run()
     assert str(status) == "completed"
 
+    assert _job_row(conn, booked["job_id"])["outcome"] == "completed_paid"
     entries = _ledger_off_hours_entries(conn, WEEKEND)
-    assert len(entries) == 2
-    assert entries[0]["entry_type"] == "payroll_off_hours"
-    assert entries[0]["amount_cents"] == -(2 * wage)
-    assert entries[0]["technician_id"] == 1
-    assert entries[0]["job_id"] == booked["job_id"]
-    assert entries[1]["entry_type"] == "payroll_off_hours_bonus"
-    assert entries[1]["amount_cents"] == -bonus
-    assert entries[1]["technician_id"] == 1
-    assert entries[1]["job_id"] == booked["job_id"]
+    assert [tuple(row) for row in entries] == [
+        (
+            "payroll_off_hours_bonus",
+            -_off_hours_share_cents(conn, cfg, booked["job_id"]),
+            1,
+            booked["job_id"],
+        )
+    ]
+    description = conn.execute(
+        "SELECT description FROM _ledger_entries WHERE entry_type = 'payroll_off_hours_bonus'"
+    ).fetchone()["description"]
+    assert description == "off-hours technician share"
 
 
-def test_off_hours_settlement_weekend_installation_is_four_hours_one_bonus(tmp_path):
+def test_a_paid_weekend_service_job_pays_one_share_and_no_block_wages(tmp_path):
     conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
-    _book_execution(
+    booked = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
-        job_type_id=2,
     )
-    wage = int(
-        conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 1").fetchone()[0]
-    )
-    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
 
     status = controller.run()
     assert str(status) == "completed"
 
     entries = _ledger_off_hours_entries(conn, WEEKEND)
-    assert len(entries) == 2
-    assert entries[0]["amount_cents"] == -(4 * wage)
-    assert entries[1]["amount_cents"] == -bonus
+    assert [(row["entry_type"], row["amount_cents"]) for row in entries] == [
+        ("payroll_off_hours_bonus", -_off_hours_share_cents(conn, cfg, booked["job_id"])),
+    ]
 
 
 def test_off_hours_settlement_weekday_after_hours_block(tmp_path):
@@ -1138,18 +1182,13 @@ def test_off_hours_settlement_weekday_after_hours_block(tmp_path):
     ).fetchone()
     assert mark["scheduled_at_ms"] == clock.phoenix_instant(2026, 10, 1, 17, 0)
 
-    wage = int(
-        conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 1").fetchone()[0]
-    )
-    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
-
     status = controller.run()
     assert str(status) == "completed"
 
     entries = _ledger_off_hours_entries(conn, WEEKDAY)
-    assert len(entries) == 2
-    assert entries[0]["amount_cents"] == -(2 * wage)
-    assert entries[1]["amount_cents"] == -bonus
+    assert [(row["entry_type"], row["amount_cents"]) for row in entries] == [
+        ("payroll_off_hours_bonus", -_off_hours_share_cents(conn, cfg, booked["job_id"])),
+    ]
 
 
 def test_off_hours_settlement_reassignment_before_block_moves_the_accrual(tmp_path):
@@ -1168,20 +1207,13 @@ def test_off_hours_settlement_reassignment_before_block_moves_the_accrual(tmp_pa
     body = json.loads(response)
     assert body["ok"] is True, body
 
-    wage3 = int(
-        conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 3").fetchone()[0]
-    )
-    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
-
     status = controller.run()
     assert str(status) == "completed"
 
     entries = _ledger_off_hours_entries(conn, WEEKEND)
-    assert len(entries) == 2
-    assert entries[0]["technician_id"] == 3
-    assert entries[0]["amount_cents"] == -(2 * wage3)
-    assert entries[1]["technician_id"] == 3
-    assert entries[1]["amount_cents"] == -bonus
+    assert [(row["technician_id"], row["amount_cents"]) for row in entries] == [
+        (3, -_off_hours_share_cents(conn, cfg, booked["job_id"])),
+    ]
 
 
 def test_abandoned_trip_arrived_not_started_reassignment_replans_the_chain(tmp_path):
@@ -1392,7 +1424,10 @@ def test_reassign_during_a_same_address_chain_trip_turns_back_to_the_true_origin
     second_id = second["appointment_id"]
     shadow = _shadow_rng()
     assert execution.start_variation_minutes(shadow, EARLY_FINISH_ORIGIN, WEEKDAY) < 0
-    assert execution.duration_variation_minutes(shadow, EARLY_FINISH_ORIGIN, WEEKDAY) < 0
+    assert execution.work_duration_minutes(
+        shadow, EARLY_FINISH_ORIGIN,
+        cfg.resolved["execution.duration_minutes_by_job_type"]["hvac_service"],
+    ) < 60
 
     first_point = execution.location_point(
         conn, execution._appointment_job_location_id(conn, first_id)[1]
@@ -1925,7 +1960,7 @@ def test_arrival_after_cutoff_completes_movement_and_chains_to_the_consecutive_b
     assert _day_state_row(conn, WEEKDAY)["unresolved_execution_count"] == 0
 
 
-def test_install_no_show_fires_at_first_block_end_releases_both_holds_and_draws_nothing(tmp_path):
+def test_install_no_show_fires_at_its_window_end_releases_its_hold_and_draws_nothing(tmp_path):
     conn, cfg, controller, _ = _build_run(tmp_path)
     booked = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
@@ -1935,7 +1970,7 @@ def test_install_no_show_fires_at_first_block_end_releases_both_holds_and_draws_
     cutoff = clock.phoenix_instant(2026, 10, 1, 11, 0)
 
     assert _guard_event(conn, appointment_id)["scheduled_at_ms"] == cutoff
-    assert _hold_count(conn, appointment_id) == 2
+    assert _hold_count(conn, appointment_id) == 1
 
     _step_until(
         controller,
@@ -1955,7 +1990,7 @@ def test_install_no_show_fires_at_first_block_end_releases_both_holds_and_draws_
         "SELECT block_code FROM _appointment_blocks WHERE appointment_id = ? ORDER BY ordinal",
         (appointment_id,),
     ).fetchall()
-    assert [b["block_code"] for b in blocks] == ["B09_11", "B11_13"]
+    assert [b["block_code"] for b in blocks] == ["B09_11"]
     events = _appointment_event_rows(conn, appointment_id)
     assert [(e["event_type"], e["occurred_at"]) for e in events] == [("no_show", cutoff)]
 
@@ -2066,7 +2101,7 @@ def test_lateness_zero_at_the_grace_boundary_and_positive_beyond_it(tmp_path):
         agent.close()
 
 
-def test_off_hours_no_show_keeps_the_accrual_mark_and_still_pays(tmp_path):
+def test_an_off_hours_no_show_keeps_the_accrual_mark_and_posts_no_share(tmp_path):
     conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
     booked = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
@@ -2083,7 +2118,6 @@ def test_off_hours_no_show_keeps_the_accrual_mark_and_still_pays(tmp_path):
     wage = int(
         conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 1").fetchone()[0]
     )
-    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
 
     status = controller.run()
     assert str(status) == "completed"
@@ -2096,14 +2130,9 @@ def test_off_hours_no_show_keeps_the_accrual_mark_and_still_pays(tmp_path):
     assert mark["status"] == "applied"
     assert json.loads(mark["payload"])["technician_id"] == 1
 
-    entries = _ledger_off_hours_entries(conn, WEEKEND)
-    assert len(entries) == 2
-    assert entries[0]["entry_type"] == "payroll_off_hours"
-    assert entries[0]["amount_cents"] == -(2 * wage)
-    assert entries[0]["technician_id"] == 1
-    assert entries[0]["job_id"] == booked["job_id"]
-    assert entries[1]["entry_type"] == "payroll_off_hours_bonus"
-    assert entries[1]["amount_cents"] == -bonus
+    assert _ledger_off_hours_entries(conn, WEEKEND) == []
+    assert (1, -12 * wage) in _on_call_wage_entries(conn, WEEKEND)
+    assert _invoice_row(conn, booked["job_id"]) is None
 
     notifications = _notification_rows(conn)
     assert len(notifications) == 1
@@ -2248,7 +2277,7 @@ def test_reassign_during_a_post_no_show_chain_trip_turns_back_to_the_no_show_loc
     assert return_home["scheduled_at_ms"] == ready_at
     payload = json.loads(return_home["payload"])
     assert payload["appointment_id"] == first_id
-    assert payload["block_index"] == execution.block_index("B11_13")
+    assert payload["block_index"] == execution.block_index("B09_11")
 
     new_dispatch = _pending_event(conn, EventKind.APPOINTMENT_DISPATCH, second_id)
     assert new_dispatch is not None
@@ -2893,7 +2922,7 @@ def _job_finance_expectation(conn, cfg, job_id):
         (job_id,),
     ).fetchone()
     completion_date = clock.service_date_for_ms(int(row["completed_at"]))
-    scope = f"{origin_keys.of_job(conn, job_id)}|{completion_date}"
+    scope = origin_keys.of_job(conn, job_id)
     shadow = _shadow_rng()
     amounts = cfg.resolved["invoices.amount"][row["code"]][row["segment"]]
     subtotal = shadow.triangular_cents(
@@ -2986,7 +3015,7 @@ def test_paid_completion_writes_invoice_item_payment_and_two_ledger_entries(tmp_
     assert materials[0]["job_id"] == job_id
     assert materials[0]["invoice_id"] == invoice["id"]
 
-    finance_scope = f"{origin_keys.of_job(conn, job_id)}|{expected['completion_date']}"
+    finance_scope = origin_keys.of_job(conn, job_id)
     audit = conn.execute(
         "SELECT event_kind, scope, draw_index, simulated_ts_ms FROM _random_audit "
         "WHERE stream_name = ? AND entity_type = 'job_origin' AND entity_id = 1 AND scope = ? "
@@ -3472,26 +3501,20 @@ def test_off_hours_accrual_stays_with_the_technician_active_at_the_block_start(t
     wage1 = int(
         conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 1").fetchone()[0]
     )
-    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
 
     status = controller.run()
     assert str(status) == "completed"
 
-    entries = _ledger_off_hours_entries(conn, WEEKEND)
-    assert [row["technician_id"] for row in entries] == [1, 1]
-    assert entries[0]["amount_cents"] == -(2 * wage1)
-    assert entries[1]["amount_cents"] == -bonus
+    assert _job_row(conn, booked["job_id"])["outcome"] == "failed_unqualified"
+    assert _ledger_off_hours_entries(conn, WEEKEND) == []
+    assert (1, -12 * wage1) in _on_call_wage_entries(conn, WEEKEND)
 
 
-def test_a_weekend_evening_job_earns_exactly_one_off_hours_bonus(tmp_path):
+def test_a_weekend_evening_job_earns_exactly_one_off_hours_share(tmp_path):
     conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
     booked = _book_execution(
         controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B17_19",
     )
-    wage = int(
-        conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 1").fetchone()[0]
-    )
-    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
 
     marks = conn.execute(
         "SELECT scheduled_at_ms FROM _events WHERE kind = ? AND entity_id = ?",
@@ -3505,22 +3528,22 @@ def test_a_weekend_evening_job_earns_exactly_one_off_hours_bonus(tmp_path):
 
     entries = _ledger_off_hours_entries(conn, WEEKEND)
     assert [(row["entry_type"], row["amount_cents"]) for row in entries] == [
-        ("payroll_off_hours", -(2 * wage)),
-        ("payroll_off_hours_bonus", -bonus),
+        ("payroll_off_hours_bonus", -_off_hours_share_cents(conn, cfg, booked["job_id"])),
     ]
 
 
-def test_off_hours_block_wage_is_unchanged_by_an_overrun_which_is_paid_as_overtime(tmp_path):
+def test_the_off_hours_share_is_unchanged_by_an_overrun_which_is_paid_as_capped_overtime(
+    tmp_path,
+):
     conn, cfg, controller, _ = _build_run(
         tmp_path, end_date=WEEKEND, **{"appointments.min_actual_duration_minutes": 260}
     )
     booked = _book_execution(
-        controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
+        controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B15_17",
     )
     wage = int(
         conn.execute("SELECT hourly_wage_cents FROM _technicians WHERE id = 1").fetchone()[0]
     )
-    bonus = cfg.get_int("payroll.off_hours_bonus_per_job")
 
     status = controller.run()
     assert str(status) == "completed"
@@ -3531,10 +3554,14 @@ def test_off_hours_block_wage_is_unchanged_by_an_overrun_which_is_paid_as_overti
     ).fetchone()
     assert int(appointment["actual_end"]) > int(appointment["scheduled_end"])
     entries = _ledger_off_hours_entries(conn, WEEKEND)
-    assert [row["amount_cents"] for row in entries] == [-(2 * wage), -bonus]
-    overrun_minutes = (int(appointment["actual_end"]) - int(appointment["scheduled_end"])) // 60000
+    assert [row["amount_cents"] for row in entries] == [
+        -_off_hours_share_cents(conn, cfg, booked["job_id"])
+    ]
+    on_call_end = clock.phoenix_instant(2026, 10, 3, 19, 0)
+    assert int(appointment["actual_end"]) > on_call_end
+    overrun_minutes = (int(appointment["actual_end"]) - on_call_end) // 60000
     assert [row["amount_cents"] for row in _overtime_rows(conn, WEEKEND)] == [
-        -_expected_overtime_cents(overrun_minutes, wage)
+        -_expected_paid_overtime_cents(conn, cfg, booked["job_id"], overrun_minutes, wage)
     ]
 
 
@@ -3560,13 +3587,12 @@ def test_off_hours_settlement_orders_entries_by_booking_origin_not_by_block_time
     entries = conn.execute(
         "SELECT entry_type, job_id FROM _ledger_entries WHERE service_date = ? "
         "AND entry_type IN ('payroll_off_hours', 'payroll_off_hours_bonus') "
-        "AND description NOT LIKE 'overtime wages%' ORDER BY id",
+        "AND description NOT LIKE 'overtime wages%' AND description != 'on-call wages' "
+        "ORDER BY id",
         (WEEKEND,),
     ).fetchall()
     assert [(row["entry_type"], row["job_id"]) for row in entries] == [
-        ("payroll_off_hours", later_block["job_id"]),
         ("payroll_off_hours_bonus", later_block["job_id"]),
-        ("payroll_off_hours", earlier_block["job_id"]),
         ("payroll_off_hours_bonus", earlier_block["job_id"]),
     ]
 
@@ -3661,6 +3687,14 @@ def _expected_overtime_cents(minutes, wage):
     return (minutes * wage + 30) // 60
 
 
+def _expected_paid_overtime_cents(conn, cfg, job_id, minutes, wage):
+    cap = basis_point_amount(
+        int(_invoice_row(conn, job_id)["subtotal_cents"]),
+        cfg.get_int("payroll.overtime_cap_basis_points"),
+    )
+    return min(_expected_overtime_cents(minutes, wage), cap)
+
+
 def test_an_under_booked_installation_in_the_last_office_block_pays_overtime(tmp_path):
     conn, cfg, controller, _ = _build_run(tmp_path)
     booked = _book_execution(
@@ -3683,7 +3717,7 @@ def test_an_under_booked_installation_in_the_last_office_block_pays_overtime(tmp
             -_expected_overtime_cents(minutes, _wage(conn, INSTALL_TECHNICIAN_ID)),
         )
     ]
-    assert rows[0]["description"] == f"overtime wages ({minutes} min past shift end)"
+    assert rows[0]["description"] == f"overtime wages ({minutes} min past paid hours)"
     assert _bonus_rows_for_job(conn, booked["job_id"]) == []
 
 
@@ -3692,7 +3726,7 @@ def test_an_ordinary_overrun_past_the_office_shift_end_pays_overtime(tmp_path):
         tmp_path, **{"appointments.min_actual_duration_minutes": 150}
     )
     booked = _book_execution(
-        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B15_17",
+        controller, cfg, technician_id=2, service_date=WEEKDAY, first_block_code="B15_17",
     )
 
     assert str(controller.run()) == "completed"
@@ -3702,7 +3736,7 @@ def test_an_ordinary_overrun_past_the_office_shift_end_pays_overtime(tmp_path):
     assert minutes >= 30
     rows = _overtime_rows(conn, WEEKDAY)
     assert [(r["job_id"], r["amount_cents"]) for r in rows] == [
-        (booked["job_id"], -_expected_overtime_cents(minutes, _wage(conn, 1)))
+        (booked["job_id"], -_expected_overtime_cents(minutes, _wage(conn, 2)))
     ]
     assert _bonus_rows_for_job(conn, booked["job_id"]) == []
 
@@ -3739,16 +3773,15 @@ def test_a_job_finishing_inside_its_shift_pays_no_overtime(tmp_path):
     assert _overtime_rows(conn, WEEKDAY) == []
 
 
-def test_overtime_minutes_count_only_time_after_shift_end_outside_paid_windows():
+def test_overtime_minutes_count_only_time_after_the_paid_hours():
     from trades_bench import overtime
 
-    shift_end = 1_000 * 60_000
-    paid = [(0, shift_end), (shift_end + 60 * 60_000, shift_end + 120 * 60_000)]
-    span = (shift_end - 30 * 60_000, shift_end + 150 * 60_000)
+    paid_until = 1_000 * 60_000
+    span = (paid_until - 30 * 60_000, paid_until + 150 * 60_000)
 
-    assert overtime.overtime_minutes(span, shift_end, paid) == 90
-    assert overtime.overtime_minutes(span, shift_end, [(0, shift_end)]) == 150
-    assert overtime.overtime_minutes((0, shift_end), shift_end, paid) == 0
+    assert overtime.overtime_minutes(span, paid_until) == 150
+    assert overtime.overtime_minutes(span, paid_until + 60 * 60_000) == 90
+    assert overtime.overtime_minutes((0, paid_until), paid_until) == 0
     assert overtime.overtime_cents(90, 5_000) == 7_500
     assert overtime.overtime_cents(1, 4_999) == 83
 
@@ -3834,7 +3867,7 @@ def test_chained_visits_past_the_shift_end_pay_only_time_outside_the_paid_block(
     assert _overtime_minutes_of(rows) == [(second_end - block_end) // 60000]
 
 
-def test_weekend_travel_to_a_block_is_unpaid_and_only_the_overrun_past_it_is_overtime(tmp_path):
+def test_a_weekend_overrun_inside_the_on_call_shift_pays_no_overtime(tmp_path):
     conn, cfg, controller, _ = _build_run(
         tmp_path, end_date=WEEKEND, **{"appointments.min_actual_duration_minutes": 150}
     )
@@ -3845,21 +3878,14 @@ def test_weekend_travel_to_a_block_is_unpaid_and_only_the_overrun_past_it_is_ove
     assert str(controller.run()) == "completed"
 
     appt = _actual_window(conn, booked["appointment_id"])
-    dispatched = int(conn.execute(
-        "SELECT occurred_at FROM _appointment_events WHERE appointment_id = ? "
-        "AND event_type = 'dispatched'",
-        (booked["appointment_id"],),
-    ).fetchone()[0])
-    assert dispatched < clock.phoenix_instant(2026, 10, 3, 9, 0)
-    rows = _overtime_rows(conn, WEEKEND)
-    assert _overtime_minutes_of(rows) == [
-        (int(appt["actual_end"]) - int(appt["scheduled_end"])) // 60000
-    ]
+    assert int(appt["actual_end"]) > int(appt["scheduled_end"])
+    assert int(appt["actual_end"]) < clock.phoenix_instant(2026, 10, 3, 19, 0)
+    assert _overtime_rows(conn, WEEKEND) == []
 
 
 def test_overtime_rows_are_ordered_by_technician_not_by_booking(tmp_path):
     conn, cfg, controller, _ = _build_run(
-        tmp_path, **{"appointments.min_actual_duration_minutes": 150}
+        tmp_path, **{"appointments.min_actual_duration_minutes": 300}
     )
     plumbing = _book_execution(
         controller, cfg, technician_id=3, service_date=WEEKDAY, first_block_code="B15_17",
@@ -3876,3 +3902,208 @@ def test_overtime_rows_are_ordered_by_technician_not_by_booking(tmp_path):
     assert [(row["technician_id"], row["job_id"]) for row in rows] == [
         (1, hvac["job_id"]), (3, plumbing["job_id"]),
     ]
+
+
+def _tiny_hvac_service_invoice_amounts():
+    amounts = json.loads(json.dumps(load_run_config().resolved["invoices.amount"]))
+    for segment in amounts["hvac_service"]:
+        amounts["hvac_service"][segment] = {
+            "min_cents": 4000, "mode_cents": 4200, "max_cents": 4400,
+        }
+    return amounts
+
+
+def _job_ledger_net_cents(conn, job_id):
+    return int(
+        conn.execute(
+            "SELECT COALESCE(SUM(amount_cents), 0) FROM _ledger_entries WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()[0]
+    )
+
+
+def test_the_invoice_amount_is_keyed_on_the_job_not_its_completion_date(tmp_path):
+    global _id_seq, _request_seq
+    saved_id_seq, saved_request_seq = _id_seq, _request_seq
+    try:
+        drawn = {}
+        for service_date in (WEEKDAY, SECOND_WEEKDAY):
+            directory = tmp_path / service_date
+            directory.mkdir()
+            _id_seq, _request_seq = count(9500), count(1)
+            conn, cfg, controller, _ = _build_run(directory, end_date=SECOND_WEEKDAY)
+            booked = _book_execution(
+                controller, cfg, technician_id=1, service_date=service_date,
+                first_block_code="B09_11", origin_key="t:finance:pinned",
+            )
+            assert str(controller.run()) == "completed"
+            invoice = _invoice_row(conn, booked["job_id"])
+            assert invoice["invoice_date"] == service_date
+            drawn[service_date] = (
+                int(invoice["subtotal_cents"]),
+                int(invoice["material_percent_basis_points"]),
+                int(invoice["material_cost_cents"]),
+            )
+        assert drawn[WEEKDAY] == drawn[SECOND_WEEKDAY]
+    finally:
+        _id_seq, _request_seq = saved_id_seq, saved_request_seq
+
+
+def test_the_after_hours_premium_is_charged_only_on_off_hours_paid_jobs(tmp_path):
+    conn, cfg, controller, _ = _build_run(tmp_path, end_date=WEEKEND)
+    daytime = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B09_11",
+    )
+    evening = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B17_19",
+        address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+    )
+    weekend = _book_execution(
+        controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
+    )
+    premium_basis_points = cfg.get_int("invoices.off_hours_premium_basis_points")
+
+    assert str(controller.run()) == "completed"
+
+    for booked, off_hours in ((daytime, False), (evening, True), (weekend, True)):
+        job_id = booked["job_id"]
+        assert _job_row(conn, job_id)["outcome"] == "completed_paid"
+        invoice = _invoice_row(conn, job_id)
+        subtotal = int(invoice["subtotal_cents"])
+        premium = basis_point_amount(subtotal, premium_basis_points) if off_hours else 0
+        assert invoice["total_cents"] == subtotal + premium
+        assert invoice["material_cost_cents"] == basis_point_amount(
+            subtotal, int(invoice["material_percent_basis_points"])
+        )
+        items = conn.execute(
+            "SELECT item_type, description, amount_cents FROM _invoice_items "
+            "WHERE invoice_id = ? ORDER BY id",
+            (invoice["id"],),
+        ).fetchall()
+        assert [row["amount_cents"] for row in items] == (
+            [subtotal, premium] if off_hours else [subtotal]
+        )
+        assert {row["item_type"] for row in items} == {"service"}
+        if off_hours:
+            assert items[1]["description"] == execution.AFTER_HOURS_PREMIUM_ITEM
+        payment = conn.execute(
+            "SELECT amount_cents FROM _payments WHERE invoice_id = ?", (invoice["id"],)
+        ).fetchone()
+        assert payment["amount_cents"] == invoice["total_cents"]
+        revenue = conn.execute(
+            "SELECT amount_cents FROM _ledger_entries WHERE entry_type = 'revenue' AND job_id = ?",
+            (job_id,),
+        ).fetchall()
+        assert [row["amount_cents"] for row in revenue] == [invoice["total_cents"]]
+
+
+def test_overtime_on_a_paid_job_is_capped_at_a_share_of_its_invoice(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path,
+        **{
+            "appointments.min_actual_duration_minutes": 150,
+            "invoices.amount": _tiny_hvac_service_invoice_amounts(),
+        },
+    )
+    booked = _book_execution(
+        controller, cfg, technician_id=2, service_date=WEEKDAY, first_block_code="B15_17",
+    )
+
+    assert str(controller.run()) == "completed"
+
+    appt = _actual_window(conn, booked["appointment_id"])
+    minutes = (int(appt["actual_end"]) - clock.phoenix_instant(2026, 10, 1, 17, 0)) // 60000
+    hourly = _expected_overtime_cents(minutes, _wage(conn, 2))
+    cap = basis_point_amount(
+        int(_invoice_row(conn, booked["job_id"])["subtotal_cents"]),
+        cfg.get_int("payroll.overtime_cap_basis_points"),
+    )
+    assert cap < hourly
+    rows = _overtime_rows(conn, WEEKDAY)
+    assert [(r["job_id"], r["amount_cents"]) for r in rows] == [(booked["job_id"], -cap)]
+    assert rows[0]["description"] == f"overtime wages ({minutes} min past paid hours)"
+    assert _job_ledger_net_cents(conn, booked["job_id"]) > 0
+
+
+def test_overtime_on_a_failed_visit_stays_hourly_and_uncapped(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path,
+        **{
+            "execution.failed_visit_minutes": 150,
+            "invoices.amount": _tiny_hvac_service_invoice_amounts(),
+        },
+    )
+    booked = _book_execution(
+        controller, cfg, technician_id=2, service_date=WEEKDAY, first_block_code="B15_17",
+        job_type_id=5, requested_category_id=UNSUPPORTED_CATEGORY_ID,
+    )
+
+    assert str(controller.run()) == "completed"
+
+    assert _invoice_row(conn, booked["job_id"]) is None
+    failed_at = conn.execute(
+        "SELECT occurred_at FROM _appointment_events WHERE appointment_id = ? "
+        "AND event_type = 'work_failed'",
+        (booked["appointment_id"],),
+    ).fetchone()["occurred_at"]
+    minutes = (int(failed_at) - clock.phoenix_instant(2026, 10, 1, 17, 0)) // 60000
+    assert minutes >= 30
+    rows = _overtime_rows(conn, WEEKDAY)
+    assert [(r["job_id"], r["amount_cents"]) for r in rows] == [
+        (booked["job_id"], -_expected_overtime_cents(minutes, _wage(conn, 2)))
+    ]
+
+
+def test_every_completed_paid_job_nets_positive_on_its_own_ledger_lines(tmp_path):
+    conn, cfg, controller, _ = _build_run(
+        tmp_path,
+        end_date=WEEKEND,
+        **{
+            "appointments.min_actual_duration_minutes": 260,
+            "invoices.amount": _tiny_hvac_service_invoice_amounts(),
+        },
+    )
+    bookings = [
+        _book_execution(
+            controller, cfg, technician_id=1, service_date=WEEKDAY, first_block_code="B15_17",
+        ),
+        _book_execution(
+            controller, cfg, technician_id=3, service_date=WEEKDAY, first_block_code="B17_19",
+            address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+        ),
+        _book_execution(
+            controller, cfg, technician_id=1, service_date=WEEKEND, first_block_code="B09_11",
+        ),
+        _book_execution(
+            controller, cfg, technician_id=3, service_date=WEEKEND, first_block_code="B13_15",
+            address_catalog_id=SECOND_LOCATION_ADDRESS.address_id,
+        ),
+    ]
+
+    assert str(controller.run()) == "completed"
+
+    paid = [
+        int(row["id"])
+        for row in conn.execute(
+            "SELECT id FROM _jobs WHERE outcome = 'completed_paid' ORDER BY id"
+        ).fetchall()
+    ]
+    assert paid == sorted(int(b["job_id"]) for b in bookings)
+    capped = 0
+    for job_id in paid:
+        invoice = _invoice_row(conn, job_id)
+        overtime_paid = -sum(
+            int(row["amount_cents"])
+            for row in conn.execute(
+                "SELECT amount_cents FROM _ledger_entries WHERE job_id = ? "
+                "AND description LIKE 'overtime wages%'",
+                (job_id,),
+            ).fetchall()
+        )
+        cap = basis_point_amount(
+            int(invoice["subtotal_cents"]), cfg.get_int("payroll.overtime_cap_basis_points")
+        )
+        assert overtime_paid <= cap
+        capped += overtime_paid == cap
+        assert _job_ledger_net_cents(conn, job_id) > 0
+    assert capped >= 1

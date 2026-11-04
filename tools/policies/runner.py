@@ -71,9 +71,9 @@ class PolicyRunPaths:
         chosen = base / "workspace" if workspace is None else Path(workspace).resolve()
         return cls(run_dir=base, workspace=chosen, db_path=base / "run.db")
 
-    def create(self) -> None:
+    def create(self, config: RunConfig) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        workspace.create(self.workspace)
+        workspace.create(self.workspace, config)
 
 
 @dataclass(frozen=True)
@@ -166,7 +166,7 @@ def run_policy(
     sleep: Callable[[float], None] = time.sleep,
 ) -> PolicyRunResult:
     paths = PolicyRunPaths.under(run_dir)
-    paths.create()
+    paths.create(config)
     adapter = PolicyAdapter(policy, horizon_days=horizon_days)
     run_id = initialize_controlled_run(
         paths.db_path,
