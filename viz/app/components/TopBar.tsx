@@ -1,8 +1,10 @@
-import { Building2, ChevronDown, Map } from "lucide-react";
+import { ArrowUpRight, Building2, Map } from "lucide-react";
 import type { Model } from "@/lib/model";
 import { runName } from "@/lib/runName";
 import { fmtClock, fmtDay, fmtMoney } from "@/lib/timeline";
 import type { Replay, RunIndexEntry } from "@/lib/types";
+import { brandFor } from "./office/creature";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select";
 import { Segmented } from "./ui";
 import type { Tab } from "./Viewer";
 
@@ -32,30 +34,23 @@ export default function TopBar({ runs, replay, model, tab, onTab, onRun, simMs }
         ]}
       />
       {runs.length > 1 ? (
-        <div className="relative">
-          <select
-            value={replay.label}
-            onChange={(e) => onRun(e.target.value)}
-            className="h-9 cursor-pointer appearance-none rounded-lg border border-line bg-panel pl-3 pr-9 text-sm text-ink shadow-card outline-none focus:border-accent"
-          >
+        <Select value={replay.label} onValueChange={onRun}>
+          <SelectTrigger aria-label="Choose a run">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
             {runs.map((r, i) => {
-              // Several attempts of one config share a name; number them only when that happens.
               const name = runName(r.label);
               const same = runs.filter((o) => runName(o.label) === name);
               return (
-                <option key={r.label} value={r.label}>
+                <SelectItem key={r.label} value={r.label}>
+                  {brandFor(r.label) !== "other" && <img src={`/logos/${brandFor(r.label)}.svg`} alt="" className="size-4 shrink-0" />}
                   {same.length > 1 ? `${name} (${same.indexOf(runs[i]) + 1})` : name}
-                </option>
+                </SelectItem>
               );
             })}
-          </select>
-          <ChevronDown
-            size={15}
-            strokeWidth={1.75}
-            aria-hidden
-            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted"
-          />
-        </div>
+          </SelectContent>
+        </Select>
       ) : (
         <span className="text-sm text-muted">{runName(replay.label)}</span>
       )}
@@ -71,6 +66,16 @@ export default function TopBar({ runs, replay, model, tab, onTab, onRun, simMs }
             {fmtMoney(cash)} <span className={`text-xs ${delta >= 0 ? "text-good" : "text-bad"}`}>{fmtMoney(delta, true)}</span>
           </div>
         </div>
+        <div className="h-8 w-px bg-line" />
+        <a
+          href="https://newmeasure.ai/benchmarks/tradesbench"
+          target="_blank"
+          rel="noopener"
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 text-sm font-medium text-ink shadow-card transition hover:border-accent/50 hover:text-accent"
+        >
+          Blog
+          <ArrowUpRight size={14} strokeWidth={1.75} />
+        </a>
       </div>
     </header>
   );
